@@ -13,5 +13,9 @@ hyf_rns_core.workspace = true
 hyf_rns_crypto.workspace = true
 hyf_rns_wire.workspace = true
 
+[features]
+default = []
+python_oracle = []
+
 [lints]
 workspace = true
