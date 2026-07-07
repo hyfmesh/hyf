@@ -15,7 +15,7 @@ mod types;
 pub use constants::{
     RNS_HEADER_1_LEN, RNS_HEADER_2_LEN, RNS_MDU, RNS_MTU, RNS_NAME_HASH_LEN, RNS_TRUNCATED_HASH_LEN,
 };
-pub use destination::{destination_name_hash, validate_destination_name};
+pub use destination::{destination_hash, destination_name_hash, validate_destination_name};
 pub use error::RnsCoreError;
 pub use hash::{full_hash, truncated_hash};
 pub use types::{RnsDestinationHash, RnsFullHash, RnsIdentityHash, RnsNameHash, RnsTruncatedHash};
