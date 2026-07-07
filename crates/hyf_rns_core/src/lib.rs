@@ -6,6 +6,12 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
+mod constants;
+
+pub use constants::{
+    RNS_HEADER_1_LEN, RNS_HEADER_2_LEN, RNS_MDU, RNS_MTU, RNS_NAME_HASH_LEN, RNS_TRUNCATED_HASH_LEN,
+};
+
 #[cfg(test)]
 mod tests {
     #[test]
