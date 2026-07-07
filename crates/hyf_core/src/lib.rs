@@ -6,6 +6,10 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
+mod types;
+
+pub use types::{CommunityId, MessageId, NodeId};
+
 #[cfg(test)]
 mod tests {
     #[test]
