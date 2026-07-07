@@ -29,6 +29,7 @@ hyf_rns_core = { path = "crates/hyf_rns_core" }
 hyf_rns_crypto = { path = "crates/hyf_rns_crypto" }
 hyf_rns_wire = { path = "crates/hyf_rns_wire" }
 hyf_rns_conformance = { path = "crates/hyf_rns_conformance" }
+sha2 = { version = "0.10.9", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
