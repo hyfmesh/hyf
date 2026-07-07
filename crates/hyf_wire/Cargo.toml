@@ -11,5 +11,12 @@ rust-version.workspace = true
 hyf_core.workspace = true
 hyf_crypto.workspace = true
 
+[features]
+default = []
+alloc = []
+std = ["alloc"]
+serde = []
+defmt = []
+
 [lints]
 workspace = true

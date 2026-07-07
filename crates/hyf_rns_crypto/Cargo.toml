@@ -10,5 +10,12 @@ rust-version.workspace = true
 [dependencies]
 hyf_rns_core.workspace = true
 
+[features]
+default = []
+alloc = []
+std = ["alloc"]
+serde = []
+defmt = []
+
 [lints]
 workspace = true

@@ -9,5 +9,12 @@ rust-version.workspace = true
 
 [dependencies]
 
+[features]
+default = []
+alloc = []
+std = ["alloc"]
+serde = []
+defmt = []
+
 [lints]
 workspace = true
