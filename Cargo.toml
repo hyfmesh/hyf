@@ -1,6 +1,15 @@
 [workspace]
 resolver = "2"
-members = []
+members = [
+    "crates/hyf_core",
+    "crates/hyf_crypto",
+    "crates/hyf_wire",
+    "crates/hyf_link",
+    "crates/hyf_rns_core",
+    "crates/hyf_rns_crypto",
+    "crates/hyf_rns_wire",
+    "crates/hyf_rns_conformance",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +21,14 @@ repository = "https://github.com/hyfmesh/hyf"
 rust-version = "1.92.0"
 
 [workspace.dependencies]
+hyf_core = { path = "crates/hyf_core" }
+hyf_crypto = { path = "crates/hyf_crypto" }
+hyf_wire = { path = "crates/hyf_wire" }
+hyf_link = { path = "crates/hyf_link" }
+hyf_rns_core = { path = "crates/hyf_rns_core" }
+hyf_rns_crypto = { path = "crates/hyf_rns_crypto" }
+hyf_rns_wire = { path = "crates/hyf_rns_wire" }
+hyf_rns_conformance = { path = "crates/hyf_rns_conformance" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

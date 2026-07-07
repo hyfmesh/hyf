@@ -1,0 +1,17 @@
+[package]
+name = "hyf_rns_conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+hyf_rns_core.workspace = true
+hyf_rns_crypto.workspace = true
+hyf_rns_wire.workspace = true
+
+[lints]
+workspace = true
