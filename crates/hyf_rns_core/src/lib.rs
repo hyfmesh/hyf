@@ -7,10 +7,12 @@
 #![deny(clippy::unwrap_used)]
 
 mod constants;
+mod types;
 
 pub use constants::{
     RNS_HEADER_1_LEN, RNS_HEADER_2_LEN, RNS_MDU, RNS_MTU, RNS_NAME_HASH_LEN, RNS_TRUNCATED_HASH_LEN,
 };
+pub use types::{RnsDestinationHash, RnsFullHash, RnsIdentityHash, RnsNameHash, RnsTruncatedHash};
 
 #[cfg(test)]
 mod tests {
