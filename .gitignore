@@ -1,0 +1,92 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100/
+.Trashes/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.csr
+*.kubeconfig
+id_*
+*.age
+*.sops.*
+
+# Logs and runtime state
+*.log
+logs/
+.local/
+run/
+tmp/
+temp/
+.cache/
+.tmp/
+
+# Dependencies
+node_modules/
+vendor/bundle/
+.venv/
+venv/
+env/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build outputs
+target/
+dist/
+build/
+out/
+coverage/
+
+
+# Package manager caches
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+.cargo/
+!.cargo/
+!.cargo/config.toml
+
+# Archives and large local artifacts
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.dmg
+*.iso
+
+# Keep placeholders trackable
+!.gitkeep
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+
+# Local development
+notes*.txt
+prompt*.txt
+tmp*.txt
