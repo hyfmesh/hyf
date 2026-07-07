@@ -6,8 +6,12 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
+mod role;
+mod time;
 mod types;
 
+pub use role::NodeRole;
+pub use time::{Clock, TimestampMs};
 pub use types::{CommunityId, MessageId, NodeId};
 
 #[cfg(test)]
