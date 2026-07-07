@@ -5,14 +5,14 @@ use crate::{RnsFullHash, RnsTruncatedHash};
 pub fn full_hash(data: &[u8]) -> RnsFullHash {
     let mut hasher = Sha256::new();
     hasher.update(data);
-    hasher.finalize().into()
+    RnsFullHash::new(hasher.finalize().into())
 }
 
 pub fn truncated_hash(data: &[u8]) -> RnsTruncatedHash {
-    let full = full_hash(data);
-    let mut truncated = [0; 16];
-    truncated.copy_from_slice(&full[..16]);
-    truncated
+    let full = full_hash(data).into_bytes();
+    let mut truncated = [0; RnsTruncatedHash::LEN];
+    truncated.copy_from_slice(&full[..RnsTruncatedHash::LEN]);
+    RnsTruncatedHash::new(truncated)
 }
 
 #[cfg(test)]
@@ -33,8 +33,8 @@ mod tests {
 
     #[test]
     fn full_hash_matches_known_vectors() {
-        assert_eq!(full_hash(b""), EMPTY_SHA256);
-        assert_eq!(full_hash(b"abc"), ABC_SHA256);
+        assert_eq!(full_hash(b""), EMPTY_SHA256.into());
+        assert_eq!(full_hash(b"abc"), ABC_SHA256.into());
     }
 
     #[test]
@@ -45,7 +45,7 @@ mod tests {
         let mut abc_truncated = [0; 16];
         abc_truncated.copy_from_slice(&ABC_SHA256[..16]);
 
-        assert_eq!(truncated_hash(b""), empty_truncated);
-        assert_eq!(truncated_hash(b"abc"), abc_truncated);
+        assert_eq!(truncated_hash(b""), empty_truncated.into());
+        assert_eq!(truncated_hash(b"abc"), abc_truncated.into());
     }
 }
