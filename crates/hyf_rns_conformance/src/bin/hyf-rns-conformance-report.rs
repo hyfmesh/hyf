@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use hyf_rns_conformance::profile0::profile_0_report;
 #[cfg(feature = "python_oracle")]
 use hyf_rns_conformance::profile0::profile_0_report_with_required_oracle;
-use hyf_rns_conformance::report::ConformanceEnvironment;
+use hyf_rns_conformance::report::{ConformanceEnvironment, ConformanceRun};
 
 fn main() {
     if let Err(error) = run() {
@@ -28,7 +28,8 @@ fn run() -> Result<(), CliError> {
         args.arch.clone(),
         args.rust_toolchain.clone(),
     );
-    let report = build_report(&args, environment)?;
+    let mut report = build_report(&args, environment)?;
+    apply_report_overrides(&mut report, &args)?;
     let json = serde_json::to_vec_pretty(&report)?;
 
     write_output(&args.output, &json)?;
@@ -38,7 +39,7 @@ fn run() -> Result<(), CliError> {
 fn build_report(
     args: &Args,
     environment: ConformanceEnvironment,
-) -> Result<hyf_rns_conformance::report::ConformanceRun, CliError> {
+) -> Result<ConformanceRun, CliError> {
     #[cfg(feature = "python_oracle")]
     {
         if args.require_oracle {
@@ -73,6 +74,17 @@ fn build_report(
     ))
 }
 
+fn apply_report_overrides(report: &mut ConformanceRun, args: &Args) -> Result<(), CliError> {
+    if let Some(oracle_module_path) = args.oracle_module_path.as_ref() {
+        let Some(oracle) = report.environment.oracle.as_mut() else {
+            return Err(CliError::OracleModulePathRequiresOracle);
+        };
+        oracle.reticulum_module_path = oracle_module_path.clone();
+    }
+
+    Ok(())
+}
+
 fn write_output(output: &str, json: &[u8]) -> Result<(), CliError> {
     if output == "-" {
         let mut stdout = io::stdout().lock();
@@ -97,6 +109,7 @@ struct Args {
     arch: String,
     output: String,
     reticulum_path: Option<PathBuf>,
+    oracle_module_path: Option<String>,
     require_oracle: bool,
 }
 
@@ -113,6 +126,7 @@ impl Args {
         let mut arch = std::env::consts::ARCH.to_owned();
         let mut output = None;
         let mut reticulum_path = None;
+        let mut oracle_module_path = None;
         let mut require_oracle = false;
 
         while let Some(arg) = args.next() {
@@ -129,6 +143,9 @@ impl Args {
                 "--reticulum-path" => {
                     reticulum_path = Some(PathBuf::from(next_value(&mut args, "--reticulum-path")?))
                 }
+                "--oracle-module-path" => {
+                    oracle_module_path = Some(next_value(&mut args, "--oracle-module-path")?)
+                }
                 "--require-oracle" => require_oracle = true,
                 "--help" | "-h" => return Err(CliError::Usage),
                 _ => return Err(CliError::UnknownArgument(arg)),
@@ -144,6 +161,7 @@ impl Args {
             arch,
             output: required(output, "--output")?,
             reticulum_path,
+            oracle_module_path,
             require_oracle,
         })
     }
@@ -180,6 +198,7 @@ enum CliError {
     MissingRequired(&'static str),
     #[cfg(feature = "python_oracle")]
     OraclePathRequiresOracle,
+    OracleModulePathRequiresOracle,
     #[cfg(not(feature = "python_oracle"))]
     PythonOracleFeatureDisabled,
     #[cfg(feature = "python_oracle")]
@@ -223,6 +242,12 @@ impl std::fmt::Display for CliError {
                     "--reticulum-path requires --require-oracle for final evidence\n\n{USAGE}"
                 )
             }
+            Self::OracleModulePathRequiresOracle => {
+                write!(
+                    formatter,
+                    "--oracle-module-path requires an oracle report environment\n\n{USAGE}"
+                )
+            }
             #[cfg(not(feature = "python_oracle"))]
             Self::PythonOracleFeatureDisabled => {
                 write!(
@@ -248,6 +273,7 @@ usage: hyf-rns-conformance-report \\
   --rust-toolchain <toolchain> \\
   --output <path|-> \\
   [--reticulum-path <path> --require-oracle] \\
+  [--oracle-module-path <path>] \\
   [--os <os>] \\
   [--arch <arch>]";
 
@@ -255,7 +281,10 @@ usage: hyf-rns-conformance-report \\
 mod tests {
     use std::path::PathBuf;
 
-    use super::{Args, CliError};
+    use hyf_rns_conformance::profile0::profile_0_report;
+    use hyf_rns_conformance::report::{ConformanceEnvironment, OracleEnvironment};
+
+    use super::{Args, CliError, apply_report_overrides};
 
     #[test]
     fn parser_requires_core_report_arguments() {
@@ -281,6 +310,8 @@ mod tests {
                 "--require-oracle",
                 "--reticulum-path",
                 "../refs/Reticulum",
+                "--oracle-module-path",
+                "refs/Reticulum/RNS/__init__.py",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -294,8 +325,73 @@ mod tests {
             args.reticulum_path,
             Some(PathBuf::from("../refs/Reticulum"))
         );
+        assert_eq!(
+            args.oracle_module_path.as_deref(),
+            Some("refs/Reticulum/RNS/__init__.py")
+        );
         assert!(!args.os.is_empty());
         assert!(!args.arch.is_empty());
         Ok(())
+    }
+
+    #[test]
+    fn oracle_module_path_override_requires_oracle_environment() {
+        let mut report = profile_0_report(
+            "profile0-local-0001",
+            "c7895f0",
+            "2026-07-08T00:00:00Z",
+            ConformanceEnvironment::new("macos", "aarch64", "rustc 1.92.0"),
+        );
+        let args = test_args_with_oracle_module_path("refs/Reticulum/RNS/__init__.py");
+
+        assert!(matches!(
+            apply_report_overrides(&mut report, &args),
+            Err(CliError::OracleModulePathRequiresOracle)
+        ));
+    }
+
+    #[test]
+    fn oracle_module_path_override_updates_report_environment() -> Result<(), CliError> {
+        let environment = ConformanceEnvironment::new("macos", "aarch64", "rustc 1.92.0")
+            .with_oracle(OracleEnvironment::new(
+                "/private/path/refs/Reticulum/RNS/__init__.py",
+                "422dc05549bf28f45e9b9c5172336a1ba4df0ec0",
+                "49.0.0",
+                "3.5",
+            ));
+        let mut report = profile_0_report(
+            "profile0-local-0001",
+            "c7895f0",
+            "2026-07-08T00:00:00Z",
+            environment,
+        );
+        let args = test_args_with_oracle_module_path("refs/Reticulum/RNS/__init__.py");
+
+        apply_report_overrides(&mut report, &args)?;
+
+        assert_eq!(
+            report
+                .environment
+                .oracle
+                .as_ref()
+                .map(|oracle| oracle.reticulum_module_path.as_str()),
+            Some("refs/Reticulum/RNS/__init__.py")
+        );
+        Ok(())
+    }
+
+    fn test_args_with_oracle_module_path(oracle_module_path: &str) -> Args {
+        Args {
+            run_id: "profile0-local-0001".to_owned(),
+            hyf_commit: "c7895f0".to_owned(),
+            started_at: "2026-07-08T00:00:00Z".to_owned(),
+            rust_toolchain: "rustc 1.92.0".to_owned(),
+            os: "macos".to_owned(),
+            arch: "aarch64".to_owned(),
+            output: "-".to_owned(),
+            reticulum_path: None,
+            oracle_module_path: Some(oracle_module_path.to_owned()),
+            require_oracle: false,
+        }
     }
 }
