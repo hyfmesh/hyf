@@ -16,5 +16,6 @@ pub enum RnsWireError {
     InvalidSignature,
     DestinationMismatch,
     TimestampOverflow,
+    RandomSourceFailed,
     InvalidDestinationName,
 }

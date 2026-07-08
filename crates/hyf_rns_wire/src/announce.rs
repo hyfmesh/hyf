@@ -3,7 +3,7 @@ use hyf_rns_crypto::{
     RNS_PUBLIC_IDENTITY_LEN, RnsCryptoError, RnsSecretIdentity, identity_hash,
     public_identity_from_bytes, public_identity_to_bytes, sign, verify,
 };
-use rand_core::Rng;
+use rand_core::TryRng;
 
 use crate::{
     RNS_CONTEXT_NONE, RnsDestinationType, RnsHeaderType, RnsPacketFlags, RnsPacketRef,
@@ -80,7 +80,7 @@ pub fn encode_announce_packet<R, C>(
     output: &mut [u8],
 ) -> Result<usize, RnsWireError>
 where
-    R: Rng + ?Sized,
+    R: TryRng + ?Sized,
     C: RnsClock + ?Sized,
 {
     let announce_data_len = announce_encode_data_len(params.app_data.len())?;
@@ -222,7 +222,7 @@ fn reticulum_random_hash<R, C>(
     clock: &C,
 ) -> Result<[u8; RNS_ANNOUNCE_RANDOM_HASH_LEN], RnsWireError>
 where
-    R: Rng + ?Sized,
+    R: TryRng + ?Sized,
     C: RnsClock + ?Sized,
 {
     let timestamp = clock.now_unix_secs();
@@ -231,7 +231,8 @@ where
     }
 
     let mut random_hash = [0; RNS_ANNOUNCE_RANDOM_HASH_LEN];
-    rng.fill_bytes(&mut random_hash[..RETICULUM_RANDOM_HASH_RNG_LEN]);
+    rng.try_fill_bytes(&mut random_hash[..RETICULUM_RANDOM_HASH_RNG_LEN])
+        .map_err(|_| RnsWireError::RandomSourceFailed)?;
     let timestamp = timestamp.to_be_bytes();
     random_hash[RETICULUM_RANDOM_HASH_RNG_LEN..]
         .copy_from_slice(&timestamp[RETICULUM_RANDOM_HASH_TIME_OFFSET..]);
@@ -565,6 +566,32 @@ mod tests {
     }
 
     #[test]
+    fn encode_rejects_failed_random_source() -> Result<(), RnsWireError> {
+        let secret = test_secret_identity()?;
+        let aspects = ["announce"];
+        let mut rng = FailingRng;
+        let clock = FixedClock(0);
+        let mut output = [0; RNS_MTU];
+
+        assert_eq!(
+            encode_announce_packet(
+                RnsAnnounceEncodeParams {
+                    secret_identity: &secret,
+                    app_name: "hyf",
+                    aspects: &aspects,
+                    app_data: b"",
+                },
+                &mut rng,
+                &clock,
+                &mut output,
+            ),
+            Err(RnsWireError::RandomSourceFailed)
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn encode_rejects_short_output_buffer() -> Result<(), RnsWireError> {
         let secret = test_secret_identity()?;
         let aspects = ["announce"];
@@ -777,6 +804,35 @@ mod tests {
                 *byte = self.next_byte();
             }
             Ok(())
+        }
+    }
+
+    struct FailingRng;
+
+    #[derive(Debug)]
+    struct FailingRngError;
+
+    impl core::fmt::Display for FailingRngError {
+        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            formatter.write_str("failing rng")
+        }
+    }
+
+    impl std::error::Error for FailingRngError {}
+
+    impl TryRng for FailingRng {
+        type Error = FailingRngError;
+
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            Err(FailingRngError)
+        }
+
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+            Err(FailingRngError)
+        }
+
+        fn try_fill_bytes(&mut self, _dst: &mut [u8]) -> Result<(), Self::Error> {
+            Err(FailingRngError)
         }
     }
 
