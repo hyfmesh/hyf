@@ -39,9 +39,42 @@ jobs:
       - name: Test allocation evidence
         run: rustup run "$RUST_TOOLCHAIN" cargo test -p hyf_rns_wire --features std
 
-  no-std:
-    name: no_std target checks
+  no-default-features:
+    name: no default features (${{ matrix.crate }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - hyf_core
+          - hyf_crypto
+          - hyf_wire
+          - hyf_link
+          - hyf_rns_core
+          - hyf_rns_crypto
+          - hyf_rns_wire
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - name: Check ${{ matrix.crate }}
+        run: rustup run "$RUST_TOOLCHAIN" cargo check -p "${{ matrix.crate }}" --no-default-features
+
+  no-std:
+    name: no_std target (${{ matrix.crate }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - hyf_core
+          - hyf_crypto
+          - hyf_wire
+          - hyf_link
+          - hyf_rns_core
+          - hyf_rns_crypto
+          - hyf_rns_wire
 
     steps:
       - uses: actions/checkout@v4
@@ -50,13 +83,11 @@ jobs:
       - name: Install target
         run: rustup target add --toolchain "$RUST_TOOLCHAIN" thumbv7em-none-eabihf
       - name: Resolve rustc
-        run: echo "RUSTC=$(rustup which --toolchain "$RUST_TOOLCHAIN" rustc)" >> "$GITHUB_ENV"
-      - name: Check hyf_rns_core
-        run: rustup run "$RUST_TOOLCHAIN" cargo check -p hyf_rns_core --no-default-features --target thumbv7em-none-eabihf
-      - name: Check hyf_rns_crypto
-        run: rustup run "$RUST_TOOLCHAIN" cargo check -p hyf_rns_crypto --no-default-features --target thumbv7em-none-eabihf
-      - name: Check hyf_rns_wire
-        run: rustup run "$RUST_TOOLCHAIN" cargo check -p hyf_rns_wire --no-default-features --target thumbv7em-none-eabihf
+        run: |
+          rustc_path="$(rustup which --toolchain "$RUST_TOOLCHAIN" rustc)"
+          echo "RUSTC=$rustc_path" >> "$GITHUB_ENV"
+      - name: Check ${{ matrix.crate }}
+        run: rustup run "$RUST_TOOLCHAIN" cargo check -p "${{ matrix.crate }}" --no-default-features --target thumbv7em-none-eabihf
 
   oracle:
     name: oracle all-features
