@@ -15,7 +15,8 @@ use hyf_rns_conformance::fixtures::{EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT}
 use hyf_rns_conformance::profile0::profile_0_report_with_required_oracle;
 use hyf_rns_conformance::profile0::{profile_0_report, required_categories_are_present};
 use hyf_rns_conformance::report::{
-    CONFORMANCE_RUN_SCHEMA, ConformanceEnvironment, ConformanceRun, ConformanceStatus,
+    CONFORMANCE_RUN_SCHEMA, ConformanceEnvironment, ConformanceResult, ConformanceRun,
+    ConformanceStatus, OracleEnvironment,
 };
 
 fn main() {
@@ -70,11 +71,23 @@ fn validate_final_profile0_report(report: &ConformanceRun) -> Result<(), CliErro
     if report.profile != EXPECTED_PROFILE {
         return Err(CliError::FinalReportInvalid("profile mismatch"));
     }
+    if !required_string_is_populated(&report.run_id) {
+        return Err(CliError::FinalReportInvalid("empty run id"));
+    }
     if !is_full_lower_hex_commit(&report.hyf_commit) {
         return Err(CliError::FinalReportInvalid("invalid hyf commit"));
     }
     if report.reticulum_commit != EXPECTED_RETICULUM_COMMIT {
         return Err(CliError::FinalReportInvalid("reticulum commit mismatch"));
+    }
+    if !is_final_started_at(&report.started_at) {
+        return Err(CliError::FinalReportInvalid("invalid started_at"));
+    }
+    if !final_environment_required_strings_are_populated(&report.environment) {
+        return Err(CliError::FinalReportInvalid("empty environment field"));
+    }
+    if !final_results_required_strings_are_populated(&report.results) {
+        return Err(CliError::FinalReportInvalid("empty result field"));
     }
     if !required_categories_are_present(&report.results) {
         return Err(CliError::FinalReportInvalid(
@@ -101,6 +114,9 @@ fn validate_final_profile0_report(report: &ConformanceRun) -> Result<(), CliErro
     let Some(oracle) = report.environment.oracle.as_ref() else {
         return Err(CliError::FinalReportInvalid("missing oracle metadata"));
     };
+    if !final_oracle_required_strings_are_populated(oracle) {
+        return Err(CliError::FinalReportInvalid("empty oracle field"));
+    }
     if oracle.reticulum_commit != EXPECTED_RETICULUM_COMMIT {
         return Err(CliError::FinalReportInvalid(
             "oracle reticulum commit mismatch",
@@ -198,6 +214,93 @@ fn is_full_lower_hex_commit(commit: &str) -> bool {
         && commit
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn is_final_started_at(timestamp: &str) -> bool {
+    let bytes = timestamp.as_bytes();
+    if bytes.len() != 20 {
+        return false;
+    }
+    if bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes[19] != b'Z'
+    {
+        return false;
+    }
+
+    let digit_positions = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18];
+    if digit_positions
+        .iter()
+        .any(|position| !bytes[*position].is_ascii_digit())
+    {
+        return false;
+    }
+
+    let Some(month) = parse_two_digits(&bytes[5..7]) else {
+        return false;
+    };
+    let Some(day) = parse_two_digits(&bytes[8..10]) else {
+        return false;
+    };
+    let Some(hour) = parse_two_digits(&bytes[11..13]) else {
+        return false;
+    };
+    let Some(minute) = parse_two_digits(&bytes[14..16]) else {
+        return false;
+    };
+    let Some(second) = parse_two_digits(&bytes[17..19]) else {
+        return false;
+    };
+
+    (1..=12).contains(&month)
+        && (1..=31).contains(&day)
+        && hour <= 23
+        && minute <= 59
+        && second <= 59
+}
+
+fn parse_two_digits(bytes: &[u8]) -> Option<u8> {
+    if bytes.len() != 2 || !bytes[0].is_ascii_digit() || !bytes[1].is_ascii_digit() {
+        return None;
+    }
+
+    Some((bytes[0] - b'0') * 10 + (bytes[1] - b'0'))
+}
+
+fn required_string_is_populated(value: &str) -> bool {
+    !value.is_empty()
+}
+
+fn optional_string_is_populated(value: Option<&str>) -> bool {
+    match value {
+        Some(value) => required_string_is_populated(value),
+        None => true,
+    }
+}
+
+fn final_environment_required_strings_are_populated(environment: &ConformanceEnvironment) -> bool {
+    required_string_is_populated(&environment.os)
+        && required_string_is_populated(&environment.arch)
+        && required_string_is_populated(&environment.rust_toolchain)
+}
+
+fn final_results_required_strings_are_populated(results: &[ConformanceResult]) -> bool {
+    results.iter().all(|result| {
+        required_string_is_populated(&result.id)
+            && required_string_is_populated(&result.category)
+            && optional_string_is_populated(result.detail.as_deref())
+    })
+}
+
+fn final_oracle_required_strings_are_populated(oracle: &OracleEnvironment) -> bool {
+    required_string_is_populated(&oracle.reticulum_module_path)
+        && required_string_is_populated(&oracle.reticulum_commit)
+        && optional_string_is_populated(oracle.rns_version.as_deref())
+        && required_string_is_populated(&oracle.cryptography_version)
+        && required_string_is_populated(&oracle.pyserial_version)
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -573,6 +676,7 @@ mod tests {
         Args, CliError, ValidateArgs, apply_report_overrides, derive_hyf_commit,
         report_relative_path, validate_report_bytes,
     };
+    use serde_json::json;
 
     static TEST_REPO_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -646,6 +750,75 @@ mod tests {
         let input = serde_json::to_vec(&report)?;
 
         validate_report_bytes(&input, true)
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_unknown_fields() -> Result<(), serde_json::Error> {
+        let mut report = serde_json::to_value(valid_final_report())?;
+        report["unexpected"] = json!(true);
+        let input = serde_json::to_vec(&report)?;
+
+        assert!(matches!(
+            validate_report_bytes(&input, true),
+            Err(CliError::Json(_))
+        ));
+
+        let mut report = serde_json::to_value(valid_final_report())?;
+        report["results"][0]["unexpected"] = json!(true);
+        let input = serde_json::to_vec(&report)?;
+
+        assert!(matches!(
+            validate_report_bytes(&input, true),
+            Err(CliError::Json(_))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_short_hyf_commit() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.hyf_commit = "0123456".to_owned();
+
+        assert_final_report_invalid(&report, "invalid hyf commit")
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_uppercase_hyf_commit() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.hyf_commit = "0123456789abcdef0123456789abcdef0123456A".to_owned();
+
+        assert_final_report_invalid(&report, "invalid hyf commit")
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_malformed_started_at() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.started_at = "2026-07-08 00:00:00".to_owned();
+
+        assert_final_report_invalid(&report, "invalid started_at")
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_empty_required_strings() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.run_id.clear();
+        assert_final_report_invalid(&report, "empty run id")?;
+
+        let mut report = valid_final_report();
+        report.environment.os.clear();
+        assert_final_report_invalid(&report, "empty environment field")?;
+
+        let mut report = valid_final_report();
+        if let Some(result) = report.results.first_mut() {
+            result.id.clear();
+        }
+        assert_final_report_invalid(&report, "empty result field")?;
+
+        let mut report = valid_final_report();
+        if let Some(oracle) = report.environment.oracle.as_mut() {
+            oracle.reticulum_module_path.clear();
+        }
+        assert_final_report_invalid(&report, "empty oracle field")
     }
 
     #[test]
@@ -882,6 +1055,19 @@ mod tests {
         }
 
         report.results.push(result);
+    }
+
+    fn assert_final_report_invalid(
+        report: &ConformanceRun,
+        reason: &'static str,
+    ) -> Result<(), serde_json::Error> {
+        let input = serde_json::to_vec(report)?;
+
+        assert!(matches!(
+            validate_report_bytes(&input, true),
+            Err(CliError::FinalReportInvalid(actual)) if actual == reason
+        ));
+        Ok(())
     }
 
     struct TestGitRepo {

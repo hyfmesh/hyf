@@ -5,6 +5,7 @@ use crate::fixtures::{EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT};
 pub const CONFORMANCE_RUN_SCHEMA: &str = "hyf.rns.conformance_run.v1";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConformanceRun {
     pub schema: String,
     pub run_id: String,
@@ -38,6 +39,7 @@ impl ConformanceRun {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConformanceEnvironment {
     pub os: String,
     pub arch: String,
@@ -67,6 +69,7 @@ impl ConformanceEnvironment {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OracleEnvironment {
     pub reticulum_module_path: String,
     pub reticulum_commit: String,
@@ -99,6 +102,7 @@ impl OracleEnvironment {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConformanceResult {
     pub id: String,
     pub category: String,
@@ -217,6 +221,10 @@ mod tests {
             CONFORMANCE_RUN_SCHEMA
         );
         assert_eq!(schema["properties"]["profile"]["const"], EXPECTED_PROFILE);
+        assert_eq!(
+            schema["properties"]["hyf_commit"]["pattern"],
+            "^[0-9a-f]{40}$"
+        );
         assert_eq!(
             schema["$defs"]["result"]["properties"]["status"]["enum"],
             json!(["passed", "failed", "invalid_environment"])
