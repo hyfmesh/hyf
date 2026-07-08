@@ -45,6 +45,10 @@ impl RnsSecretIdentity {
             ed25519_public: ed25519_public.to_bytes(),
         })
     }
+
+    pub(crate) fn ed25519_signing_key(&self) -> SigningKey {
+        SigningKey::from_bytes(&self.ed25519_secret)
+    }
 }
 
 pub fn public_identity_from_bytes(
@@ -91,6 +95,13 @@ pub fn public_identity_to_bytes(identity: &RnsPublicIdentity) -> [u8; RNS_PUBLIC
 pub fn identity_hash(identity: &RnsPublicIdentity) -> RnsIdentityHash {
     let public_identity = public_identity_to_bytes(identity);
     RnsIdentityHash::new(truncated_hash(&public_identity).into_bytes())
+}
+
+pub(crate) fn ed25519_verifying_key(
+    identity: &RnsPublicIdentity,
+) -> Result<VerifyingKey, RnsCryptoError> {
+    VerifyingKey::from_bytes(&identity.ed25519_public)
+        .map_err(|_| RnsCryptoError::InvalidPublicIdentity)
 }
 
 #[cfg(test)]

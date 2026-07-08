@@ -8,6 +8,7 @@
 
 mod error;
 mod identity;
+mod signing;
 
 pub use error::RnsCryptoError;
 pub use identity::{
@@ -15,6 +16,7 @@ pub use identity::{
     RnsSecretIdentity, identity_hash, public_identity_from_bytes, public_identity_to_bytes,
     secret_identity_from_bytes,
 };
+pub use signing::{sign, verify};
 
 #[cfg(test)]
 mod tests {
