@@ -6,12 +6,17 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
+mod announce;
 mod context;
 mod error;
 mod flags;
 mod packet;
 mod packet_hash;
 
+pub use announce::{
+    RNS_ANNOUNCE_RANDOM_HASH_LEN, RNS_ANNOUNCE_RATCHET_LEN, RNS_ANNOUNCE_SIGNATURE_LEN,
+    RnsAnnounceRef, decode_announce_packet,
+};
 pub use context::{
     RNS_CONTEXT_CACHE_REQUEST, RNS_CONTEXT_CHANNEL, RNS_CONTEXT_COMMAND,
     RNS_CONTEXT_COMMAND_STATUS, RNS_CONTEXT_KEEPALIVE, RNS_CONTEXT_LINKCLOSE,
