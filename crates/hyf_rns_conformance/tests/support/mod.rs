@@ -47,6 +47,14 @@ pub struct ManifestEntry {
     pub sha256: String,
 }
 
+#[derive(Debug)]
+pub struct ExpectedManifestEntry<'a> {
+    pub file: &'a str,
+    pub category: &'a str,
+    pub case_count: usize,
+    pub contents: &'a str,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ReticulumProvenance {
     pub repo: String,
@@ -133,6 +141,54 @@ pub fn assert_manifest_entry(
     Ok(())
 }
 
+pub fn assert_exact_manifest_entries(
+    manifest: &ManifestFile,
+    expected_entries: &[ExpectedManifestEntry<'_>],
+) -> Result<(), FixtureError> {
+    for expected in expected_entries {
+        match count_manifest_entries(manifest, expected.file) {
+            0 => {
+                return Err(FixtureError::MissingManifestEntry {
+                    file: expected.file.to_owned(),
+                });
+            }
+            1 => assert_manifest_entry(
+                manifest,
+                expected.file,
+                expected.category,
+                expected.case_count,
+                expected.contents,
+            )?,
+            _ => {
+                return Err(FixtureError::DuplicateManifestEntry {
+                    file: expected.file.to_owned(),
+                });
+            }
+        }
+    }
+
+    for entry in &manifest.fixtures {
+        if !expected_entries
+            .iter()
+            .any(|expected| expected.file == entry.file)
+        {
+            return Err(FixtureError::UnexpectedManifestEntry {
+                file: entry.file.clone(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn count_manifest_entries(manifest: &ManifestFile, file: &str) -> usize {
+    manifest
+        .fixtures
+        .iter()
+        .filter(|entry| entry.file == file)
+        .count()
+}
+
 pub fn decode_hex_exact<const N: usize>(hex: &str) -> Result<[u8; N], FixtureError> {
     let bytes = decode_hex(hex)?;
     if bytes.len() != N {
@@ -189,6 +245,8 @@ pub enum FixtureError {
     InvalidHex,
     OddHexLength,
     MissingManifestEntry { file: String },
+    DuplicateManifestEntry { file: String },
+    UnexpectedManifestEntry { file: String },
     ManifestEntryMismatch { file: String },
     ManifestChecksumMismatch { file: String },
     UnexpectedFixtureValue { field: String, value: String },
