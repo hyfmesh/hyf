@@ -67,9 +67,9 @@ where
 {
     let fixture: FixtureFile<T> = serde_json::from_str(contents)?;
 
-    assert_eq!(fixture.schema, EXPECTED_FIXTURE_SCHEMA);
-    assert_eq!(fixture.profile, EXPECTED_PROFILE);
-    assert_reticulum_provenance(&fixture.reticulum);
+    validate_schema(&fixture.schema, EXPECTED_FIXTURE_SCHEMA)?;
+    validate_profile(&fixture.profile)?;
+    validate_reticulum_provenance(&fixture.reticulum)?;
 
     Ok(fixture)
 }
@@ -80,9 +80,9 @@ where
 {
     let fixture: FixtureCasesFile<T> = serde_json::from_str(contents)?;
 
-    assert_eq!(fixture.schema, EXPECTED_FIXTURE_CASES_SCHEMA);
-    assert_eq!(fixture.profile, EXPECTED_PROFILE);
-    assert_reticulum_provenance(&fixture.reticulum);
+    validate_schema(&fixture.schema, EXPECTED_FIXTURE_CASES_SCHEMA)?;
+    validate_profile(&fixture.profile)?;
+    validate_reticulum_provenance(&fixture.reticulum)?;
 
     Ok(fixture)
 }
@@ -90,19 +90,67 @@ where
 pub fn parse_manifest(contents: &str) -> Result<ManifestFile, FixtureError> {
     let manifest: ManifestFile = serde_json::from_str(contents)?;
 
-    assert_eq!(manifest.schema, EXPECTED_MANIFEST_SCHEMA);
-    assert_eq!(manifest.profile, EXPECTED_PROFILE);
-    assert_reticulum_provenance(&manifest.reticulum);
-    assert!(!manifest.generated_by.is_empty());
-    assert!(!manifest.generated_at.is_empty());
+    validate_schema(&manifest.schema, EXPECTED_MANIFEST_SCHEMA)?;
+    validate_profile(&manifest.profile)?;
+    validate_reticulum_provenance(&manifest.reticulum)?;
+    validate_manifest_metadata("generated_by", &manifest.generated_by)?;
+    validate_manifest_metadata("generated_at", &manifest.generated_at)?;
 
     Ok(manifest)
 }
 
-pub fn assert_reticulum_provenance(reticulum: &ReticulumProvenance) {
-    assert_eq!(reticulum.repo, EXPECTED_RETICULUM_REPO);
-    assert!(reticulum_commit_is_valid(&reticulum.commit));
-    assert_eq!(reticulum.commit, EXPECTED_RETICULUM_COMMIT);
+fn validate_schema(actual: &str, expected: &'static str) -> Result<(), FixtureError> {
+    if actual == expected {
+        return Ok(());
+    }
+
+    Err(FixtureError::SchemaMismatch {
+        actual: actual.to_owned(),
+        expected,
+    })
+}
+
+fn validate_profile(actual: &str) -> Result<(), FixtureError> {
+    if actual == EXPECTED_PROFILE {
+        return Ok(());
+    }
+
+    Err(FixtureError::ProfileMismatch {
+        actual: actual.to_owned(),
+        expected: EXPECTED_PROFILE,
+    })
+}
+
+fn validate_reticulum_provenance(reticulum: &ReticulumProvenance) -> Result<(), FixtureError> {
+    if reticulum.repo != EXPECTED_RETICULUM_REPO {
+        return Err(FixtureError::ReticulumRepoMismatch {
+            actual: reticulum.repo.clone(),
+            expected: EXPECTED_RETICULUM_REPO,
+        });
+    }
+
+    if !reticulum_commit_is_valid(&reticulum.commit) {
+        return Err(FixtureError::InvalidReticulumCommit {
+            commit: reticulum.commit.clone(),
+        });
+    }
+
+    if reticulum.commit != EXPECTED_RETICULUM_COMMIT {
+        return Err(FixtureError::ReticulumCommitMismatch {
+            actual: reticulum.commit.clone(),
+            expected: EXPECTED_RETICULUM_COMMIT,
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_manifest_metadata(field: &'static str, value: &str) -> Result<(), FixtureError> {
+    if !value.is_empty() {
+        return Ok(());
+    }
+
+    Err(FixtureError::MissingManifestMetadata { field })
 }
 
 pub fn reticulum_commit_is_valid(commit: &str) -> bool {
@@ -242,15 +290,53 @@ pub enum FixtureError {
     Core(hyf_rns_core::RnsCoreError),
     Crypto(hyf_rns_crypto::RnsCryptoError),
     Wire(hyf_rns_wire::RnsWireError),
-    HexLength { actual: usize, expected: usize },
+    SchemaMismatch {
+        actual: String,
+        expected: &'static str,
+    },
+    ProfileMismatch {
+        actual: String,
+        expected: &'static str,
+    },
+    ReticulumRepoMismatch {
+        actual: String,
+        expected: &'static str,
+    },
+    InvalidReticulumCommit {
+        commit: String,
+    },
+    ReticulumCommitMismatch {
+        actual: String,
+        expected: &'static str,
+    },
+    MissingManifestMetadata {
+        field: &'static str,
+    },
+    HexLength {
+        actual: usize,
+        expected: usize,
+    },
     InvalidHex,
     OddHexLength,
-    MissingManifestEntry { file: String },
-    DuplicateManifestEntry { file: String },
-    UnexpectedManifestEntry { file: String },
-    ManifestEntryMismatch { file: String },
-    ManifestChecksumMismatch { file: String },
-    UnexpectedFixtureValue { field: String, value: String },
+    MissingManifestEntry {
+        file: String,
+    },
+    DuplicateManifestEntry {
+        file: String,
+    },
+    UnexpectedManifestEntry {
+        file: String,
+    },
+    ManifestEntryMismatch {
+        file: String,
+    },
+    ManifestChecksumMismatch {
+        file: String,
+    },
+    UnexpectedFixtureValue {
+        field: String,
+        value: String,
+    },
 }
 
 impl From<serde_json::Error> for FixtureError {
@@ -279,7 +365,13 @@ impl From<hyf_rns_wire::RnsWireError> for FixtureError {
 
 #[cfg(test)]
 mod tests {
-    use super::{FixtureError, decode_hex, reticulum_commit_is_valid};
+    use serde_json::Value;
+
+    use super::{
+        EXPECTED_FIXTURE_SCHEMA, EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT,
+        EXPECTED_RETICULUM_REPO, FixtureError, decode_hex, parse_fixture_case, parse_fixture_cases,
+        parse_manifest, reticulum_commit_is_valid,
+    };
 
     #[test]
     fn reticulum_commit_validation_rejects_uppercase_and_all_zero_commits() {
@@ -298,5 +390,147 @@ mod tests {
     fn hex_decoder_accepts_lowercase_and_rejects_uppercase() {
         assert_eq!(decode_hex("0a10ff"), Ok(vec![0x0a, 0x10, 0xff]));
         assert_eq!(decode_hex("0A"), Err(FixtureError::InvalidHex));
+    }
+
+    #[test]
+    fn fixture_case_validation_returns_typed_schema_and_profile_errors() {
+        let schema_result = parse_fixture_case::<Value>(
+            r#"{
+                "schema": "wrong",
+                "profile": "profile_0_packet_announce",
+                "reticulum": {
+                    "repo": "https://github.com/markqvist/Reticulum",
+                    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+                },
+                "case": {}
+            }"#,
+        );
+        assert!(matches!(
+            schema_result,
+            Err(FixtureError::SchemaMismatch {
+                actual,
+                expected: EXPECTED_FIXTURE_SCHEMA,
+            }) if actual == "wrong"
+        ));
+
+        let profile_result = parse_fixture_case::<Value>(
+            r#"{
+                "schema": "hyf.rns.fixture_case.v1",
+                "profile": "wrong_profile",
+                "reticulum": {
+                    "repo": "https://github.com/markqvist/Reticulum",
+                    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+                },
+                "case": {}
+            }"#,
+        );
+        assert!(matches!(
+            profile_result,
+            Err(FixtureError::ProfileMismatch {
+                actual,
+                expected: EXPECTED_PROFILE,
+            }) if actual == "wrong_profile"
+        ));
+    }
+
+    #[test]
+    fn fixture_cases_validation_returns_typed_provenance_errors() {
+        let repo_result = parse_fixture_cases::<Value>(
+            r#"{
+                "schema": "hyf.rns.fixture_cases.v1",
+                "profile": "profile_0_packet_announce",
+                "reticulum": {
+                    "repo": "https://example.invalid/Reticulum",
+                    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+                },
+                "cases": []
+            }"#,
+        );
+        assert!(matches!(
+            repo_result,
+            Err(FixtureError::ReticulumRepoMismatch {
+                actual,
+                expected: EXPECTED_RETICULUM_REPO,
+            }) if actual == "https://example.invalid/Reticulum"
+        ));
+
+        let invalid_commit_result = parse_fixture_cases::<Value>(
+            r#"{
+                "schema": "hyf.rns.fixture_cases.v1",
+                "profile": "profile_0_packet_announce",
+                "reticulum": {
+                    "repo": "https://github.com/markqvist/Reticulum",
+                    "commit": "422DC05549BF28F45E9B9C5172336A1BA4DF0EC0"
+                },
+                "cases": []
+            }"#,
+        );
+        assert!(matches!(
+            invalid_commit_result,
+            Err(FixtureError::InvalidReticulumCommit { commit })
+                if commit == "422DC05549BF28F45E9B9C5172336A1BA4DF0EC0"
+        ));
+
+        let mismatch_result = parse_fixture_cases::<Value>(
+            r#"{
+                "schema": "hyf.rns.fixture_cases.v1",
+                "profile": "profile_0_packet_announce",
+                "reticulum": {
+                    "repo": "https://github.com/markqvist/Reticulum",
+                    "commit": "1111111111111111111111111111111111111111"
+                },
+                "cases": []
+            }"#,
+        );
+        assert!(matches!(
+            mismatch_result,
+            Err(FixtureError::ReticulumCommitMismatch {
+                actual,
+                expected: EXPECTED_RETICULUM_COMMIT,
+            }) if actual == "1111111111111111111111111111111111111111"
+        ));
+    }
+
+    #[test]
+    fn manifest_validation_returns_typed_metadata_errors() {
+        let generated_by_result = parse_manifest(
+            r#"{
+                "schema": "hyf.rns.fixture_manifest.v1",
+                "profile": "profile_0_packet_announce",
+                "reticulum": {
+                    "repo": "https://github.com/markqvist/Reticulum",
+                    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+                },
+                "generated_by": "",
+                "generated_at": "2026-07-08T00:00:00Z",
+                "fixtures": []
+            }"#,
+        );
+        assert!(matches!(
+            generated_by_result,
+            Err(FixtureError::MissingManifestMetadata {
+                field: "generated_by",
+            })
+        ));
+
+        let generated_at_result = parse_manifest(
+            r#"{
+                "schema": "hyf.rns.fixture_manifest.v1",
+                "profile": "profile_0_packet_announce",
+                "reticulum": {
+                    "repo": "https://github.com/markqvist/Reticulum",
+                    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+                },
+                "generated_by": "test",
+                "generated_at": "",
+                "fixtures": []
+            }"#,
+        );
+        assert!(matches!(
+            generated_at_result,
+            Err(FixtureError::MissingManifestMetadata {
+                field: "generated_at",
+            })
+        ));
     }
 }
