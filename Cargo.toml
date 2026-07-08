@@ -29,6 +29,7 @@ hyf_rns_core = { path = "crates/hyf_rns_core" }
 hyf_rns_crypto = { path = "crates/hyf_rns_crypto" }
 hyf_rns_wire = { path = "crates/hyf_rns_wire" }
 hyf_rns_conformance = { path = "crates/hyf_rns_conformance" }
+allocation-counter = { version = "=0.8.1" }
 ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["zeroize"] }
 rand_core = { version = "=0.10.1", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
