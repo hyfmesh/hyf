@@ -21,14 +21,14 @@ repository = "https://github.com/hyfmesh/hyf"
 rust-version = "1.92.0"
 
 [workspace.dependencies]
-hyf_core = { path = "crates/hyf_core" }
-hyf_crypto = { path = "crates/hyf_crypto" }
-hyf_wire = { path = "crates/hyf_wire" }
-hyf_link = { path = "crates/hyf_link" }
-hyf_rns_core = { path = "crates/hyf_rns_core" }
-hyf_rns_crypto = { path = "crates/hyf_rns_crypto" }
-hyf_rns_wire = { path = "crates/hyf_rns_wire" }
-hyf_rns_conformance = { path = "crates/hyf_rns_conformance" }
+hyf_core = { path = "crates/hyf_core", default-features = false }
+hyf_crypto = { path = "crates/hyf_crypto", default-features = false }
+hyf_wire = { path = "crates/hyf_wire", default-features = false }
+hyf_link = { path = "crates/hyf_link", default-features = false }
+hyf_rns_core = { path = "crates/hyf_rns_core", default-features = false }
+hyf_rns_crypto = { path = "crates/hyf_rns_crypto", default-features = false }
+hyf_rns_wire = { path = "crates/hyf_rns_wire", default-features = false }
+hyf_rns_conformance = { path = "crates/hyf_rns_conformance", default-features = false }
 allocation-counter = { version = "=0.8.1" }
 criterion = { version = "=0.8.2", default-features = false, features = ["cargo_bench_support"] }
 ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["zeroize"] }
