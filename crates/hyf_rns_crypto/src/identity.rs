@@ -17,7 +17,6 @@ pub struct RnsPublicIdentity {
     pub ed25519_public: [u8; RNS_IDENTITY_KEY_LEN],
 }
 
-#[derive(Clone, Eq, PartialEq)]
 pub struct RnsSecretIdentity {
     x25519_secret: Zeroizing<[u8; RNS_IDENTITY_KEY_LEN]>,
     ed25519_secret: Zeroizing<[u8; RNS_IDENTITY_KEY_LEN]>,
