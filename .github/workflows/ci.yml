@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+env:
+  CARGO_TERM_COLOR: always
+  RETICULUM_COMMIT: 422dc05549bf28f45e9b9c5172336a1ba4df0ec0
+  RUST_TOOLCHAIN: 1.92.0
+
+jobs:
+  default:
+    name: default workspace
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+      - name: Format
+        run: rustup run "$RUST_TOOLCHAIN" cargo fmt --check
+      - name: Test workspace
+        run: rustup run "$RUST_TOOLCHAIN" cargo test --workspace
+      - name: Clippy
+        run: rustup run "$RUST_TOOLCHAIN" cargo clippy --workspace --all-targets -- -D warnings
+
+  allocation:
+    name: packet allocation evidence
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - name: Test allocation evidence
+        run: rustup run "$RUST_TOOLCHAIN" cargo test -p hyf_rns_wire --features std
+
+  no-std:
+    name: no_std target checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - name: Install target
+        run: rustup target add --toolchain "$RUST_TOOLCHAIN" thumbv7em-none-eabihf
+      - name: Resolve rustc
+        run: echo "RUSTC=$(rustup which --toolchain "$RUST_TOOLCHAIN" rustc)" >> "$GITHUB_ENV"
+      - name: Check hyf_rns_core
+        run: rustup run "$RUST_TOOLCHAIN" cargo check -p hyf_rns_core --no-default-features --target thumbv7em-none-eabihf
+      - name: Check hyf_rns_crypto
+        run: rustup run "$RUST_TOOLCHAIN" cargo check -p hyf_rns_crypto --no-default-features --target thumbv7em-none-eabihf
+      - name: Check hyf_rns_wire
+        run: rustup run "$RUST_TOOLCHAIN" cargo check -p hyf_rns_wire --no-default-features --target thumbv7em-none-eabihf
+
+  oracle:
+    name: oracle all-features
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - name: Checkout Reticulum oracle
+        run: |
+          git clone https://github.com/markqvist/Reticulum.git .oracle/Reticulum
+          git -C .oracle/Reticulum checkout "$RETICULUM_COMMIT"
+      - name: Test oracle and all features
+        env:
+          HYF_RETICULUM_PATH: .oracle/Reticulum
+        run: rustup run "$RUST_TOOLCHAIN" cargo test --workspace --all-features
+      - name: Clippy all features
+        env:
+          HYF_RETICULUM_PATH: .oracle/Reticulum
+        run: rustup run "$RUST_TOOLCHAIN" cargo clippy --workspace --all-targets --all-features -- -D warnings
