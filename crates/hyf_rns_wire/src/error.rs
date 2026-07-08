@@ -1,0 +1,20 @@
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RnsWireError {
+    UnsupportedPacketAccessCode,
+    InvalidFlags,
+    InvalidHeaderType,
+    InvalidTransportType,
+    InvalidDestinationType,
+    InvalidPacketType,
+    PacketTooShort { actual: usize, minimum: usize },
+    PacketTooLarge { actual: usize, maximum: usize },
+    MissingTransportId,
+    UnexpectedTransportId,
+    OutputBufferTooShort { actual: usize, required: usize },
+    MalformedAnnounce,
+    InvalidPublicIdentity,
+    InvalidSignature,
+    DestinationMismatch,
+    TimestampOverflow,
+    InvalidDestinationName,
+}
