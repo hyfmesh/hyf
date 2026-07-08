@@ -1,9 +1,14 @@
 use hyf_rns_core::{RNS_MTU, RNS_NAME_HASH_LEN, RnsDestinationHash, RnsNameHash, destination_hash};
 use hyf_rns_crypto::{
-    RNS_PUBLIC_IDENTITY_LEN, RnsCryptoError, identity_hash, public_identity_from_bytes, verify,
+    RNS_PUBLIC_IDENTITY_LEN, RnsCryptoError, RnsSecretIdentity, identity_hash,
+    public_identity_from_bytes, public_identity_to_bytes, sign, verify,
 };
+use rand_core::Rng;
 
-use crate::{RnsPacketRef, RnsPacketType, RnsWireError};
+use crate::{
+    RNS_CONTEXT_NONE, RnsDestinationType, RnsHeaderType, RnsPacketFlags, RnsPacketRef,
+    RnsPacketType, RnsTransportType, RnsWireError, encode_packet,
+};
 
 pub const RNS_ANNOUNCE_RANDOM_HASH_LEN: usize = 10;
 pub const RNS_ANNOUNCE_RATCHET_LEN: usize = 32;
@@ -26,6 +31,11 @@ const ANNOUNCE_RATCHET_SIGNATURE_END: usize =
     ANNOUNCE_RATCHET_SIGNATURE_START + RNS_ANNOUNCE_SIGNATURE_LEN;
 const ANNOUNCE_NO_RATCHET_MIN_LEN: usize = ANNOUNCE_NO_RATCHET_SIGNATURE_END;
 const ANNOUNCE_RATCHET_MIN_LEN: usize = ANNOUNCE_RATCHET_SIGNATURE_END;
+const ANNOUNCE_NO_RATCHET_DATA_LEN: usize = ANNOUNCE_NO_RATCHET_MIN_LEN;
+const MAX_RETICULUM_RANDOM_HASH_TIMESTAMP: u64 = 0xff_ffff_ffff;
+const RETICULUM_RANDOM_HASH_RNG_LEN: usize = 5;
+const RETICULUM_RANDOM_HASH_TIME_LEN: usize = 5;
+const RETICULUM_RANDOM_HASH_TIME_OFFSET: usize = 8 - RETICULUM_RANDOM_HASH_TIME_LEN;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RnsAnnounceRef<'a> {
@@ -36,6 +46,17 @@ pub struct RnsAnnounceRef<'a> {
     pub ratchet: Option<[u8; RNS_ANNOUNCE_RATCHET_LEN]>,
     pub signature: [u8; RNS_ANNOUNCE_SIGNATURE_LEN],
     pub app_data: &'a [u8],
+}
+
+pub struct RnsAnnounceEncodeParams<'a> {
+    pub secret_identity: &'a RnsSecretIdentity,
+    pub app_name: &'a str,
+    pub aspects: &'a [&'a str],
+    pub app_data: &'a [u8],
+}
+
+pub trait RnsClock {
+    fn now_unix_secs(&self) -> u64;
 }
 
 pub fn decode_announce_packet<'a>(
@@ -50,6 +71,75 @@ pub fn decode_announce_packet<'a>(
     } else {
         decode_no_ratchet_announce(packet)
     }
+}
+
+pub fn encode_announce_packet<R, C>(
+    params: RnsAnnounceEncodeParams<'_>,
+    rng: &mut R,
+    clock: &C,
+    output: &mut [u8],
+) -> Result<usize, RnsWireError>
+where
+    R: Rng + ?Sized,
+    C: RnsClock + ?Sized,
+{
+    let announce_data_len = announce_encode_data_len(params.app_data.len())?;
+    let packet_len = packet_len_for_announce_data(announce_data_len)?;
+    if output.len() < packet_len {
+        return Err(RnsWireError::OutputBufferTooShort {
+            actual: output.len(),
+            required: packet_len,
+        });
+    }
+
+    let public_identity = params
+        .secret_identity
+        .public_identity()
+        .map_err(map_crypto_error)?;
+    let public_identity_bytes = public_identity_to_bytes(&public_identity);
+    let name_hash = hyf_rns_core::destination_name_hash(params.app_name, params.aspects)
+        .map_err(|_| RnsWireError::InvalidDestinationName)?;
+    let destination_hash = destination_hash(name_hash, Some(identity_hash(&public_identity)));
+    let random_hash = reticulum_random_hash(rng, clock)?;
+    let unsigned_announce = RnsAnnounceRef {
+        destination_hash,
+        public_identity: public_identity_bytes,
+        name_hash,
+        random_hash,
+        ratchet: None,
+        signature: [0; RNS_ANNOUNCE_SIGNATURE_LEN],
+        app_data: params.app_data,
+    };
+    let mut signed_data = [0; RNS_MTU];
+    let signed_data_len = build_announce_signed_data(&unsigned_announce, &mut signed_data)?;
+    let signature =
+        sign(params.secret_identity, &signed_data[..signed_data_len]).map_err(map_crypto_error)?;
+
+    let mut announce_data = [0; RNS_MTU - hyf_rns_core::RNS_HEADER_1_LEN];
+    let mut offset = 0;
+    write_part(&mut announce_data, &mut offset, &public_identity_bytes);
+    write_part(&mut announce_data, &mut offset, name_hash.as_bytes());
+    write_part(&mut announce_data, &mut offset, &random_hash);
+    write_part(&mut announce_data, &mut offset, &signature);
+    write_part(&mut announce_data, &mut offset, params.app_data);
+
+    encode_packet(
+        RnsPacketRef {
+            flags: RnsPacketFlags {
+                header_type: RnsHeaderType::Header1,
+                context_flag: false,
+                transport_type: RnsTransportType::Broadcast,
+                destination_type: RnsDestinationType::Single,
+                packet_type: RnsPacketType::Announce,
+            },
+            hops: 0,
+            transport_id: None,
+            destination_hash,
+            context: RNS_CONTEXT_NONE,
+            data: &announce_data[..offset],
+        },
+        output,
+    )
 }
 
 pub fn build_announce_signed_data(
@@ -99,6 +189,54 @@ pub fn validate_announce_packet<'a>(
     .map_err(map_crypto_error)?;
 
     Ok(announce)
+}
+
+fn announce_encode_data_len(app_data_len: usize) -> Result<usize, RnsWireError> {
+    ANNOUNCE_NO_RATCHET_DATA_LEN
+        .checked_add(app_data_len)
+        .ok_or(RnsWireError::PacketTooLarge {
+            actual: app_data_len,
+            maximum: RNS_MTU,
+        })
+}
+
+fn packet_len_for_announce_data(announce_data_len: usize) -> Result<usize, RnsWireError> {
+    let packet_len = hyf_rns_core::RNS_HEADER_1_LEN
+        .checked_add(announce_data_len)
+        .ok_or(RnsWireError::PacketTooLarge {
+            actual: announce_data_len,
+            maximum: RNS_MTU,
+        })?;
+    if packet_len > RNS_MTU {
+        return Err(RnsWireError::PacketTooLarge {
+            actual: packet_len,
+            maximum: RNS_MTU,
+        });
+    }
+
+    Ok(packet_len)
+}
+
+fn reticulum_random_hash<R, C>(
+    rng: &mut R,
+    clock: &C,
+) -> Result<[u8; RNS_ANNOUNCE_RANDOM_HASH_LEN], RnsWireError>
+where
+    R: Rng + ?Sized,
+    C: RnsClock + ?Sized,
+{
+    let timestamp = clock.now_unix_secs();
+    if timestamp > MAX_RETICULUM_RANDOM_HASH_TIMESTAMP {
+        return Err(RnsWireError::TimestampOverflow);
+    }
+
+    let mut random_hash = [0; RNS_ANNOUNCE_RANDOM_HASH_LEN];
+    rng.fill_bytes(&mut random_hash[..RETICULUM_RANDOM_HASH_RNG_LEN]);
+    let timestamp = timestamp.to_be_bytes();
+    random_hash[RETICULUM_RANDOM_HASH_RNG_LEN..]
+        .copy_from_slice(&timestamp[RETICULUM_RANDOM_HASH_TIME_OFFSET..]);
+
+    Ok(random_hash)
 }
 
 fn announce_signed_data_len(announce: &RnsAnnounceRef<'_>) -> Result<usize, RnsWireError> {
@@ -196,11 +334,13 @@ mod tests {
     use hyf_rns_crypto::{
         identity_hash, public_identity_to_bytes, secret_identity_from_bytes, sign,
     };
+    use rand_core::{Infallible, TryRng};
 
     use super::{
         ANNOUNCE_NO_RATCHET_MIN_LEN, ANNOUNCE_RATCHET_MIN_LEN, RNS_ANNOUNCE_RANDOM_HASH_LEN,
-        RNS_ANNOUNCE_RATCHET_LEN, RNS_ANNOUNCE_SIGNATURE_LEN, RnsAnnounceRef,
-        build_announce_signed_data, decode_announce_packet, validate_announce_packet,
+        RNS_ANNOUNCE_RATCHET_LEN, RNS_ANNOUNCE_SIGNATURE_LEN, RnsAnnounceEncodeParams,
+        RnsAnnounceRef, RnsClock, build_announce_signed_data, decode_announce_packet,
+        encode_announce_packet, validate_announce_packet,
     };
     use crate::{
         RNS_CONTEXT_NONE, RnsDestinationType, RnsHeaderType, RnsPacketFlags, RnsPacketRef,
@@ -367,6 +507,148 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn encodes_deterministic_announce_and_validates_it() -> Result<(), RnsWireError> {
+        let secret = test_secret_identity()?;
+        let aspects = ["announce"];
+        let mut rng = FixedRng::new([0x01, 0x02, 0x03, 0x04, 0x05]);
+        let clock = FixedClock(0x01_0203_0405);
+        let mut output = [0; RNS_MTU];
+        let len = encode_announce_packet(
+            RnsAnnounceEncodeParams {
+                secret_identity: &secret,
+                app_name: "hyf",
+                aspects: &aspects,
+                app_data: b"app-data",
+            },
+            &mut rng,
+            &clock,
+            &mut output,
+        )?;
+        let packet = crate::decode_packet(&output[..len])?;
+        let announce = validate_announce_packet(packet)?;
+
+        assert_eq!(
+            announce.random_hash,
+            [0x01, 0x02, 0x03, 0x04, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05]
+        );
+        assert_eq!(announce.ratchet, None);
+        assert_eq!(announce.app_data, b"app-data");
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_rejects_timestamp_overflow() -> Result<(), RnsWireError> {
+        let secret = test_secret_identity()?;
+        let aspects = ["announce"];
+        let mut rng = FixedRng::new([0x01, 0x02, 0x03, 0x04, 0x05]);
+        let clock = FixedClock(0x01_0000_0000_00);
+        let mut output = [0; RNS_MTU];
+
+        assert_eq!(
+            encode_announce_packet(
+                RnsAnnounceEncodeParams {
+                    secret_identity: &secret,
+                    app_name: "hyf",
+                    aspects: &aspects,
+                    app_data: b"",
+                },
+                &mut rng,
+                &clock,
+                &mut output,
+            ),
+            Err(RnsWireError::TimestampOverflow)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_rejects_short_output_buffer() -> Result<(), RnsWireError> {
+        let secret = test_secret_identity()?;
+        let aspects = ["announce"];
+        let mut rng = FixedRng::new([0x01, 0x02, 0x03, 0x04, 0x05]);
+        let clock = FixedClock(0);
+        let mut output = [0; 1];
+
+        assert_eq!(
+            encode_announce_packet(
+                RnsAnnounceEncodeParams {
+                    secret_identity: &secret,
+                    app_name: "hyf",
+                    aspects: &aspects,
+                    app_data: b"",
+                },
+                &mut rng,
+                &clock,
+                &mut output,
+            ),
+            Err(RnsWireError::OutputBufferTooShort {
+                actual: 1,
+                required: 167,
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_rejects_announce_packets_larger_than_mtu() -> Result<(), RnsWireError> {
+        let secret = test_secret_identity()?;
+        let aspects = ["announce"];
+        let app_data = [0; 334];
+        let mut rng = FixedRng::new([0x01, 0x02, 0x03, 0x04, 0x05]);
+        let clock = FixedClock(0);
+        let mut output = [0; RNS_MTU];
+
+        assert_eq!(
+            encode_announce_packet(
+                RnsAnnounceEncodeParams {
+                    secret_identity: &secret,
+                    app_name: "hyf",
+                    aspects: &aspects,
+                    app_data: &app_data,
+                },
+                &mut rng,
+                &clock,
+                &mut output,
+            ),
+            Err(RnsWireError::PacketTooLarge {
+                actual: 501,
+                maximum: RNS_MTU,
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_rejects_invalid_destination_name() -> Result<(), RnsWireError> {
+        let secret = test_secret_identity()?;
+        let aspects = ["announce"];
+        let mut rng = FixedRng::new([0x01, 0x02, 0x03, 0x04, 0x05]);
+        let clock = FixedClock(0);
+        let mut output = [0; RNS_MTU];
+
+        assert_eq!(
+            encode_announce_packet(
+                RnsAnnounceEncodeParams {
+                    secret_identity: &secret,
+                    app_name: "hyf.bad",
+                    aspects: &aspects,
+                    app_data: b"",
+                },
+                &mut rng,
+                &clock,
+                &mut output,
+            ),
+            Err(RnsWireError::InvalidDestinationName)
+        );
+
+        Ok(())
+    }
+
     fn announce_packet<'a>(context_flag: bool, data: &'a [u8]) -> RnsPacketRef<'a> {
         announce_packet_with_destination(context_flag, data, RnsDestinationHash::new([0x99; 16]))
     }
@@ -443,6 +725,59 @@ mod tests {
         data.extend_from_slice(app_data);
 
         Ok((data, destination_hash))
+    }
+
+    fn test_secret_identity() -> Result<hyf_rns_crypto::RnsSecretIdentity, RnsWireError> {
+        secret_identity_from_bytes(&TEST_SECRET_IDENTITY)
+            .map_err(|_| RnsWireError::InvalidPublicIdentity)
+    }
+
+    struct FixedClock(u64);
+
+    impl RnsClock for FixedClock {
+        fn now_unix_secs(&self) -> u64 {
+            self.0
+        }
+    }
+
+    struct FixedRng {
+        bytes: [u8; 5],
+        offset: usize,
+    }
+
+    impl FixedRng {
+        const fn new(bytes: [u8; 5]) -> Self {
+            Self { bytes, offset: 0 }
+        }
+
+        fn next_byte(&mut self) -> u8 {
+            let byte = self.bytes[self.offset % self.bytes.len()];
+            self.offset += 1;
+            byte
+        }
+    }
+
+    impl TryRng for FixedRng {
+        type Error = Infallible;
+
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            let mut bytes = [0; 4];
+            self.try_fill_bytes(&mut bytes)?;
+            Ok(u32::from_le_bytes(bytes))
+        }
+
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+            let mut bytes = [0; 8];
+            self.try_fill_bytes(&mut bytes)?;
+            Ok(u64::from_le_bytes(bytes))
+        }
+
+        fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+            for byte in dst {
+                *byte = self.next_byte();
+            }
+            Ok(())
+        }
     }
 
     const TEST_SECRET_IDENTITY: [u8; 64] = [

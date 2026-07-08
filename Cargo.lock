@@ -210,6 +210,7 @@ version = "0.1.0"
 dependencies = [
  "hyf_rns_core",
  "hyf_rns_crypto",
+ "rand_core",
 ]
 
 [[package]]
