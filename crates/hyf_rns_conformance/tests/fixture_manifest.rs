@@ -13,6 +13,10 @@ const ANNOUNCE_FIXTURE: &str = include_str!("../../../fixtures/rns/announce_vect
 const ANNOUNCE_NEGATIVE_FIXTURE: &str =
     include_str!("../../../fixtures/rns/announce_negative_vectors.json");
 const MANIFEST: &str = include_str!("../../../fixtures/rns/manifest.json");
+const KISS_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_1_kiss_rnode/kiss_vectors.json");
+const KISS_NEGATIVE_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_1_kiss_rnode/kiss_negative_vectors.json");
 const PROFILE_1_MANIFEST: &str =
     include_str!("../../../fixtures/rns/profile_1_kiss_rnode/manifest.json");
 const PROFILE_2_MANIFEST: &str =
@@ -70,8 +74,23 @@ fn fixture_manifest_accepts_profile_1_shell() -> Result<(), FixtureError> {
     let manifest = parse_manifest_for_profile(PROFILE_1_MANIFEST, PROFILE_1_KISS_RNODE)?;
 
     assert_eq!(manifest.profile, PROFILE_1_KISS_RNODE);
-    assert!(manifest.fixtures.is_empty());
-    Ok(())
+    assert_exact_manifest_entries(
+        &manifest,
+        &[
+            ExpectedManifestEntry {
+                file: "kiss_vectors.json",
+                category: "kiss",
+                case_count: 3,
+                contents: KISS_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "kiss_negative_vectors.json",
+                category: "kiss_negative",
+                case_count: 2,
+                contents: KISS_NEGATIVE_FIXTURE,
+            },
+        ],
+    )
 }
 
 #[test]

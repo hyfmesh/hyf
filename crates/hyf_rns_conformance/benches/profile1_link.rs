@@ -1,0 +1,35 @@
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
+use hyf_link_kiss::{KissDecoder, encode_data_frame};
+
+const PAYLOAD: [u8; 500] = [0xc0; 500];
+
+fn profile1_link_benchmarks(criterion: &mut Criterion) {
+    benchmark_kiss_encode(criterion);
+    benchmark_kiss_decode(criterion);
+}
+
+fn benchmark_kiss_encode(criterion: &mut Criterion) {
+    criterion.bench_function("profile1_kiss_encode_500", |bench| {
+        bench.iter(|| {
+            let mut output = [0; 1003];
+            let _ = encode_data_frame(black_box(&PAYLOAD), black_box(&mut output));
+        });
+    });
+}
+
+fn benchmark_kiss_decode(criterion: &mut Criterion) {
+    let mut frame = [0; 1003];
+    let frame_len = encode_data_frame(&PAYLOAD, &mut frame).unwrap_or(0);
+
+    criterion.bench_function("profile1_kiss_decode_500", |bench| {
+        bench.iter(|| {
+            let mut decoder = KissDecoder::<512>::new();
+            let _ = decoder.push_bytes(black_box(&frame[..frame_len]), |_| Ok(()));
+        });
+    });
+}
+
+criterion_group!(benches, profile1_link_benchmarks);
+criterion_main!(benches);

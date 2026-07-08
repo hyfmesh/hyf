@@ -232,11 +232,16 @@ dependencies = [
 name = "hyf-fuzz"
 version = "0.0.0"
 dependencies = [
+ "hyf_link_kiss",
  "hyf_rns_core",
  "hyf_rns_crypto",
  "hyf_rns_wire",
  "libfuzzer-sys",
 ]
+
+[[package]]
+name = "hyf_link_kiss"
+version = "0.1.0"
 
 [[package]]
 name = "hyf_rns_core"

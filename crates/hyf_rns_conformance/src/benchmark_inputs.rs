@@ -56,6 +56,7 @@ mod tests {
     const ANNOUNCE_FIXTURE: &str = include_str!("../../../fixtures/rns/announce_vectors.json");
     const TRACKED_FUZZ_CORPUS_SEEDS: &[&str] = &[
         "fuzz/corpus/fuzz_ifac_verify/valid_masked_packet",
+        "fuzz/corpus/fuzz_kiss_decoder/escaped_data_frame",
         "fuzz/corpus/fuzz_rns_announce_decode/negative_context_flag",
         "fuzz/corpus/fuzz_rns_announce_decode/negative_destination",
         "fuzz/corpus/fuzz_rns_announce_decode/too_short",

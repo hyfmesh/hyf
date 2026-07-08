@@ -317,6 +317,7 @@ fn hex_nibble(byte: u8) -> Result<u8, FixtureError> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum FixtureError {
     Json(String),
+    Kiss(hyf_link_kiss::KissError),
     Core(hyf_rns_core::RnsCoreError),
     Crypto(hyf_rns_crypto::RnsCryptoError),
     Wire(hyf_rns_wire::RnsWireError),
@@ -375,6 +376,12 @@ impl From<serde_json::Error> for FixtureError {
     }
 }
 
+impl From<hyf_link_kiss::KissError> for FixtureError {
+    fn from(error: hyf_link_kiss::KissError) -> Self {
+        Self::Kiss(error)
+    }
+}
+
 impl From<hyf_rns_core::RnsCoreError> for FixtureError {
     fn from(error: hyf_rns_core::RnsCoreError) -> Self {
         Self::Core(error)
@@ -397,6 +404,7 @@ impl fmt::Display for FixtureError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Json(error) => write!(formatter, "json error: {error}"),
+            Self::Kiss(error) => write!(formatter, "kiss error: {error}"),
             Self::Core(error) => write!(formatter, "core error: {error}"),
             Self::Crypto(error) => write!(formatter, "crypto error: {error}"),
             Self::Wire(error) => write!(formatter, "wire error: {error}"),
@@ -464,6 +472,7 @@ impl std::error::Error for FixtureError {}
 
 #[cfg(test)]
 mod tests {
+    use hyf_link_kiss::KissError;
     use hyf_rns_core::RnsCoreError;
     use hyf_rns_crypto::RnsCryptoError;
     use hyf_rns_wire::RnsWireError;
@@ -496,6 +505,10 @@ mod tests {
 
     #[test]
     fn fixture_error_display_uses_stable_first_party_error_text() {
+        assert_eq!(
+            FixtureError::Kiss(KissError::MalformedEscape { byte: 0x00 }).to_string(),
+            "kiss error: malformed kiss escape byte: 0x00"
+        );
         assert_eq!(
             FixtureError::Core(RnsCoreError::DestinationAppNameContainsDot).to_string(),
             "core error: destination app name contains dot"

@@ -1,0 +1,58 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_1_kiss_rnode",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "schema": "hyf.rns.kiss_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "kiss.data.no_escape_001",
+      "command_hex": "00",
+      "payload_hex": "010203",
+      "encoded_hex": "c000010203c0",
+      "chunks_hex": ["c000010203c0"],
+      "expected_frames": [
+        {
+          "kind": "data",
+          "command_hex": "00",
+          "payload_hex": "010203"
+        }
+      ]
+    },
+    {
+      "schema": "hyf.rns.kiss_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "kiss.data.escapes_fend_fesc_001",
+      "command_hex": "00",
+      "payload_hex": "c0db01",
+      "encoded_hex": "c000dbdcdbdd01c0",
+      "chunks_hex": ["c000", "dbdcdb", "dd01c0"],
+      "expected_frames": [
+        {
+          "kind": "data",
+          "command_hex": "00",
+          "payload_hex": "c0db01"
+        }
+      ]
+    },
+    {
+      "schema": "hyf.rns.kiss_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "kiss.command.ready_empty_001",
+      "command_hex": "0f",
+      "payload_hex": "",
+      "encoded_hex": "c00fc0",
+      "chunks_hex": ["c0", "0f", "c0"],
+      "expected_frames": [
+        {
+          "kind": "command",
+          "command_hex": "0f",
+          "payload_hex": ""
+        }
+      ]
+    }
+  ]
+}

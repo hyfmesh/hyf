@@ -7,5 +7,18 @@
   },
   "generated_by": "tools/rns_oracle",
   "generated_at": "2026-07-08T00:00:00Z",
-  "fixtures": []
+  "fixtures": [
+    {
+      "file": "kiss_vectors.json",
+      "category": "kiss",
+      "case_count": 3,
+      "sha256": "93e0214a03c69709fee9ce4856ad3b5ef12068aeb6b7e5742665779e270fb5b9"
+    },
+    {
+      "file": "kiss_negative_vectors.json",
+      "category": "kiss_negative",
+      "case_count": 2,
+      "sha256": "866a9dc28aa5d183aecc50d4ade1dcb20513dbd93e37b9279ede3cc1c82f72a0"
+    }
+  ]
 }

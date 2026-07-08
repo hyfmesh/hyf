@@ -8,6 +8,7 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
+hyf_link_kiss = { path = "../crates/hyf_link_kiss" }
 hyf_rns_core = { path = "../crates/hyf_rns_core" }
 hyf_rns_crypto = { path = "../crates/hyf_rns_crypto", features = ["crypto_x25519"] }
 hyf_rns_wire = { path = "../crates/hyf_rns_wire", features = ["ifac"] }
@@ -51,6 +52,13 @@ bench = false
 [[bin]]
 name = "fuzz_ifac_verify"
 path = "fuzz_targets/fuzz_ifac_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_kiss_decoder"
+path = "fuzz_targets/fuzz_kiss_decoder.rs"
 test = false
 doc = false
 bench = false

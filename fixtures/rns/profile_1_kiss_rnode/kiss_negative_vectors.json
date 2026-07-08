@@ -1,0 +1,26 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_1_kiss_rnode",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "schema": "hyf.rns.kiss_negative_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "kiss.decode.malformed_escape_001",
+      "chunks_hex": ["c000db00"],
+      "decoder_capacity": 64,
+      "expected_error": "malformed_escape"
+    },
+    {
+      "schema": "hyf.rns.kiss_negative_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "kiss.decode.oversized_001",
+      "chunks_hex": ["c000010203c0"],
+      "decoder_capacity": 3,
+      "expected_error": "frame_too_large"
+    }
+  ]
+}
