@@ -7,6 +7,7 @@
 
 pub mod fixtures;
 pub mod report;
+pub mod runner;
 
 #[cfg(feature = "python_oracle")]
 use serde::Deserialize;
