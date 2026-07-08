@@ -147,6 +147,16 @@ pub fn decode_hex_exact<const N: usize>(hex: &str) -> Result<[u8; N], FixtureErr
     Ok(output)
 }
 
+pub fn decode_optional_hex_exact<const N: usize>(
+    hex: &Option<String>,
+) -> Result<Option<[u8; N]>, FixtureError> {
+    let Some(hex) = hex else {
+        return Ok(None);
+    };
+
+    Ok(Some(decode_hex_exact::<N>(hex)?))
+}
+
 pub fn decode_hex(hex: &str) -> Result<Vec<u8>, FixtureError> {
     if !hex.len().is_multiple_of(2) {
         return Err(FixtureError::OddHexLength);

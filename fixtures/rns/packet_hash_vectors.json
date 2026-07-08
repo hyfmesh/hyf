@@ -1,0 +1,58 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_0_packet_announce",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "id": "profile_0_packet_announce.packet_hash.synthetic.header1.0001",
+      "category": "packet_hash",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "description": "synthetic Reticulum Packet hash vector"
+      },
+      "expected": {
+        "raw_packet": "00004142434445464748494a4b4c4d4e4f5000686173682d6865616465722d6f6e65",
+        "hashable_part": "004142434445464748494a4b4c4d4e4f5000686173682d6865616465722d6f6e65",
+        "full_hash": "74ab50b956d11eaac38e2f54b5814ecbbfe1cf9d97e676ab53bd1f53123b93a5",
+        "truncated_hash": "74ab50b956d11eaac38e2f54b5814ecb",
+        "transport_id": null
+      }
+    },
+    {
+      "id": "profile_0_packet_announce.packet_hash.synthetic.header2.transport_a.0001",
+      "category": "packet_hash",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "description": "synthetic Reticulum Packet hash vector"
+      },
+      "expected": {
+        "raw_packet": "75006162636465666768696a6b6c6d6e6f705152535455565758595a5b5c5d5e5f600b686173682d6865616465722d74776f",
+        "hashable_part": "055152535455565758595a5b5c5d5e5f600b686173682d6865616465722d74776f",
+        "full_hash": "bd7c02334a82c3c8654b2d6ffa2396c0c4a0a40104343f9d9e0c675977deb5a9",
+        "truncated_hash": "bd7c02334a82c3c8654b2d6ffa2396c0",
+        "transport_id": "6162636465666768696a6b6c6d6e6f70"
+      }
+    },
+    {
+      "id": "profile_0_packet_announce.packet_hash.synthetic.header2.transport_b.0001",
+      "category": "packet_hash",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "description": "synthetic Reticulum Packet hash vector"
+      },
+      "expected": {
+        "raw_packet": "75007172737475767778797a7b7c7d7e7f805152535455565758595a5b5c5d5e5f600b686173682d6865616465722d74776f",
+        "hashable_part": "055152535455565758595a5b5c5d5e5f600b686173682d6865616465722d74776f",
+        "full_hash": "bd7c02334a82c3c8654b2d6ffa2396c0c4a0a40104343f9d9e0c675977deb5a9",
+        "truncated_hash": "bd7c02334a82c3c8654b2d6ffa2396c0",
+        "transport_id": "7172737475767778797a7b7c7d7e7f80"
+      }
+    }
+  ]
+}

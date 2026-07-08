@@ -19,6 +19,12 @@
       "category": "packet_header",
       "case_count": 2,
       "sha256": "4070173cbebefd019523e0daa078c1ff50c39a9250f2a445c9702ba3cf81395b"
+    },
+    {
+      "file": "packet_hash_vectors.json",
+      "category": "packet_hash",
+      "case_count": 3,
+      "sha256": "34b80cda8f1497c0bf47c67f3747b897ec0218c93824947c8f5af91fa806e5dc"
     }
   ]
 }
