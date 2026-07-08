@@ -18,8 +18,8 @@ case "$target" in
         ;;
 esac
 
-if [ -e "$destination_root" ] && [ ! -d "$destination_root" ]; then
-    echo "destination root is not a directory: $destination_root" >&2
+if [ -e "$destination_root" ]; then
+    echo "destination root already exists: $destination_root" >&2
     exit 2
 fi
 

@@ -42,6 +42,7 @@ pub fn secret_identity() -> Result<RnsSecretIdentity, FixtureError> {
 mod tests {
     use std::path::Path;
     use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
         ANNOUNCE_PACKET, HEADER_1_PACKET, HEADER_2_PACKET, PACKET_HASH_INPUT, announce_packet,
@@ -107,5 +108,37 @@ mod tests {
         let actual = actual.iter().map(String::as_str).collect::<Vec<_>>();
         assert_eq!(actual.as_slice(), TRACKED_FUZZ_CORPUS_SEEDS);
         Ok(())
+    }
+
+    #[test]
+    fn tracked_fuzz_corpus_copy_rejects_existing_destination()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let destination_root = unique_test_path()?;
+        let stale_corpus = destination_root.join("fuzz/corpus/fuzz_rns_packet_decode");
+        std::fs::create_dir_all(&stale_corpus)?;
+        std::fs::write(stale_corpus.join("stale_untracked_seed"), b"stale")?;
+
+        let output = Command::new("sh")
+            .arg("fuzz/copy_tracked_corpus.sh")
+            .arg("fuzz_rns_packet_decode")
+            .arg(&destination_root)
+            .current_dir(repo_root)
+            .output()?;
+        let _ = std::fs::remove_dir_all(&destination_root);
+
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("destination root already exists")
+        );
+        Ok(())
+    }
+
+    fn unique_test_path() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        Ok(std::env::temp_dir().join(format!(
+            "hyf-copy-tracked-corpus-{}-{nanos}",
+            std::process::id()
+        )))
     }
 }
