@@ -20,6 +20,11 @@ require_clean_workflow_boundary() {
         exit 1
     fi
 
+    if [ -e .github/workflows ]; then
+        echo "public hyf/.github/workflows must not exist; use the private root .act directory instead" >&2
+        exit 1
+    fi
+
     tracked_workflows=$(git ls-files .act .github/workflows)
     if [ -n "$tracked_workflows" ]; then
         echo "public workflow-like files are not allowed under hyf:" >&2
