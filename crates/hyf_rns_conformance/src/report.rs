@@ -221,6 +221,7 @@ mod tests {
             schema["$defs"]["result"]["properties"]["status"]["enum"],
             json!(["passed", "failed", "invalid_environment"])
         );
+        assert_eq!(schema["properties"]["results"]["minItems"], 1);
         Ok(())
     }
 }

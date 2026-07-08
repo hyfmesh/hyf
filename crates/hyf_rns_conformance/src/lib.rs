@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used)]
 
 pub mod fixtures;
+pub mod profile0;
 pub mod report;
 pub mod runner;
 
