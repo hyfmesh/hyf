@@ -87,6 +87,7 @@ coverage/
 .beads/proxieddb/
 
 # Local development
+.act/
 notes*.txt
 prompt*.txt
 tmp*.txt
