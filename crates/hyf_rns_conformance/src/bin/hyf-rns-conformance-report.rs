@@ -10,10 +10,13 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use hyf_rns_conformance::profile0::profile_0_report;
+use hyf_rns_conformance::fixtures::{EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT};
 #[cfg(feature = "python_oracle")]
 use hyf_rns_conformance::profile0::profile_0_report_with_required_oracle;
-use hyf_rns_conformance::report::{ConformanceEnvironment, ConformanceRun};
+use hyf_rns_conformance::profile0::{profile_0_report, required_categories_are_present};
+use hyf_rns_conformance::report::{
+    CONFORMANCE_RUN_SCHEMA, ConformanceEnvironment, ConformanceRun, ConformanceStatus,
+};
 
 fn main() {
     if let Err(error) = run() {
@@ -23,7 +26,13 @@ fn main() {
 }
 
 fn run() -> Result<(), CliError> {
-    let args = Args::parse(std::env::args().skip(1))?;
+    match CliCommand::parse(std::env::args().skip(1))? {
+        CliCommand::Generate(args) => run_generate(*args),
+        CliCommand::Validate(args) => run_validate(&args),
+    }
+}
+
+fn run_generate(args: Args) -> Result<(), CliError> {
     let hyf_commit = derive_hyf_commit(
         args.hyf_repo_path.as_path(),
         args.expected_hyf_commit.as_deref(),
@@ -38,6 +47,66 @@ fn run() -> Result<(), CliError> {
     let json = serde_json::to_vec_pretty(&report)?;
 
     write_output(&args.output, &json)?;
+    Ok(())
+}
+
+fn run_validate(args: &ValidateArgs) -> Result<(), CliError> {
+    let input = std::fs::read(args.input.as_path())?;
+    validate_report_bytes(&input, args.require_final_profile0)
+}
+
+fn validate_report_bytes(input: &[u8], require_final_profile0: bool) -> Result<(), CliError> {
+    let report: ConformanceRun = serde_json::from_slice(input)?;
+    if require_final_profile0 {
+        validate_final_profile0_report(&report)?;
+    }
+    Ok(())
+}
+
+fn validate_final_profile0_report(report: &ConformanceRun) -> Result<(), CliError> {
+    if report.schema != CONFORMANCE_RUN_SCHEMA {
+        return Err(CliError::FinalReportInvalid("schema mismatch"));
+    }
+    if report.profile != EXPECTED_PROFILE {
+        return Err(CliError::FinalReportInvalid("profile mismatch"));
+    }
+    if !is_full_lower_hex_commit(&report.hyf_commit) {
+        return Err(CliError::FinalReportInvalid("invalid hyf commit"));
+    }
+    if report.reticulum_commit != EXPECTED_RETICULUM_COMMIT {
+        return Err(CliError::FinalReportInvalid("reticulum commit mismatch"));
+    }
+    if !required_categories_are_present(&report.results) {
+        return Err(CliError::FinalReportInvalid(
+            "missing required Profile 0 result category",
+        ));
+    }
+    if report
+        .results
+        .iter()
+        .any(|result| result.status == ConformanceStatus::Failed)
+    {
+        return Err(CliError::FinalReportInvalid("failed result present"));
+    }
+    if report
+        .results
+        .iter()
+        .any(|result| result.status == ConformanceStatus::InvalidEnvironment)
+    {
+        return Err(CliError::FinalReportInvalid(
+            "invalid environment result present",
+        ));
+    }
+
+    let Some(oracle) = report.environment.oracle.as_ref() else {
+        return Err(CliError::FinalReportInvalid("missing oracle metadata"));
+    };
+    if oracle.reticulum_commit != EXPECTED_RETICULUM_COMMIT {
+        return Err(CliError::FinalReportInvalid(
+            "oracle reticulum commit mismatch",
+        ));
+    }
+
     Ok(())
 }
 
@@ -131,6 +200,28 @@ fn is_full_lower_hex_commit(commit: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum CliCommand {
+    Generate(Box<Args>),
+    Validate(ValidateArgs),
+}
+
+impl CliCommand {
+    fn parse<I>(args: I) -> Result<Self, CliError>
+    where
+        I: Iterator<Item = String>,
+    {
+        let args: Vec<String> = args.collect();
+        if args.first().map(String::as_str) == Some("validate") {
+            return Ok(Self::Validate(ValidateArgs::parse(
+                args.into_iter().skip(1),
+            )?));
+        }
+
+        Ok(Self::Generate(Box::new(Args::parse(args.into_iter())?)))
+    }
+}
+
 fn apply_report_overrides(report: &mut ConformanceRun, args: &Args) -> Result<(), CliError> {
     if args.require_oracle && args.report_path_root.is_none() {
         return Err(CliError::MissingRequired("--report-path-root"));
@@ -203,6 +294,36 @@ struct Args {
     reticulum_path: Option<PathBuf>,
     report_path_root: Option<PathBuf>,
     require_oracle: bool,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ValidateArgs {
+    input: PathBuf,
+    require_final_profile0: bool,
+}
+
+impl ValidateArgs {
+    fn parse<I>(mut args: I) -> Result<Self, CliError>
+    where
+        I: Iterator<Item = String>,
+    {
+        let mut input = None;
+        let mut require_final_profile0 = false;
+
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--input" => input = Some(PathBuf::from(next_value(&mut args, "--input")?)),
+                "--require-final-profile0" => require_final_profile0 = true,
+                "--help" | "-h" => return Err(CliError::Usage),
+                _ => return Err(CliError::UnknownArgument(arg)),
+            }
+        }
+
+        Ok(Self {
+            input: required_path(input, "--input")?,
+            require_final_profile0,
+        })
+    }
 }
 
 impl Args {
@@ -312,6 +433,7 @@ enum CliError {
         expected: String,
         actual: String,
     },
+    FinalReportInvalid(&'static str),
     #[cfg(feature = "python_oracle")]
     OraclePathRequiresOracle,
     ReportPathRootRequiresOracle,
@@ -372,6 +494,7 @@ impl std::fmt::Display for CliError {
                     "expected hyf commit {expected}, but git HEAD is {actual}"
                 )
             }
+            Self::FinalReportInvalid(reason) => write!(formatter, "final report invalid: {reason}"),
             #[cfg(feature = "python_oracle")]
             Self::OraclePathRequiresOracle => {
                 write!(
@@ -417,7 +540,8 @@ impl std::fmt::Display for CliError {
 impl std::error::Error for CliError {}
 
 const USAGE: &str = "\
-usage: hyf-rns-conformance-report \\
+usage:
+  hyf-rns-conformance-report \\
   --run-id <id> \\
   --hyf-repo-path <path> \\
   --started-at <date-time> \\
@@ -427,7 +551,11 @@ usage: hyf-rns-conformance-report \\
   [--reticulum-path <path> --require-oracle] \\
   [--report-path-root <path>] \\
   [--os <os>] \\
-  [--arch <arch>]";
+  [--arch <arch>]
+
+  hyf-rns-conformance-report validate \\
+  --input <path> \\
+  [--require-final-profile0]";
 
 #[cfg(test)]
 mod tests {
@@ -436,10 +564,15 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use hyf_rns_conformance::profile0::profile_0_report;
-    use hyf_rns_conformance::report::{ConformanceEnvironment, OracleEnvironment};
+    use hyf_rns_conformance::profile0::{REQUIRED_PROFILE_0_RESULT_CATEGORIES, profile_0_report};
+    use hyf_rns_conformance::report::{
+        ConformanceEnvironment, ConformanceResult, ConformanceRun, OracleEnvironment,
+    };
 
-    use super::{Args, CliError, apply_report_overrides, derive_hyf_commit, report_relative_path};
+    use super::{
+        Args, CliError, ValidateArgs, apply_report_overrides, derive_hyf_commit,
+        report_relative_path, validate_report_bytes,
+    };
 
     static TEST_REPO_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -492,6 +625,115 @@ mod tests {
         assert!(!args.os.is_empty());
         assert!(!args.arch.is_empty());
         Ok(())
+    }
+
+    #[test]
+    fn validate_parser_accepts_final_profile0_mode() -> Result<(), CliError> {
+        let args = ValidateArgs::parse(
+            ["--input", "report.json", "--require-final-profile0"]
+                .into_iter()
+                .map(str::to_owned),
+        )?;
+
+        assert_eq!(args.input, PathBuf::from("report.json"));
+        assert!(args.require_final_profile0);
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile0_validator_accepts_complete_report() -> Result<(), CliError> {
+        let report = valid_final_report();
+        let input = serde_json::to_vec(&report)?;
+
+        validate_report_bytes(&input, true)
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_missing_category() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        let _ = report.results.pop();
+        let input = serde_json::to_vec(&report)?;
+
+        assert!(matches!(
+            validate_report_bytes(&input, true),
+            Err(CliError::FinalReportInvalid(
+                "missing required Profile 0 result category"
+            ))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_failed_result() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        replace_first_result(
+            &mut report,
+            ConformanceResult::failed("profile_0_packet_announce.failed", "fixture_manifest", "x"),
+        );
+        let input = serde_json::to_vec(&report)?;
+
+        assert!(matches!(
+            validate_report_bytes(&input, true),
+            Err(CliError::FinalReportInvalid("failed result present"))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_invalid_environment_result() -> Result<(), serde_json::Error>
+    {
+        let mut report = valid_final_report();
+        replace_first_result(
+            &mut report,
+            ConformanceResult::invalid_environment(
+                "profile_0_packet_announce.invalid_environment",
+                "fixture_manifest",
+                "x",
+            ),
+        );
+        let input = serde_json::to_vec(&report)?;
+
+        assert!(matches!(
+            validate_report_bytes(&input, true),
+            Err(CliError::FinalReportInvalid(
+                "invalid environment result present"
+            ))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_missing_oracle() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.environment.oracle = None;
+        let input = serde_json::to_vec(&report)?;
+
+        assert!(matches!(
+            validate_report_bytes(&input, true),
+            Err(CliError::FinalReportInvalid("missing oracle metadata"))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_reticulum_mismatch() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.reticulum_commit = "0000000000000000000000000000000000000000".to_owned();
+        let input = serde_json::to_vec(&report)?;
+
+        assert!(matches!(
+            validate_report_bytes(&input, true),
+            Err(CliError::FinalReportInvalid("reticulum commit mismatch"))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_malformed_json() {
+        assert!(matches!(
+            validate_report_bytes(b"{", true),
+            Err(CliError::Json(_))
+        ));
     }
 
     #[test]
@@ -604,6 +846,42 @@ mod tests {
             report_path_root: Some(report_path_root),
             require_oracle: false,
         }
+    }
+
+    fn valid_final_report() -> ConformanceRun {
+        let environment = ConformanceEnvironment::new("macos", "aarch64", "rustc 1.92.0")
+            .with_oracle(OracleEnvironment::new(
+                "refs/Reticulum/RNS/__init__.py",
+                "422dc05549bf28f45e9b9c5172336a1ba4df0ec0",
+                "49.0.0",
+                "3.5",
+            ));
+        let results = REQUIRED_PROFILE_0_RESULT_CATEGORIES
+            .iter()
+            .map(|category| {
+                ConformanceResult::passed(
+                    format!("profile_0_packet_announce.{category}"),
+                    *category,
+                )
+            })
+            .collect();
+
+        ConformanceRun::profile_0(
+            "profile0-local-0001",
+            "0123456789abcdef0123456789abcdef01234567",
+            "2026-07-08T00:00:00Z",
+            environment,
+            results,
+        )
+    }
+
+    fn replace_first_result(report: &mut ConformanceRun, result: ConformanceResult) {
+        if let Some(slot) = report.results.first_mut() {
+            *slot = result;
+            return;
+        }
+
+        report.results.push(result);
     }
 
     struct TestGitRepo {
