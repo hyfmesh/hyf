@@ -5,6 +5,7 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -13,7 +14,7 @@ use std::process::Command;
 use hyf_rns_conformance::fixtures::{EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT};
 #[cfg(feature = "python_oracle")]
 use hyf_rns_conformance::profile0::profile_0_report_with_required_oracle;
-use hyf_rns_conformance::profile0::{profile_0_report, required_categories_are_present};
+use hyf_rns_conformance::profile0::{REQUIRED_PROFILE_0_RESULTS, profile_0_report};
 use hyf_rns_conformance::report::{
     CONFORMANCE_RUN_SCHEMA, ConformanceEnvironment, ConformanceResult, ConformanceRun,
     ConformanceStatus, OracleEnvironment,
@@ -25,6 +26,11 @@ fn main() {
         std::process::exit(2);
     }
 }
+
+const EXPECTED_ORACLE_RETICULUM_MODULE_PATH: &str = "refs/Reticulum/RNS/__init__.py";
+const EXPECTED_ORACLE_RNS_VERSION: &str = "1.3.5";
+const EXPECTED_ORACLE_CRYPTOGRAPHY_VERSION: &str = "49.0.0";
+const EXPECTED_ORACLE_PYSERIAL_VERSION: &str = "3.5";
 
 fn run() -> Result<(), CliError> {
     match CliCommand::parse(std::env::args().skip(1))? {
@@ -89,11 +95,6 @@ fn validate_final_profile0_report(report: &ConformanceRun) -> Result<(), CliErro
     if !final_results_required_strings_are_populated(&report.results) {
         return Err(CliError::FinalReportInvalid("empty result field"));
     }
-    if !required_categories_are_present(&report.results) {
-        return Err(CliError::FinalReportInvalid(
-            "missing required Profile 0 result category",
-        ));
-    }
     if report
         .results
         .iter()
@@ -110,6 +111,7 @@ fn validate_final_profile0_report(report: &ConformanceRun) -> Result<(), CliErro
             "invalid environment result present",
         ));
     }
+    validate_final_profile0_results(&report.results)?;
 
     let Some(oracle) = report.environment.oracle.as_ref() else {
         return Err(CliError::FinalReportInvalid("missing oracle metadata"));
@@ -117,11 +119,7 @@ fn validate_final_profile0_report(report: &ConformanceRun) -> Result<(), CliErro
     if !final_oracle_required_strings_are_populated(oracle) {
         return Err(CliError::FinalReportInvalid("empty oracle field"));
     }
-    if oracle.reticulum_commit != EXPECTED_RETICULUM_COMMIT {
-        return Err(CliError::FinalReportInvalid(
-            "oracle reticulum commit mismatch",
-        ));
-    }
+    validate_final_oracle_metadata(oracle)?;
 
     Ok(())
 }
@@ -301,6 +299,84 @@ fn final_oracle_required_strings_are_populated(oracle: &OracleEnvironment) -> bo
         && optional_string_is_populated(oracle.rns_version.as_deref())
         && required_string_is_populated(&oracle.cryptography_version)
         && required_string_is_populated(&oracle.pyserial_version)
+}
+
+fn validate_final_profile0_results(results: &[ConformanceResult]) -> Result<(), CliError> {
+    if results.len() != REQUIRED_PROFILE_0_RESULTS.len() {
+        return Err(CliError::FinalReportInvalid(
+            "Profile 0 result count mismatch",
+        ));
+    }
+
+    let mut seen_ids = BTreeSet::new();
+    let mut seen_categories = BTreeSet::new();
+    for result in results {
+        if !seen_ids.insert(result.id.as_str()) {
+            return Err(CliError::FinalReportInvalid(
+                "duplicate Profile 0 result id",
+            ));
+        }
+        if !seen_categories.insert(result.category.as_str()) {
+            return Err(CliError::FinalReportInvalid(
+                "duplicate Profile 0 result category",
+            ));
+        }
+    }
+
+    for result in results {
+        let Some((_, expected_category)) = REQUIRED_PROFILE_0_RESULTS
+            .iter()
+            .find(|(expected_id, _)| *expected_id == result.id.as_str())
+        else {
+            return Err(CliError::FinalReportInvalid(
+                "unexpected Profile 0 result id",
+            ));
+        };
+
+        if result.category.as_str() != *expected_category {
+            return Err(CliError::FinalReportInvalid(
+                "Profile 0 result category mismatch",
+            ));
+        }
+    }
+
+    for &(expected_id, _) in REQUIRED_PROFILE_0_RESULTS {
+        if !seen_ids.contains(expected_id) {
+            return Err(CliError::FinalReportInvalid(
+                "missing required Profile 0 result id",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_final_oracle_metadata(oracle: &OracleEnvironment) -> Result<(), CliError> {
+    if oracle.reticulum_module_path != EXPECTED_ORACLE_RETICULUM_MODULE_PATH {
+        return Err(CliError::FinalReportInvalid(
+            "oracle Reticulum module path mismatch",
+        ));
+    }
+    if oracle.reticulum_commit != EXPECTED_RETICULUM_COMMIT {
+        return Err(CliError::FinalReportInvalid(
+            "oracle reticulum commit mismatch",
+        ));
+    }
+    if oracle.rns_version.as_deref() != Some(EXPECTED_ORACLE_RNS_VERSION) {
+        return Err(CliError::FinalReportInvalid("oracle RNS version mismatch"));
+    }
+    if oracle.cryptography_version != EXPECTED_ORACLE_CRYPTOGRAPHY_VERSION {
+        return Err(CliError::FinalReportInvalid(
+            "oracle cryptography version mismatch",
+        ));
+    }
+    if oracle.pyserial_version != EXPECTED_ORACLE_PYSERIAL_VERSION {
+        return Err(CliError::FinalReportInvalid(
+            "oracle pyserial version mismatch",
+        ));
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -667,7 +743,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use hyf_rns_conformance::profile0::{REQUIRED_PROFILE_0_RESULT_CATEGORIES, profile_0_report};
+    use hyf_rns_conformance::profile0::{REQUIRED_PROFILE_0_RESULTS, profile_0_report};
     use hyf_rns_conformance::report::{
         ConformanceEnvironment, ConformanceResult, ConformanceRun, OracleEnvironment,
     };
@@ -822,18 +898,59 @@ mod tests {
     }
 
     #[test]
-    fn final_profile0_validator_rejects_missing_category() -> Result<(), serde_json::Error> {
+    fn final_profile0_validator_rejects_missing_result() -> Result<(), serde_json::Error> {
         let mut report = valid_final_report();
         let _ = report.results.pop();
-        let input = serde_json::to_vec(&report)?;
 
-        assert!(matches!(
-            validate_report_bytes(&input, true),
-            Err(CliError::FinalReportInvalid(
-                "missing required Profile 0 result category"
-            ))
+        assert_final_report_invalid(&report, "Profile 0 result count mismatch")
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_extra_result() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.results.push(ConformanceResult::passed(
+            "profile_0_packet_announce.extra",
+            "extra",
         ));
-        Ok(())
+
+        assert_final_report_invalid(&report, "Profile 0 result count mismatch")
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_duplicate_result_id() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        let duplicate_id = report.results[0].id.clone();
+        report.results[1].id = duplicate_id;
+
+        assert_final_report_invalid(&report, "duplicate Profile 0 result id")
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_duplicate_result_category() -> Result<(), serde_json::Error>
+    {
+        let mut report = valid_final_report();
+        let duplicate_category = report.results[0].category.clone();
+        report.results[1].category = duplicate_category;
+
+        assert_final_report_invalid(&report, "duplicate Profile 0 result category")
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_unexpected_result_id() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.results[0].id = "profile_0_packet_announce.unexpected".to_owned();
+
+        assert_final_report_invalid(&report, "unexpected Profile 0 result id")
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_wrong_result_pairing() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        let first_category = report.results[0].category.clone();
+        report.results[0].category = report.results[1].category.clone();
+        report.results[1].category = first_category;
+
+        assert_final_report_invalid(&report, "Profile 0 result category mismatch")
     }
 
     #[test]
@@ -899,6 +1016,40 @@ mod tests {
             Err(CliError::FinalReportInvalid("reticulum commit mismatch"))
         ));
         Ok(())
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_oracle_metadata_mismatch() -> Result<(), serde_json::Error>
+    {
+        let mut report = valid_final_report();
+        if let Some(oracle) = report.environment.oracle.as_mut() {
+            oracle.reticulum_module_path = "/tmp/Reticulum/RNS/__init__.py".to_owned();
+        }
+        assert_final_report_invalid(&report, "oracle Reticulum module path mismatch")?;
+
+        let mut report = valid_final_report();
+        if let Some(oracle) = report.environment.oracle.as_mut() {
+            oracle.reticulum_commit = "0000000000000000000000000000000000000000".to_owned();
+        }
+        assert_final_report_invalid(&report, "oracle reticulum commit mismatch")?;
+
+        let mut report = valid_final_report();
+        if let Some(oracle) = report.environment.oracle.as_mut() {
+            oracle.rns_version = Some("1.3.4".to_owned());
+        }
+        assert_final_report_invalid(&report, "oracle RNS version mismatch")?;
+
+        let mut report = valid_final_report();
+        if let Some(oracle) = report.environment.oracle.as_mut() {
+            oracle.cryptography_version = "48.0.0".to_owned();
+        }
+        assert_final_report_invalid(&report, "oracle cryptography version mismatch")?;
+
+        let mut report = valid_final_report();
+        if let Some(oracle) = report.environment.oracle.as_mut() {
+            oracle.pyserial_version = "3.4".to_owned();
+        }
+        assert_final_report_invalid(&report, "oracle pyserial version mismatch")
     }
 
     #[test]
@@ -1023,20 +1174,18 @@ mod tests {
 
     fn valid_final_report() -> ConformanceRun {
         let environment = ConformanceEnvironment::new("macos", "aarch64", "rustc 1.92.0")
-            .with_oracle(OracleEnvironment::new(
-                "refs/Reticulum/RNS/__init__.py",
-                "422dc05549bf28f45e9b9c5172336a1ba4df0ec0",
-                "49.0.0",
-                "3.5",
-            ));
-        let results = REQUIRED_PROFILE_0_RESULT_CATEGORIES
-            .iter()
-            .map(|category| {
-                ConformanceResult::passed(
-                    format!("profile_0_packet_announce.{category}"),
-                    *category,
+            .with_oracle(
+                OracleEnvironment::new(
+                    "refs/Reticulum/RNS/__init__.py",
+                    "422dc05549bf28f45e9b9c5172336a1ba4df0ec0",
+                    "49.0.0",
+                    "3.5",
                 )
-            })
+                .with_rns_version("1.3.5"),
+            );
+        let results = REQUIRED_PROFILE_0_RESULTS
+            .iter()
+            .map(|(id, category)| ConformanceResult::passed(*id, *category))
             .collect();
 
         ConformanceRun::profile_0(

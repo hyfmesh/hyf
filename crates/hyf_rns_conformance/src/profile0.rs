@@ -54,6 +54,35 @@ pub const CATEGORY_ANNOUNCE_NEGATIVE: &str = "announce_negative";
 pub const CATEGORY_PYTHON_ORACLE_PACKET: &str = "python_oracle_packet";
 pub const CATEGORY_PYTHON_ORACLE_ANNOUNCE: &str = "python_oracle_announce";
 
+pub const RESULT_ID_FIXTURE_MANIFEST: &str = "profile_0_packet_announce.fixture_manifest";
+pub const RESULT_ID_IDENTITY_SIGNATURE: &str = "profile_0_packet_announce.identity_signature";
+pub const RESULT_ID_DESTINATION_HASH: &str = "profile_0_packet_announce.destination_hash";
+pub const RESULT_ID_PACKET_HEADER: &str = "profile_0_packet_announce.packet_header";
+pub const RESULT_ID_PACKET_HASH: &str = "profile_0_packet_announce.packet_hash";
+pub const RESULT_ID_ANNOUNCE: &str = "profile_0_packet_announce.announce";
+pub const RESULT_ID_ANNOUNCE_NEGATIVE: &str = "profile_0_packet_announce.announce_negative";
+pub const RESULT_ID_PYTHON_ORACLE_PACKET: &str = "profile_0_packet_announce.python_oracle.packet";
+pub const RESULT_ID_PYTHON_ORACLE_ANNOUNCE: &str =
+    "profile_0_packet_announce.python_oracle.announce";
+
+pub const REQUIRED_PROFILE_0_RESULTS: &[(&str, &str)] = &[
+    (RESULT_ID_FIXTURE_MANIFEST, CATEGORY_FIXTURE_MANIFEST),
+    (RESULT_ID_IDENTITY_SIGNATURE, CATEGORY_IDENTITY_SIGNATURE),
+    (RESULT_ID_DESTINATION_HASH, CATEGORY_DESTINATION_HASH),
+    (RESULT_ID_PACKET_HEADER, CATEGORY_PACKET_HEADER),
+    (RESULT_ID_PACKET_HASH, CATEGORY_PACKET_HASH),
+    (RESULT_ID_ANNOUNCE, CATEGORY_ANNOUNCE),
+    (RESULT_ID_ANNOUNCE_NEGATIVE, CATEGORY_ANNOUNCE_NEGATIVE),
+    (
+        RESULT_ID_PYTHON_ORACLE_PACKET,
+        CATEGORY_PYTHON_ORACLE_PACKET,
+    ),
+    (
+        RESULT_ID_PYTHON_ORACLE_ANNOUNCE,
+        CATEGORY_PYTHON_ORACLE_ANNOUNCE,
+    ),
+];
+
 pub const REQUIRED_PROFILE_0_RESULT_CATEGORIES: &[&str] = &[
     CATEGORY_FIXTURE_MANIFEST,
     CATEGORY_IDENTITY_SIGNATURE,
@@ -86,37 +115,37 @@ pub fn profile_0_results() -> Vec<ConformanceResult> {
 pub fn profile_0_fixture_results() -> Vec<ConformanceResult> {
     vec![
         fixture_result(
-            "profile_0_packet_announce.fixture_manifest",
+            RESULT_ID_FIXTURE_MANIFEST,
             CATEGORY_FIXTURE_MANIFEST,
             validate_fixture_manifest(),
         ),
         fixture_result(
-            "profile_0_packet_announce.identity_signature",
+            RESULT_ID_IDENTITY_SIGNATURE,
             CATEGORY_IDENTITY_SIGNATURE,
             validate_identity_fixture(),
         ),
         fixture_result(
-            "profile_0_packet_announce.destination_hash",
+            RESULT_ID_DESTINATION_HASH,
             CATEGORY_DESTINATION_HASH,
             validate_destination_hash_fixtures(),
         ),
         fixture_result(
-            "profile_0_packet_announce.packet_header",
+            RESULT_ID_PACKET_HEADER,
             CATEGORY_PACKET_HEADER,
             validate_packet_header_fixtures(),
         ),
         fixture_result(
-            "profile_0_packet_announce.packet_hash",
+            RESULT_ID_PACKET_HASH,
             CATEGORY_PACKET_HASH,
             validate_packet_hash_fixtures(),
         ),
         fixture_result(
-            "profile_0_packet_announce.announce",
+            RESULT_ID_ANNOUNCE,
             CATEGORY_ANNOUNCE,
             validate_announce_fixtures(),
         ),
         fixture_result(
-            "profile_0_packet_announce.announce_negative",
+            RESULT_ID_ANNOUNCE_NEGATIVE,
             CATEGORY_ANNOUNCE_NEGATIVE,
             validate_announce_negative_fixtures(),
         ),
@@ -126,12 +155,12 @@ pub fn profile_0_fixture_results() -> Vec<ConformanceResult> {
 pub fn profile_0_oracle_unavailable_results() -> [ConformanceResult; 2] {
     [
         invalid_environment_result(
-            "profile_0_packet_announce.python_oracle.packet",
+            RESULT_ID_PYTHON_ORACLE_PACKET,
             CATEGORY_PYTHON_ORACLE_PACKET,
             "python_oracle feature is not enabled for this report generator",
         ),
         invalid_environment_result(
-            "profile_0_packet_announce.python_oracle.announce",
+            RESULT_ID_PYTHON_ORACLE_ANNOUNCE,
             CATEGORY_PYTHON_ORACLE_ANNOUNCE,
             "python_oracle feature is not enabled for this report generator",
         ),
@@ -202,12 +231,12 @@ pub fn profile_0_oracle_results(reticulum_path: &Path) -> [ConformanceResult; 2]
         ],
         Err(error) => [
             failed_result(
-                "profile_0_packet_announce.python_oracle.packet",
+                RESULT_ID_PYTHON_ORACLE_PACKET,
                 CATEGORY_PYTHON_ORACLE_PACKET,
                 error.to_string(),
             ),
             failed_result(
-                "profile_0_packet_announce.python_oracle.announce",
+                RESULT_ID_PYTHON_ORACLE_ANNOUNCE,
                 CATEGORY_PYTHON_ORACLE_ANNOUNCE,
                 error.to_string(),
             ),
@@ -242,13 +271,13 @@ fn packet_oracle_result(response: &OracleResponse) -> ConformanceResult {
 
     if packet_passed {
         return passed_result(
-            "profile_0_packet_announce.python_oracle.packet",
+            RESULT_ID_PYTHON_ORACLE_PACKET,
             CATEGORY_PYTHON_ORACLE_PACKET,
         );
     }
 
     failed_result(
-        "profile_0_packet_announce.python_oracle.packet",
+        RESULT_ID_PYTHON_ORACLE_PACKET,
         CATEGORY_PYTHON_ORACLE_PACKET,
         "python oracle packet validation mismatch",
     )
@@ -258,13 +287,13 @@ fn packet_oracle_result(response: &OracleResponse) -> ConformanceResult {
 fn announce_oracle_result(announce_valid: bool) -> ConformanceResult {
     if announce_valid {
         return passed_result(
-            "profile_0_packet_announce.python_oracle.announce",
+            RESULT_ID_PYTHON_ORACLE_ANNOUNCE,
             CATEGORY_PYTHON_ORACLE_ANNOUNCE,
         );
     }
 
     failed_result(
-        "profile_0_packet_announce.python_oracle.announce",
+        RESULT_ID_PYTHON_ORACLE_ANNOUNCE,
         CATEGORY_PYTHON_ORACLE_ANNOUNCE,
         "python oracle rejected Rust-generated announce",
     )
