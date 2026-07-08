@@ -10,6 +10,8 @@ mod announce;
 mod context;
 mod error;
 mod flags;
+#[cfg(feature = "ifac")]
+mod ifac;
 mod packet;
 mod packet_hash;
 
@@ -32,6 +34,8 @@ pub use flags::{
     RnsDestinationType, RnsHeaderType, RnsPacketFlags, RnsPacketType, RnsTransportType,
     decode_flags, encode_flags,
 };
+#[cfg(feature = "ifac")]
+pub use ifac::{RNS_IFAC_MAX_SIZE, RNS_IFAC_MIN_SIZE, ifac_apply_outbound, ifac_verify_inbound};
 pub use packet::{RnsPacketRef, decode_packet, encode_packet};
 pub use packet_hash::{packet_hash, packet_truncated_hash, write_packet_hashable_part};
 

@@ -21,6 +21,7 @@ alloc = []
 std = ["alloc"]
 serde = []
 defmt = []
+ifac = ["hyf_rns_crypto/crypto_token"]
 
 [lints]
 workspace = true

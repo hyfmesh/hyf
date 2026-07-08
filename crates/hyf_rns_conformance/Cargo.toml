@@ -11,7 +11,7 @@ publish = false
 [dependencies]
 hyf_rns_core.workspace = true
 hyf_rns_crypto = { workspace = true, features = ["crypto_token", "crypto_x25519", "test_vectors"] }
-hyf_rns_wire.workspace = true
+hyf_rns_wire = { workspace = true, features = ["ifac"] }
 rand_core.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -15,6 +15,10 @@ pub enum RnsWireError {
     InvalidPublicIdentity,
     InvalidSignature,
     CryptoFailed,
+    InvalidIfacSize { actual: usize, maximum: usize },
+    InvalidIfacKey,
+    MissingPacketAccessCode,
+    InvalidPacketAccessCode,
     DestinationMismatch,
     TimestampOverflow,
     RandomSourceFailed,
@@ -56,6 +60,15 @@ impl core::fmt::Display for RnsWireError {
             Self::InvalidPublicIdentity => formatter.write_str("invalid public identity"),
             Self::InvalidSignature => formatter.write_str("invalid signature"),
             Self::CryptoFailed => formatter.write_str("crypto failed"),
+            Self::InvalidIfacSize { actual, maximum } => {
+                write!(
+                    formatter,
+                    "invalid ifac size: actual {actual}, maximum {maximum}"
+                )
+            }
+            Self::InvalidIfacKey => formatter.write_str("invalid ifac key"),
+            Self::MissingPacketAccessCode => formatter.write_str("missing packet access code"),
+            Self::InvalidPacketAccessCode => formatter.write_str("invalid packet access code"),
             Self::DestinationMismatch => formatter.write_str("destination mismatch"),
             Self::TimestampOverflow => formatter.write_str("timestamp overflow"),
             Self::RandomSourceFailed => formatter.write_str("random source failed"),
@@ -93,6 +106,18 @@ mod tests {
         assert_eq!(
             RnsWireError::InvalidDestinationName.to_string(),
             "invalid destination name"
+        );
+        assert_eq!(
+            RnsWireError::InvalidIfacSize {
+                actual: 65,
+                maximum: 64,
+            }
+            .to_string(),
+            "invalid ifac size: actual 65, maximum 64"
+        );
+        assert_eq!(
+            RnsWireError::InvalidPacketAccessCode.to_string(),
+            "invalid packet access code"
         );
     }
 }

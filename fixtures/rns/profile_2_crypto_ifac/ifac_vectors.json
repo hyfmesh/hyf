@@ -1,0 +1,23 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_2_crypto_ifac",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "schema": "hyf.rns.ifac_vector.v1",
+      "profile": "profile_2_crypto_ifac",
+      "subprofile": "profile_2c_ifac",
+      "case_id": "ifac.apply_verify.size8.basic_001",
+      "ifac_size": 8,
+      "ifac_key_hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+      "ifac_identity_secret_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "test_only_secret_material": true,
+      "raw_packet_hex": "00031111111111111111111111111111111100aabbcc",
+      "masked_packet_hex": "dd38fc4c4749c011f90f9628d201d3afb2ff08c0741fd11d98a37c1b54ad",
+      "expected_unmasked_hex": "00031111111111111111111111111111111100aabbcc"
+    }
+  ]
+}

@@ -37,6 +37,18 @@
       "category": "identity_decrypt",
       "case_count": 2,
       "sha256": "21f0a5f25e7b46a85601450ab551aa04060f23c2f57805936e3b4ad4c1680ee5"
+    },
+    {
+      "file": "ifac_vectors.json",
+      "category": "ifac",
+      "case_count": 1,
+      "sha256": "fc92e0ccf9379284c6987fd227f544dcf69f7f443eeb9835392dd204144e024c"
+    },
+    {
+      "file": "ifac_negative_vectors.json",
+      "category": "ifac_negative",
+      "case_count": 2,
+      "sha256": "7c465cc2420a6394571bb10f425b8b9a5949b702bcadab88d4d065da6d9e298c"
     }
   ]
 }
