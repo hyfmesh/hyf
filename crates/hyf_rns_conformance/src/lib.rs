@@ -63,7 +63,7 @@ impl std::fmt::Display for OracleInvalidEnvironment {
             Self::OracleModulePathMismatch => formatter.write_str("oracle module path mismatch"),
             Self::ReticulumCommitMismatch => formatter.write_str("Reticulum commit mismatch"),
             Self::ReticulumWorktreeDirty => {
-                formatter.write_str("Reticulum tracked worktree is dirty")
+                formatter.write_str("Reticulum tracked or untracked worktree is dirty")
             }
             Self::ReticulumWorktreeStatusUnavailable => {
                 formatter.write_str("Reticulum worktree status unavailable")
@@ -359,8 +359,7 @@ fn validate_reticulum_git_state_with_expected(
         return Err(OracleInvalidEnvironment::ReticulumCommitMismatch);
     }
 
-    let Some(reticulum_worktree_is_clean) = reticulum_tracked_worktree_is_clean(reticulum_path)
-    else {
+    let Some(reticulum_worktree_is_clean) = reticulum_worktree_is_clean(reticulum_path) else {
         return Err(OracleInvalidEnvironment::ReticulumWorktreeStatusUnavailable);
     };
     if !reticulum_worktree_is_clean {
@@ -371,13 +370,13 @@ fn validate_reticulum_git_state_with_expected(
 }
 
 #[cfg(feature = "python_oracle")]
-fn reticulum_tracked_worktree_is_clean(reticulum_path: &Path) -> Option<bool> {
+fn reticulum_worktree_is_clean(reticulum_path: &Path) -> Option<bool> {
     let output = Command::new("git")
         .arg("-C")
         .arg(reticulum_path)
         .arg("status")
         .arg("--porcelain")
-        .arg("--untracked-files=no")
+        .arg("--untracked-files=all")
         .output();
 
     let Ok(output) = output else {
@@ -440,7 +439,7 @@ mod python_oracle_tests {
         OracleEnvironmentMetadata, OracleInvalidEnvironment, OracleProbeMetadata, OracleReadiness,
         OracleStatus, PINNED_CRYPTOGRAPHY_VERSION, PINNED_PYSERIAL_VERSION,
         PINNED_RETICULUM_COMMIT, check_oracle_environment, check_oracle_environment_with_command,
-        reticulum_commit, reticulum_commit_output_is_pinned, reticulum_tracked_worktree_is_clean,
+        reticulum_commit, reticulum_commit_output_is_pinned, reticulum_worktree_is_clean,
         validate_oracle_probe_output, validate_reticulum_git_state,
         validate_reticulum_git_state_with_expected,
     };
@@ -618,34 +617,31 @@ mod python_oracle_tests {
     }
 
     #[test]
-    fn reticulum_tracked_worktree_cleanliness_accepts_clean_repo()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn reticulum_worktree_cleanliness_accepts_clean_repo() -> Result<(), Box<dyn std::error::Error>>
+    {
         let repo = TestGitRepo::create()?;
 
-        assert_eq!(reticulum_tracked_worktree_is_clean(repo.path()), Some(true));
+        assert_eq!(reticulum_worktree_is_clean(repo.path()), Some(true));
         Ok(())
     }
 
     #[test]
-    fn reticulum_tracked_worktree_cleanliness_rejects_tracked_changes()
+    fn reticulum_worktree_cleanliness_rejects_tracked_changes()
     -> Result<(), Box<dyn std::error::Error>> {
         let repo = TestGitRepo::create()?;
         std::fs::write(repo.path().join("tracked.txt"), "changed\n")?;
 
-        assert_eq!(
-            reticulum_tracked_worktree_is_clean(repo.path()),
-            Some(false)
-        );
+        assert_eq!(reticulum_worktree_is_clean(repo.path()), Some(false));
         Ok(())
     }
 
     #[test]
-    fn reticulum_tracked_worktree_cleanliness_ignores_untracked_files()
+    fn reticulum_worktree_cleanliness_rejects_untracked_files()
     -> Result<(), Box<dyn std::error::Error>> {
         let repo = TestGitRepo::create()?;
         std::fs::write(repo.path().join("untracked.txt"), "local only\n")?;
 
-        assert_eq!(reticulum_tracked_worktree_is_clean(repo.path()), Some(true));
+        assert_eq!(reticulum_worktree_is_clean(repo.path()), Some(false));
         Ok(())
     }
 

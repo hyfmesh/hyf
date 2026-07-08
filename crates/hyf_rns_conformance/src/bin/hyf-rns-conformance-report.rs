@@ -174,7 +174,7 @@ fn derive_hyf_commit(
 
     let status = git_stdout(
         hyf_repo_path,
-        &["status", "--porcelain", "--untracked-files=no"],
+        &["status", "--porcelain", "--untracked-files=all"],
     )?;
     if !status.is_empty() {
         return Err(CliError::DirtyHyfWorktree);
@@ -660,7 +660,9 @@ impl std::fmt::Display for CliError {
             }
             Self::GitCommandUnavailable(error) => write!(formatter, "git command failed: {error}"),
             Self::GitCommandFailed => formatter.write_str("git command returned a failure status"),
-            Self::DirtyHyfWorktree => formatter.write_str("hyf repo has tracked worktree changes"),
+            Self::DirtyHyfWorktree => {
+                formatter.write_str("hyf repo has tracked or untracked worktree changes")
+            }
             Self::InvalidHyfCommit(commit) => {
                 write!(
                     formatter,
@@ -1079,6 +1081,19 @@ mod tests {
     {
         let repo = TestGitRepo::create()?;
         std::fs::write(repo.path().join("tracked.txt"), "changed\n")?;
+
+        assert!(matches!(
+            derive_hyf_commit(repo.path(), None),
+            Err(CliError::DirtyHyfWorktree)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn derived_hyf_commit_rejects_untracked_worktree_file() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let repo = TestGitRepo::create()?;
+        std::fs::write(repo.path().join("untracked.txt"), "local only\n")?;
 
         assert!(matches!(
             derive_hyf_commit(repo.path(), None),
