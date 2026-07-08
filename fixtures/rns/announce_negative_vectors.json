@@ -1,0 +1,73 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_0_packet_announce",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "id": "profile_0_packet_announce.announce_negative.synthetic.destination.0001",
+      "category": "announce_negative",
+      "deterministic": true,
+      "private_test_material": true,
+      "mutation": "destination",
+      "expected_error": "DestinationMismatch",
+      "raw_packet": "010055664a7ce697fe2ae552af6fe4595fde008f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7cc320e7f81705ccb3cfe01020304050102030405deed98efafd34b32e0f903bc50a61540024c1e706dd4be388412376d842ab488105719ee28015b30097169aa6efb3ea0e56fc8822f2fe4bc0b00f41639425d0f68796620616e6e6f756e6365206170702064617461"
+    },
+    {
+      "id": "profile_0_packet_announce.announce_negative.synthetic.public_identity.0001",
+      "category": "announce_negative",
+      "deterministic": true,
+      "private_test_material": true,
+      "mutation": "public_identity",
+      "expected_error": "DestinationMismatch",
+      "raw_packet": "010054664a7ce697fe2ae552af6fe4595fde008e40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7cc320e7f81705ccb3cfe01020304050102030405deed98efafd34b32e0f903bc50a61540024c1e706dd4be388412376d842ab488105719ee28015b30097169aa6efb3ea0e56fc8822f2fe4bc0b00f41639425d0f68796620616e6e6f756e6365206170702064617461"
+    },
+    {
+      "id": "profile_0_packet_announce.announce_negative.synthetic.name_hash.0001",
+      "category": "announce_negative",
+      "deterministic": true,
+      "private_test_material": true,
+      "mutation": "name_hash",
+      "expected_error": "DestinationMismatch",
+      "raw_packet": "010054664a7ce697fe2ae552af6fe4595fde008f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7cd320e7f81705ccb3cfe01020304050102030405deed98efafd34b32e0f903bc50a61540024c1e706dd4be388412376d842ab488105719ee28015b30097169aa6efb3ea0e56fc8822f2fe4bc0b00f41639425d0f68796620616e6e6f756e6365206170702064617461"
+    },
+    {
+      "id": "profile_0_packet_announce.announce_negative.synthetic.random_hash.0001",
+      "category": "announce_negative",
+      "deterministic": true,
+      "private_test_material": true,
+      "mutation": "random_hash",
+      "expected_error": "InvalidSignature",
+      "raw_packet": "010054664a7ce697fe2ae552af6fe4595fde008f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7cc320e7f81705ccb3cfe00020304050102030405deed98efafd34b32e0f903bc50a61540024c1e706dd4be388412376d842ab488105719ee28015b30097169aa6efb3ea0e56fc8822f2fe4bc0b00f41639425d0f68796620616e6e6f756e6365206170702064617461"
+    },
+    {
+      "id": "profile_0_packet_announce.announce_negative.synthetic.signature.0001",
+      "category": "announce_negative",
+      "deterministic": true,
+      "private_test_material": true,
+      "mutation": "signature",
+      "expected_error": "InvalidSignature",
+      "raw_packet": "010054664a7ce697fe2ae552af6fe4595fde008f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7cc320e7f81705ccb3cfe01020304050102030405dfed98efafd34b32e0f903bc50a61540024c1e706dd4be388412376d842ab488105719ee28015b30097169aa6efb3ea0e56fc8822f2fe4bc0b00f41639425d0f68796620616e6e6f756e6365206170702064617461"
+    },
+    {
+      "id": "profile_0_packet_announce.announce_negative.synthetic.app_data.0001",
+      "category": "announce_negative",
+      "deterministic": true,
+      "private_test_material": true,
+      "mutation": "app_data",
+      "expected_error": "InvalidSignature",
+      "raw_packet": "010054664a7ce697fe2ae552af6fe4595fde008f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7cc320e7f81705ccb3cfe01020304050102030405deed98efafd34b32e0f903bc50a61540024c1e706dd4be388412376d842ab488105719ee28015b30097169aa6efb3ea0e56fc8822f2fe4bc0b00f41639425d0f69796620616e6e6f756e6365206170702064617461"
+    },
+    {
+      "id": "profile_0_packet_announce.announce_negative.synthetic.context_flag.0001",
+      "category": "announce_negative",
+      "deterministic": true,
+      "private_test_material": true,
+      "mutation": "context_flag",
+      "expected_error": "MalformedAnnounce",
+      "raw_packet": "210054664a7ce697fe2ae552af6fe4595fde008f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7cc320e7f81705ccb3cfe01020304050102030405deed98efafd34b32e0f903bc50a61540024c1e706dd4be388412376d842ab488105719ee28015b30097169aa6efb3ea0e56fc8822f2fe4bc0b00f41639425d0f68796620616e6e6f756e6365206170702064617461"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_0_packet_announce",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "id": "profile_0_packet_announce.announce.synthetic.no_app_data.0001",
+      "category": "announce",
+      "deterministic": true,
+      "private_test_material": true,
+      "inputs": {
+        "secret_identity": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        "app_name": "hyf",
+        "aspects": [
+          "announce"
+        ],
+        "app_data": "",
+        "random_hash": "01020304050102030405"
+      },
+      "expected": {
+        "raw_packet": "010054664a7ce697fe2ae552af6fe4595fde008f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7cc320e7f81705ccb3cfe01020304050102030405e4e34247ddedf24242d7f9210f54093459ba8589971884405c10655d8e5e69d4cab530e208a71c3267454f2ef76b2d3fa0a528b8ecf5a147ffb47ce15601e301",
+        "destination_hash": "54664a7ce697fe2ae552af6fe4595fde",
+        "public_identity": "8f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7",
+        "name_hash": "cc320e7f81705ccb3cfe",
+        "random_hash": "01020304050102030405",
+        "ratchet": null,
+        "signature": "e4e34247ddedf24242d7f9210f54093459ba8589971884405c10655d8e5e69d4cab530e208a71c3267454f2ef76b2d3fa0a528b8ecf5a147ffb47ce15601e301",
+        "app_data": "",
+        "context_flag": 0
+      }
+    },
+    {
+      "id": "profile_0_packet_announce.announce.synthetic.app_data.0001",
+      "category": "announce",
+      "deterministic": true,
+      "private_test_material": true,
+      "inputs": {
+        "secret_identity": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        "app_name": "hyf",
+        "aspects": [
+          "announce"
+        ],
+        "app_data": "68796620616e6e6f756e6365206170702064617461",
+        "random_hash": "01020304050102030405"
+      },
+      "expected": {
+        "raw_packet": "010054664a7ce697fe2ae552af6fe4595fde008f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7cc320e7f81705ccb3cfe01020304050102030405deed98efafd34b32e0f903bc50a61540024c1e706dd4be388412376d842ab488105719ee28015b30097169aa6efb3ea0e56fc8822f2fe4bc0b00f41639425d0f68796620616e6e6f756e6365206170702064617461",
+        "destination_hash": "54664a7ce697fe2ae552af6fe4595fde",
+        "public_identity": "8f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7",
+        "name_hash": "cc320e7f81705ccb3cfe",
+        "random_hash": "01020304050102030405",
+        "ratchet": null,
+        "signature": "deed98efafd34b32e0f903bc50a61540024c1e706dd4be388412376d842ab488105719ee28015b30097169aa6efb3ea0e56fc8822f2fe4bc0b00f41639425d0f",
+        "app_data": "68796620616e6e6f756e6365206170702064617461",
+        "context_flag": 0
+      }
+    }
+  ]
+}

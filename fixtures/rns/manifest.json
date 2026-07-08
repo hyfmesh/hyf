@@ -25,6 +25,18 @@
       "category": "packet_hash",
       "case_count": 3,
       "sha256": "34b80cda8f1497c0bf47c67f3747b897ec0218c93824947c8f5af91fa806e5dc"
+    },
+    {
+      "file": "announce_vectors.json",
+      "category": "announce",
+      "case_count": 2,
+      "sha256": "1e8bea4f32af830de11519a1ef09a75b6652f76204678e55d748bd11db6db2ae"
+    },
+    {
+      "file": "announce_negative_vectors.json",
+      "category": "announce_negative",
+      "case_count": 7,
+      "sha256": "c89eb8fbb9b13b31cb85284a12ee473b23cde8aad8792325f535612c82eb9273"
     }
   ]
 }

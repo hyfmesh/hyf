@@ -191,6 +191,7 @@ pub enum FixtureError {
     MissingManifestEntry { file: String },
     ManifestEntryMismatch { file: String },
     ManifestChecksumMismatch { file: String },
+    UnexpectedFixtureValue { field: String, value: String },
 }
 
 impl From<serde_json::Error> for FixtureError {
