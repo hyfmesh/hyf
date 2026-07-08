@@ -239,6 +239,7 @@ fn hex_nibble(byte: u8) -> Result<u8, FixtureError> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum FixtureError {
     Json(String),
+    Core(hyf_rns_core::RnsCoreError),
     Crypto(hyf_rns_crypto::RnsCryptoError),
     Wire(hyf_rns_wire::RnsWireError),
     HexLength { actual: usize, expected: usize },
@@ -255,6 +256,12 @@ pub enum FixtureError {
 impl From<serde_json::Error> for FixtureError {
     fn from(error: serde_json::Error) -> Self {
         Self::Json(error.to_string())
+    }
+}
+
+impl From<hyf_rns_core::RnsCoreError> for FixtureError {
+    fn from(error: hyf_rns_core::RnsCoreError) -> Self {
+        Self::Core(error)
     }
 }
 

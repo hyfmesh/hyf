@@ -3,6 +3,8 @@ mod support;
 use support::{ExpectedManifestEntry, FixtureError, assert_exact_manifest_entries, parse_manifest};
 
 const IDENTITY_FIXTURE: &str = include_str!("../../../fixtures/rns/identity_vectors.json");
+const DESTINATION_HASH_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/destination_hash_vectors.json");
 const PACKET_HEADER_FIXTURE: &str =
     include_str!("../../../fixtures/rns/packet_header_vectors.json");
 const PACKET_HASH_FIXTURE: &str = include_str!("../../../fixtures/rns/packet_hash_vectors.json");
@@ -23,6 +25,12 @@ fn fixture_manifest_tracks_exact_profile_0_fixture_set() -> Result<(), FixtureEr
                 category: "identity_signature",
                 case_count: 1,
                 contents: IDENTITY_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "destination_hash_vectors.json",
+                category: "destination_hash",
+                case_count: 6,
+                contents: DESTINATION_HASH_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "packet_header_vectors.json",

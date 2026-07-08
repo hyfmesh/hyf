@@ -1,0 +1,114 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_0_packet_announce",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "id": "profile_0_packet_announce.destination_hash.synthetic.empty_app_plain.0001",
+      "category": "destination_hash",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "app_name": "",
+        "aspects": [],
+        "identity_hash": null
+      },
+      "expected": {
+        "expanded_name": "",
+        "name_hash": "e3b0c44298fc1c149afb",
+        "destination_hash": "0b51f5298214b78133462eedbe8422cd"
+      }
+    },
+    {
+      "id": "profile_0_packet_announce.destination_hash.synthetic.app_empty_aspect_plain.0001",
+      "category": "destination_hash",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "app_name": "app",
+        "aspects": [
+          ""
+        ],
+        "identity_hash": null
+      },
+      "expected": {
+        "expanded_name": "app.",
+        "name_hash": "1ef4a5d1b64f7326ee4c",
+        "destination_hash": "d6272b658bbba4179ccf69b87295edb9"
+      }
+    },
+    {
+      "id": "profile_0_packet_announce.destination_hash.synthetic.app_named_aspect_plain.0001",
+      "category": "destination_hash",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "app_name": "app",
+        "aspects": [
+          "aspect"
+        ],
+        "identity_hash": null
+      },
+      "expected": {
+        "expanded_name": "app.aspect",
+        "name_hash": "4b789e95ce3b6e81131b",
+        "destination_hash": "1a9c81928377f13973d475c0a1dcc5b3"
+      }
+    },
+    {
+      "id": "profile_0_packet_announce.destination_hash.synthetic.empty_app_identity_bound.0001",
+      "category": "destination_hash",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "app_name": "",
+        "aspects": [],
+        "identity_hash": "000102030405060708090a0b0c0d0e0f"
+      },
+      "expected": {
+        "expanded_name": "",
+        "name_hash": "e3b0c44298fc1c149afb",
+        "destination_hash": "26d51f1d948b26b972d3960dfd4e444c"
+      }
+    },
+    {
+      "id": "profile_0_packet_announce.destination_hash.synthetic.app_empty_aspect_identity_bound.0001",
+      "category": "destination_hash",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "app_name": "app",
+        "aspects": [
+          ""
+        ],
+        "identity_hash": "000102030405060708090a0b0c0d0e0f"
+      },
+      "expected": {
+        "expanded_name": "app.",
+        "name_hash": "1ef4a5d1b64f7326ee4c",
+        "destination_hash": "9968d536bc81410fd9265000704e3e55"
+      }
+    },
+    {
+      "id": "profile_0_packet_announce.destination_hash.synthetic.app_named_aspect_identity_bound.0001",
+      "category": "destination_hash",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "app_name": "app",
+        "aspects": [
+          "aspect"
+        ],
+        "identity_hash": "000102030405060708090a0b0c0d0e0f"
+      },
+      "expected": {
+        "expanded_name": "app.aspect",
+        "name_hash": "4b789e95ce3b6e81131b",
+        "destination_hash": "b77574ba433235a0c91e80b1ab3bec38"
+      }
+    }
+  ]
+}
