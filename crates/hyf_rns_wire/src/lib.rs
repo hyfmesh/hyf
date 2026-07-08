@@ -10,6 +10,7 @@ mod context;
 mod error;
 mod flags;
 mod packet;
+mod packet_hash;
 
 pub use context::{
     RNS_CONTEXT_CACHE_REQUEST, RNS_CONTEXT_CHANNEL, RNS_CONTEXT_COMMAND,
@@ -26,6 +27,7 @@ pub use flags::{
     decode_flags, encode_flags,
 };
 pub use packet::{RnsPacketRef, decode_packet, encode_packet};
+pub use packet_hash::{packet_hash, packet_truncated_hash, write_packet_hashable_part};
 
 #[cfg(test)]
 mod tests {
