@@ -25,7 +25,7 @@ pub use flags::{
     RnsDestinationType, RnsHeaderType, RnsPacketFlags, RnsPacketType, RnsTransportType,
     decode_flags, encode_flags,
 };
-pub use packet::{RnsPacketRef, decode_packet};
+pub use packet::{RnsPacketRef, decode_packet, encode_packet};
 
 #[cfg(test)]
 mod tests {

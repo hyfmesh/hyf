@@ -2,7 +2,7 @@ use hyf_rns_core::{
     RNS_HEADER_1_LEN, RNS_HEADER_2_LEN, RNS_MTU, RNS_TRUNCATED_HASH_LEN, RnsDestinationHash,
 };
 
-use crate::{RnsHeaderType, RnsPacketFlags, RnsWireError, decode_flags};
+use crate::{RnsHeaderType, RnsPacketFlags, RnsWireError, decode_flags, encode_flags};
 
 const FLAGS_INDEX: usize = 0;
 const HOPS_INDEX: usize = 1;
@@ -57,11 +57,87 @@ pub fn decode_packet(input: &[u8]) -> Result<RnsPacketRef<'_>, RnsWireError> {
     }
 }
 
+pub fn encode_packet(packet: RnsPacketRef<'_>, output: &mut [u8]) -> Result<usize, RnsWireError> {
+    let required = encoded_len(packet)?;
+    if output.len() < required {
+        return Err(RnsWireError::OutputBufferTooShort {
+            actual: output.len(),
+            required,
+        });
+    }
+    let transport_id = validate_transport_id(packet)?;
+
+    output[FLAGS_INDEX] = encode_flags(packet.flags);
+    output[HOPS_INDEX] = packet.hops;
+
+    match packet.flags.header_type {
+        RnsHeaderType::Header1 => encode_header_1_packet(packet, output),
+        RnsHeaderType::Header2 => {
+            let Some(transport_id) = transport_id else {
+                return Err(RnsWireError::MissingTransportId);
+            };
+            encode_header_2_packet(packet, output, transport_id);
+        }
+    }
+
+    Ok(required)
+}
+
+fn encoded_len(packet: RnsPacketRef<'_>) -> Result<usize, RnsWireError> {
+    let Some(required) = header_len(packet.flags.header_type).checked_add(packet.data.len()) else {
+        return Err(RnsWireError::PacketTooLarge {
+            actual: packet.data.len(),
+            maximum: RNS_MTU,
+        });
+    };
+
+    if required > RNS_MTU {
+        return Err(RnsWireError::PacketTooLarge {
+            actual: required,
+            maximum: RNS_MTU,
+        });
+    }
+
+    Ok(required)
+}
+
+fn validate_transport_id(
+    packet: RnsPacketRef<'_>,
+) -> Result<Option<[u8; RNS_TRUNCATED_HASH_LEN]>, RnsWireError> {
+    match (packet.flags.header_type, packet.transport_id) {
+        (RnsHeaderType::Header1, None) => Ok(None),
+        (RnsHeaderType::Header2, Some(transport_id)) => Ok(Some(transport_id)),
+        (RnsHeaderType::Header1, Some(_)) => Err(RnsWireError::UnexpectedTransportId),
+        (RnsHeaderType::Header2, None) => Err(RnsWireError::MissingTransportId),
+    }
+}
+
 const fn header_len(header_type: RnsHeaderType) -> usize {
     match header_type {
         RnsHeaderType::Header1 => RNS_HEADER_1_LEN,
         RnsHeaderType::Header2 => RNS_HEADER_2_LEN,
     }
+}
+
+fn encode_header_1_packet(packet: RnsPacketRef<'_>, output: &mut [u8]) {
+    output[HEADER_1_DESTINATION_START..HEADER_1_DESTINATION_END]
+        .copy_from_slice(packet.destination_hash.as_bytes());
+    output[HEADER_1_CONTEXT_INDEX] = packet.context;
+    output[HEADER_1_DATA_START..HEADER_1_DATA_START + packet.data.len()]
+        .copy_from_slice(packet.data);
+}
+
+fn encode_header_2_packet(
+    packet: RnsPacketRef<'_>,
+    output: &mut [u8],
+    transport_id: [u8; RNS_TRUNCATED_HASH_LEN],
+) {
+    output[HEADER_2_TRANSPORT_START..HEADER_2_TRANSPORT_END].copy_from_slice(&transport_id);
+    output[HEADER_2_DESTINATION_START..HEADER_2_DESTINATION_END]
+        .copy_from_slice(packet.destination_hash.as_bytes());
+    output[HEADER_2_CONTEXT_INDEX] = packet.context;
+    output[HEADER_2_DATA_START..HEADER_2_DATA_START + packet.data.len()]
+        .copy_from_slice(packet.data);
 }
 
 fn decode_header_1_packet<'a>(
@@ -106,9 +182,9 @@ fn read_truncated_hash(input: &[u8]) -> [u8; RNS_TRUNCATED_HASH_LEN] {
 
 #[cfg(test)]
 mod tests {
-    use hyf_rns_core::{RNS_HEADER_1_LEN, RNS_HEADER_2_LEN, RNS_MTU};
+    use hyf_rns_core::{RNS_HEADER_1_LEN, RNS_HEADER_2_LEN, RNS_MTU, RnsDestinationHash};
 
-    use super::decode_packet;
+    use super::{RnsPacketRef, decode_packet, encode_packet};
     use crate::{
         RNS_CONTEXT_NONE, RnsDestinationType, RnsHeaderType, RnsPacketFlags, RnsPacketType,
         RnsTransportType, RnsWireError, encode_flags,
@@ -208,6 +284,111 @@ mod tests {
         assert_eq!(
             decode_packet(&raw),
             Err(RnsWireError::UnsupportedPacketAccessCode)
+        );
+    }
+
+    #[test]
+    fn encodes_header_1_packet_and_roundtrips_decode() -> Result<(), RnsWireError> {
+        let raw = header_1_packet(&[0xde, 0xad, 0xbe, 0xef]);
+        let packet = decode_packet(&raw)?;
+        let mut output = [0; RNS_MTU];
+        let len = encode_packet(packet, &mut output)?;
+
+        assert_eq!(len, raw.len());
+        assert_eq!(&output[..len], raw.as_slice());
+        assert_eq!(decode_packet(&output[..len])?, packet);
+
+        Ok(())
+    }
+
+    #[test]
+    fn encodes_header_2_packet_and_roundtrips_decode() -> Result<(), RnsWireError> {
+        let raw = header_2_packet(&[0xde, 0xad]);
+        let packet = decode_packet(&raw)?;
+        let mut output = [0; RNS_MTU];
+        let len = encode_packet(packet, &mut output)?;
+
+        assert_eq!(len, raw.len());
+        assert_eq!(&output[..len], raw.as_slice());
+        assert_eq!(decode_packet(&output[..len])?, packet);
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_rejects_missing_header_2_transport_id() {
+        let data = [];
+        let packet = RnsPacketRef {
+            flags: header_2_flags(),
+            hops: 0,
+            transport_id: None,
+            destination_hash: RnsDestinationHash::new([0x33; 16]),
+            context: RNS_CONTEXT_NONE,
+            data: &data,
+        };
+        let mut output = [0; RNS_MTU];
+
+        assert_eq!(
+            encode_packet(packet, &mut output),
+            Err(RnsWireError::MissingTransportId)
+        );
+    }
+
+    #[test]
+    fn encode_rejects_unexpected_header_1_transport_id() {
+        let data = [];
+        let packet = RnsPacketRef {
+            flags: header_1_flags(),
+            hops: 0,
+            transport_id: Some([0x22; 16]),
+            destination_hash: RnsDestinationHash::new([0x11; 16]),
+            context: RNS_CONTEXT_NONE,
+            data: &data,
+        };
+        let mut output = [0; RNS_MTU];
+
+        assert_eq!(
+            encode_packet(packet, &mut output),
+            Err(RnsWireError::UnexpectedTransportId)
+        );
+    }
+
+    #[test]
+    fn encode_rejects_output_buffers_that_are_too_short() -> Result<(), RnsWireError> {
+        let raw = header_1_packet(&[0xde, 0xad]);
+        let packet = decode_packet(&raw)?;
+        let mut output = [0; RNS_HEADER_1_LEN + 1];
+
+        assert_eq!(
+            encode_packet(packet, &mut output),
+            Err(RnsWireError::OutputBufferTooShort {
+                actual: RNS_HEADER_1_LEN + 1,
+                required: raw.len(),
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_rejects_packets_larger_than_mtu() {
+        let data = [0; RNS_MTU];
+        let packet = RnsPacketRef {
+            flags: header_1_flags(),
+            hops: 0,
+            transport_id: None,
+            destination_hash: RnsDestinationHash::new([0x11; 16]),
+            context: RNS_CONTEXT_NONE,
+            data: &data,
+        };
+        let mut output = [0; RNS_MTU + RNS_HEADER_1_LEN];
+
+        assert_eq!(
+            encode_packet(packet, &mut output),
+            Err(RnsWireError::PacketTooLarge {
+                actual: RNS_MTU + RNS_HEADER_1_LEN,
+                maximum: RNS_MTU,
+            })
         );
     }
 
