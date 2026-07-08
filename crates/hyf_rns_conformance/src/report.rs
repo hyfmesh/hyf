@@ -18,9 +18,11 @@ pub struct ConformanceRun {
 }
 
 impl ConformanceRun {
-    pub fn profile_0(
+    pub fn new_profile(
+        profile: impl Into<String>,
         run_id: impl Into<String>,
         hyf_commit: impl Into<String>,
+        reticulum_commit: impl Into<String>,
         started_at: impl Into<String>,
         environment: ConformanceEnvironment,
         results: Vec<ConformanceResult>,
@@ -28,13 +30,31 @@ impl ConformanceRun {
         Self {
             schema: CONFORMANCE_RUN_SCHEMA.to_owned(),
             run_id: run_id.into(),
-            profile: EXPECTED_PROFILE.to_owned(),
+            profile: profile.into(),
             hyf_commit: hyf_commit.into(),
-            reticulum_commit: EXPECTED_RETICULUM_COMMIT.to_owned(),
+            reticulum_commit: reticulum_commit.into(),
             started_at: started_at.into(),
             environment,
             results,
         }
+    }
+
+    pub fn profile_0(
+        run_id: impl Into<String>,
+        hyf_commit: impl Into<String>,
+        started_at: impl Into<String>,
+        environment: ConformanceEnvironment,
+        results: Vec<ConformanceResult>,
+    ) -> Self {
+        Self::new_profile(
+            EXPECTED_PROFILE,
+            run_id,
+            hyf_commit,
+            EXPECTED_RETICULUM_COMMIT,
+            started_at,
+            environment,
+            results,
+        )
     }
 }
 
@@ -164,7 +184,9 @@ mod tests {
         CONFORMANCE_RUN_SCHEMA, ConformanceEnvironment, ConformanceResult, ConformanceRun,
         OracleEnvironment,
     };
-    use crate::fixtures::{EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT};
+    use crate::fixtures::{
+        EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT, PROFILE_1_KISS_RNODE, PROFILE_2_CRYPTO_IFAC,
+    };
     use crate::profile0::{REQUIRED_PROFILE_0_RESULT_CATEGORIES, REQUIRED_PROFILE_0_RESULTS};
 
     #[test]
@@ -213,6 +235,26 @@ mod tests {
     }
 
     #[test]
+    fn report_model_builds_non_profile_0_runs() {
+        let report = ConformanceRun::new_profile(
+            PROFILE_1_KISS_RNODE,
+            "profile1-local-0001",
+            "c05d4d5b6e6ba1a009890eb773fa78d3d1c0daeb",
+            EXPECTED_RETICULUM_COMMIT,
+            "2026-07-08T00:00:00Z",
+            ConformanceEnvironment::new("macos", "aarch64", "rustup 1.92.0"),
+            vec![ConformanceResult::passed(
+                "profile_1_kiss_rnode.fixture_manifest",
+                "fixture_manifest",
+            )],
+        );
+
+        assert_eq!(report.schema, CONFORMANCE_RUN_SCHEMA);
+        assert_eq!(report.profile, PROFILE_1_KISS_RNODE);
+        assert_eq!(report.reticulum_commit, EXPECTED_RETICULUM_COMMIT);
+    }
+
+    #[test]
     fn conformance_run_schema_records_expected_required_fields() -> Result<(), serde_json::Error> {
         let schema: Value =
             serde_json::from_str(include_str!("../../../schemas/conformance_run.schema.json"))?;
@@ -221,7 +263,14 @@ mod tests {
             schema["properties"]["schema"]["const"],
             CONFORMANCE_RUN_SCHEMA
         );
-        assert_eq!(schema["properties"]["profile"]["const"], EXPECTED_PROFILE);
+        assert_eq!(
+            schema["properties"]["profile"]["enum"],
+            json!([
+                EXPECTED_PROFILE,
+                PROFILE_1_KISS_RNODE,
+                PROFILE_2_CRYPTO_IFAC
+            ])
+        );
         assert_eq!(
             schema["properties"]["hyf_commit"]["pattern"],
             "^[0-9a-f]{40}$"

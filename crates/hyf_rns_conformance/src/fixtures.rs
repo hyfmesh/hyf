@@ -6,7 +6,10 @@ use serde::{Deserialize, de::DeserializeOwned};
 pub const EXPECTED_FIXTURE_SCHEMA: &str = "hyf.rns.fixture_case.v1";
 pub const EXPECTED_FIXTURE_CASES_SCHEMA: &str = "hyf.rns.fixture_cases.v1";
 pub const EXPECTED_MANIFEST_SCHEMA: &str = "hyf.rns.fixture_manifest.v1";
-pub const EXPECTED_PROFILE: &str = "profile_0_packet_announce";
+pub const PROFILE_0_PACKET_ANNOUNCE: &str = "profile_0_packet_announce";
+pub const PROFILE_1_KISS_RNODE: &str = "profile_1_kiss_rnode";
+pub const PROFILE_2_CRYPTO_IFAC: &str = "profile_2_crypto_ifac";
+pub const EXPECTED_PROFILE: &str = PROFILE_0_PACKET_ANNOUNCE;
 pub const EXPECTED_RETICULUM_COMMIT: &str = "422dc05549bf28f45e9b9c5172336a1ba4df0ec0";
 pub const EXPECTED_RETICULUM_REPO: &str = "https://github.com/markqvist/Reticulum";
 
@@ -65,10 +68,20 @@ pub fn parse_fixture_case<T>(contents: &str) -> Result<FixtureFile<T>, FixtureEr
 where
     T: DeserializeOwned,
 {
+    parse_fixture_case_for_profile(contents, EXPECTED_PROFILE)
+}
+
+pub fn parse_fixture_case_for_profile<T>(
+    contents: &str,
+    expected_profile: &'static str,
+) -> Result<FixtureFile<T>, FixtureError>
+where
+    T: DeserializeOwned,
+{
     let fixture: FixtureFile<T> = serde_json::from_str(contents)?;
 
     validate_schema(&fixture.schema, EXPECTED_FIXTURE_SCHEMA)?;
-    validate_profile(&fixture.profile)?;
+    validate_profile(&fixture.profile, expected_profile)?;
     validate_reticulum_provenance(&fixture.reticulum)?;
 
     Ok(fixture)
@@ -78,20 +91,37 @@ pub fn parse_fixture_cases<T>(contents: &str) -> Result<FixtureCasesFile<T>, Fix
 where
     T: DeserializeOwned,
 {
+    parse_fixture_cases_for_profile(contents, EXPECTED_PROFILE)
+}
+
+pub fn parse_fixture_cases_for_profile<T>(
+    contents: &str,
+    expected_profile: &'static str,
+) -> Result<FixtureCasesFile<T>, FixtureError>
+where
+    T: DeserializeOwned,
+{
     let fixture: FixtureCasesFile<T> = serde_json::from_str(contents)?;
 
     validate_schema(&fixture.schema, EXPECTED_FIXTURE_CASES_SCHEMA)?;
-    validate_profile(&fixture.profile)?;
+    validate_profile(&fixture.profile, expected_profile)?;
     validate_reticulum_provenance(&fixture.reticulum)?;
 
     Ok(fixture)
 }
 
 pub fn parse_manifest(contents: &str) -> Result<ManifestFile, FixtureError> {
+    parse_manifest_for_profile(contents, EXPECTED_PROFILE)
+}
+
+pub fn parse_manifest_for_profile(
+    contents: &str,
+    expected_profile: &'static str,
+) -> Result<ManifestFile, FixtureError> {
     let manifest: ManifestFile = serde_json::from_str(contents)?;
 
     validate_schema(&manifest.schema, EXPECTED_MANIFEST_SCHEMA)?;
-    validate_profile(&manifest.profile)?;
+    validate_profile(&manifest.profile, expected_profile)?;
     validate_reticulum_provenance(&manifest.reticulum)?;
     validate_manifest_metadata("generated_by", &manifest.generated_by)?;
     validate_manifest_metadata("generated_at", &manifest.generated_at)?;
@@ -110,14 +140,14 @@ fn validate_schema(actual: &str, expected: &'static str) -> Result<(), FixtureEr
     })
 }
 
-fn validate_profile(actual: &str) -> Result<(), FixtureError> {
-    if actual == EXPECTED_PROFILE {
+fn validate_profile(actual: &str, expected_profile: &'static str) -> Result<(), FixtureError> {
+    if actual == expected_profile {
         return Ok(());
     }
 
     Err(FixtureError::ProfileMismatch {
         actual: actual.to_owned(),
-        expected: EXPECTED_PROFILE,
+        expected: expected_profile,
     })
 }
 

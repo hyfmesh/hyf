@@ -23,7 +23,11 @@
       "minLength": 1
     },
     "profile": {
-      "const": "profile_0_packet_announce"
+      "enum": [
+        "profile_0_packet_announce",
+        "profile_1_kiss_rnode",
+        "profile_2_crypto_ifac"
+      ]
     },
     "hyf_commit": {
       "type": "string",

@@ -1,0 +1,11 @@
+{
+  "schema": "hyf.rns.fixture_manifest.v1",
+  "profile": "profile_2_crypto_ifac",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "generated_by": "tools/rns_oracle",
+  "generated_at": "2026-07-08T00:00:00Z",
+  "fixtures": []
+}
