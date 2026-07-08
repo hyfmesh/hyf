@@ -339,6 +339,9 @@ fn is_final_started_at(timestamp: &str) -> bool {
         return false;
     }
 
+    let Some(year) = parse_four_digits(&bytes[0..4]) else {
+        return false;
+    };
     let Some(month) = parse_two_digits(&bytes[5..7]) else {
         return false;
     };
@@ -355,11 +358,24 @@ fn is_final_started_at(timestamp: &str) -> bool {
         return false;
     };
 
-    (1..=12).contains(&month)
-        && (1..=31).contains(&day)
-        && hour <= 23
-        && minute <= 59
-        && second <= 59
+    let Some(max_day) = days_in_month(year, month) else {
+        return false;
+    };
+
+    (1..=max_day).contains(&day) && hour <= 23 && minute <= 59 && second <= 59
+}
+
+fn parse_four_digits(bytes: &[u8]) -> Option<u16> {
+    if bytes.len() != 4 || bytes.iter().any(|byte| !byte.is_ascii_digit()) {
+        return None;
+    }
+
+    Some(
+        u16::from(bytes[0] - b'0') * 1000
+            + u16::from(bytes[1] - b'0') * 100
+            + u16::from(bytes[2] - b'0') * 10
+            + u16::from(bytes[3] - b'0'),
+    )
 }
 
 fn parse_two_digits(bytes: &[u8]) -> Option<u8> {
@@ -368,6 +384,20 @@ fn parse_two_digits(bytes: &[u8]) -> Option<u8> {
     }
 
     Some((bytes[0] - b'0') * 10 + (bytes[1] - b'0'))
+}
+
+fn days_in_month(year: u16, month: u8) -> Option<u8> {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
+        4 | 6 | 9 | 11 => Some(30),
+        2 if is_leap_year(year) => Some(29),
+        2 => Some(28),
+        _ => None,
+    }
+}
+
+const fn is_leap_year(year: u16) -> bool {
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn required_string_is_populated(value: &str) -> bool {
@@ -1113,6 +1143,39 @@ mod tests {
     fn final_profile0_validator_rejects_malformed_started_at() -> Result<(), serde_json::Error> {
         let mut report = valid_final_report();
         report.started_at = "2026-07-08 00:00:00".to_owned();
+
+        assert_final_report_invalid(&report, "invalid started_at")
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_impossible_started_at_dates()
+    -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.started_at = "2026-02-31T00:00:00Z".to_owned();
+        assert_final_report_invalid(&report, "invalid started_at")?;
+
+        let mut report = valid_final_report();
+        report.started_at = "2026-02-29T00:00:00Z".to_owned();
+        assert_final_report_invalid(&report, "invalid started_at")?;
+
+        let mut report = valid_final_report();
+        report.started_at = "2026-04-31T00:00:00Z".to_owned();
+        assert_final_report_invalid(&report, "invalid started_at")
+    }
+
+    #[test]
+    fn final_profile0_validator_accepts_leap_day_started_at() -> Result<(), CliError> {
+        let mut report = valid_final_report();
+        report.started_at = "2024-02-29T00:00:00Z".to_owned();
+        let input = serde_json::to_vec(&report)?;
+
+        validate_report_bytes(&input, true, None).map(|_| ())
+    }
+
+    #[test]
+    fn final_profile0_validator_rejects_non_utc_started_at() -> Result<(), serde_json::Error> {
+        let mut report = valid_final_report();
+        report.started_at = "2026-07-08T00:00:00+00:00".to_owned();
 
         assert_final_report_invalid(&report, "invalid started_at")
     }
