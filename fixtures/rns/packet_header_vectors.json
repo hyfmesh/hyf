@@ -1,0 +1,56 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_0_packet_announce",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "id": "profile_0_packet_announce.packet_header.synthetic.header1.0001",
+      "category": "packet_header",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "description": "synthetic Reticulum Packet.pack() header vector"
+      },
+      "expected": {
+        "raw_packet": "00001112131415161718191a1b1c1d1e1f20006865616465722d6f6e65",
+        "flags": "00",
+        "hops": 0,
+        "header_type": 0,
+        "context_flag": 0,
+        "transport_type": 0,
+        "destination_type": 0,
+        "packet_type": 0,
+        "transport_id": null,
+        "destination_hash": "1112131415161718191a1b1c1d1e1f20",
+        "context": "00",
+        "data": "6865616465722d6f6e65"
+      }
+    },
+    {
+      "id": "profile_0_packet_announce.packet_header.synthetic.header2.0001",
+      "category": "packet_header",
+      "deterministic": true,
+      "private_test_material": false,
+      "inputs": {
+        "description": "synthetic Reticulum Packet.pack() header vector"
+      },
+      "expected": {
+        "raw_packet": "75003132333435363738393a3b3c3d3e3f402122232425262728292a2b2c2d2e2f300b6865616465722d74776f",
+        "flags": "75",
+        "hops": 0,
+        "header_type": 1,
+        "context_flag": 1,
+        "transport_type": 1,
+        "destination_type": 1,
+        "packet_type": 1,
+        "transport_id": "3132333435363738393a3b3c3d3e3f40",
+        "destination_hash": "2122232425262728292a2b2c2d2e2f30",
+        "context": "0b",
+        "data": "6865616465722d74776f"
+      }
+    }
+  ]
+}

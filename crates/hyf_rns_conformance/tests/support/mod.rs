@@ -1,7 +1,10 @@
+#![allow(dead_code)]
+
 use hyf_rns_core::full_hash;
 use serde::{Deserialize, de::DeserializeOwned};
 
 pub const EXPECTED_FIXTURE_SCHEMA: &str = "hyf.rns.fixture_case.v1";
+pub const EXPECTED_FIXTURE_CASES_SCHEMA: &str = "hyf.rns.fixture_cases.v1";
 pub const EXPECTED_MANIFEST_SCHEMA: &str = "hyf.rns.fixture_manifest.v1";
 pub const EXPECTED_PROFILE: &str = "profile_0_packet_announce";
 pub const EXPECTED_RETICULUM_COMMIT: &str = "422dc05549bf28f45e9b9c5172336a1ba4df0ec0";
@@ -16,6 +19,14 @@ pub struct FixtureFile<T> {
     pub profile: String,
     pub reticulum: ReticulumProvenance,
     pub case: T,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FixtureCasesFile<T> {
+    pub schema: String,
+    pub profile: String,
+    pub reticulum: ReticulumProvenance,
+    pub cases: Vec<T>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +60,19 @@ where
     let fixture: FixtureFile<T> = serde_json::from_str(contents)?;
 
     assert_eq!(fixture.schema, EXPECTED_FIXTURE_SCHEMA);
+    assert_eq!(fixture.profile, EXPECTED_PROFILE);
+    assert_reticulum_provenance(&fixture.reticulum);
+
+    Ok(fixture)
+}
+
+pub fn parse_fixture_cases<T>(contents: &str) -> Result<FixtureCasesFile<T>, FixtureError>
+where
+    T: DeserializeOwned,
+{
+    let fixture: FixtureCasesFile<T> = serde_json::from_str(contents)?;
+
+    assert_eq!(fixture.schema, EXPECTED_FIXTURE_CASES_SCHEMA);
     assert_eq!(fixture.profile, EXPECTED_PROFILE);
     assert_reticulum_provenance(&fixture.reticulum);
 
@@ -150,6 +174,7 @@ fn hex_nibble(byte: u8) -> Result<u8, FixtureError> {
 pub enum FixtureError {
     Json(String),
     Crypto(hyf_rns_crypto::RnsCryptoError),
+    Wire(hyf_rns_wire::RnsWireError),
     HexLength { actual: usize, expected: usize },
     InvalidHex,
     OddHexLength,
@@ -167,6 +192,12 @@ impl From<serde_json::Error> for FixtureError {
 impl From<hyf_rns_crypto::RnsCryptoError> for FixtureError {
     fn from(error: hyf_rns_crypto::RnsCryptoError) -> Self {
         Self::Crypto(error)
+    }
+}
+
+impl From<hyf_rns_wire::RnsWireError> for FixtureError {
+    fn from(error: hyf_rns_wire::RnsWireError) -> Self {
+        Self::Wire(error)
     }
 }
 

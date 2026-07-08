@@ -5,7 +5,7 @@
     "repo": "https://github.com/markqvist/Reticulum",
     "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
   },
-  "generated_by": "hyf_rns_conformance phase06 oracle probe",
+  "generated_by": "hyf_rns_conformance phase07 oracle probe",
   "generated_at": "2026-07-08T00:00:00Z",
   "fixtures": [
     {
@@ -13,6 +13,12 @@
       "category": "identity_signature",
       "case_count": 1,
       "sha256": "f10105e7a61465b168c81c707fc736465781a26a0bbe4451f5a0444b841909c6"
+    },
+    {
+      "file": "packet_header_vectors.json",
+      "category": "packet_header",
+      "case_count": 2,
+      "sha256": "4070173cbebefd019523e0daa078c1ff50c39a9250f2a445c9702ba3cf81395b"
     }
   ]
 }

@@ -77,7 +77,6 @@ fn identity_fixture_matches_reticulum_oracle() -> Result<(), FixtureError> {
 fn fixture_manifest_tracks_identity_vector() -> Result<(), FixtureError> {
     let manifest = parse_manifest(MANIFEST)?;
 
-    assert_eq!(manifest.fixtures.len(), 1);
     assert_manifest_entry(
         &manifest,
         "identity_vectors.json",
