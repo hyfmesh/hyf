@@ -42,6 +42,7 @@ pub fn secret_identity() -> Result<RnsSecretIdentity, FixtureError> {
 mod tests {
     use std::path::Path;
     use std::process::Command;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
@@ -71,6 +72,7 @@ mod tests {
         "fuzz/corpus/fuzz_rns_packet_hash/header2_transport_b",
         "fuzz/corpus/fuzz_rns_packet_hash/too_short",
     ];
+    static TEST_PATH_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn benchmark_fixture_inputs_decode_and_secret_identity_parses() {
@@ -160,9 +162,10 @@ mod tests {
 
     fn unique_test_path() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let counter = TEST_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
         Ok(std::env::temp_dir().join(format!(
-            "hyf-copy-tracked-corpus-{}-{nanos}",
-            std::process::id()
+            "hyf-copy-tracked-corpus-{}-{counter}-{nanos}",
+            std::process::id(),
         )))
     }
 }
