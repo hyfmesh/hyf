@@ -26,8 +26,13 @@ fi
 mkdir -p "$destination_root"
 git -C "$repo_root" ls-files -- "fuzz/corpus/$target" > "$tracked_list"
 
-if [ ! -s "$tracked_list" ]; then
+cleanup_created_destination() {
     rm -f "$tracked_list"
+    rm -rf "$destination_root"
+}
+
+if [ ! -s "$tracked_list" ]; then
+    cleanup_created_destination
     echo "no tracked corpus seeds for fuzz target: $target" >&2
     exit 1
 fi
@@ -36,7 +41,7 @@ while IFS= read -r path; do
     case "$path" in
         fuzz/corpus/"$target"/*) ;;
         *)
-            rm -f "$tracked_list"
+            cleanup_created_destination
             echo "unexpected tracked corpus path: $path" >&2
             exit 1
             ;;

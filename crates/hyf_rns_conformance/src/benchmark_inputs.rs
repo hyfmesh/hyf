@@ -134,6 +134,27 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn tracked_fuzz_corpus_copy_cleans_empty_destination_for_missing_target()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let destination_root = unique_test_path()?;
+
+        let output = Command::new("sh")
+            .arg("fuzz/copy_tracked_corpus.sh")
+            .arg("fuzz_rns_missing_target")
+            .arg(&destination_root)
+            .current_dir(repo_root)
+            .output()?;
+        let destination_exists = destination_root.exists();
+        let _ = std::fs::remove_dir_all(&destination_root);
+
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("no tracked corpus seeds"));
+        assert!(!destination_exists);
+        Ok(())
+    }
+
     fn unique_test_path() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
         Ok(std::env::temp_dir().join(format!(
