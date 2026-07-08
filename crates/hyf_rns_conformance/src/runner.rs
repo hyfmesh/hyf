@@ -63,7 +63,7 @@ pub fn fixture_result(
 ) -> ConformanceResult {
     match result {
         Ok(()) => passed_result(id, category),
-        Err(error) => failed_result(id, category, format!("{error:?}")),
+        Err(error) => failed_result(id, category, error.to_string()),
     }
 }
 
@@ -134,6 +134,6 @@ mod tests {
         assert_eq!(passed.status, ConformanceStatus::Passed);
         assert_eq!(passed.detail, None);
         assert_eq!(failed.status, ConformanceStatus::Failed);
-        assert_eq!(failed.detail.as_deref(), Some("InvalidHex"));
+        assert_eq!(failed.detail.as_deref(), Some("invalid hex"));
     }
 }

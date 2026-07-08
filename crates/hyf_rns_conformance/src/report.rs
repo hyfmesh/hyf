@@ -167,9 +167,9 @@ mod tests {
         let environment = ConformanceEnvironment::new("macos", "aarch64", "rustup 1.92.0")
             .with_oracle(
                 OracleEnvironment::new(
-                    "../refs/Reticulum/RNS/__init__.py",
+                    ".oracle/Reticulum/RNS/__init__.py",
                     EXPECTED_RETICULUM_COMMIT,
-                    "44.0.0",
+                    "49.0.0",
                     "3.5",
                 )
                 .with_rns_version("0.9.4"),

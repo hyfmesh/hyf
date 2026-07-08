@@ -1,3 +1,5 @@
+use std::fmt;
+
 use hyf_rns_core::full_hash;
 use serde::{Deserialize, de::DeserializeOwned};
 
@@ -360,6 +362,75 @@ impl From<hyf_rns_wire::RnsWireError> for FixtureError {
         Self::Wire(error)
     }
 }
+
+impl fmt::Display for FixtureError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Json(error) => write!(formatter, "json error: {error}"),
+            Self::Core(error) => write!(formatter, "core error: {error:?}"),
+            Self::Crypto(error) => write!(formatter, "crypto error: {error:?}"),
+            Self::Wire(error) => write!(formatter, "wire error: {error:?}"),
+            Self::SchemaMismatch { actual, expected } => {
+                write!(
+                    formatter,
+                    "schema mismatch: expected {expected}, got {actual}"
+                )
+            }
+            Self::ProfileMismatch { actual, expected } => {
+                write!(
+                    formatter,
+                    "profile mismatch: expected {expected}, got {actual}"
+                )
+            }
+            Self::ReticulumRepoMismatch { actual, expected } => {
+                write!(
+                    formatter,
+                    "Reticulum repo mismatch: expected {expected}, got {actual}"
+                )
+            }
+            Self::InvalidReticulumCommit { commit } => {
+                write!(formatter, "invalid Reticulum commit: {commit}")
+            }
+            Self::ReticulumCommitMismatch { actual, expected } => {
+                write!(
+                    formatter,
+                    "Reticulum commit mismatch: expected {expected}, got {actual}"
+                )
+            }
+            Self::MissingManifestMetadata { field } => {
+                write!(formatter, "missing manifest metadata: {field}")
+            }
+            Self::HexLength { actual, expected } => {
+                write!(
+                    formatter,
+                    "hex length mismatch: expected {expected} bytes, got {actual}"
+                )
+            }
+            Self::InvalidHex => formatter.write_str("invalid hex"),
+            Self::OddHexLength => formatter.write_str("odd hex length"),
+            Self::MissingManifestEntry { file } => {
+                write!(formatter, "missing manifest entry: {file}")
+            }
+            Self::DuplicateManifestEntry { file } => {
+                write!(formatter, "duplicate manifest entry: {file}")
+            }
+            Self::UnexpectedManifestEntry { file } => {
+                write!(formatter, "unexpected manifest entry: {file}")
+            }
+            Self::ManifestEntryMismatch { file } => {
+                write!(formatter, "manifest entry mismatch: {file}")
+            }
+            Self::ManifestChecksumMismatch { file } => {
+                write!(formatter, "manifest checksum mismatch: {file}")
+            }
+            Self::UnexpectedFixtureValue { field, value } => {
+                write!(formatter, "unexpected fixture value for {field}: {value}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for FixtureError {}
 
 #[cfg(test)]
 mod tests {
