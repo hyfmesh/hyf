@@ -377,13 +377,24 @@ mod tests {
         {
             assert_eq!(*expected_id, actual_id);
             assert_eq!(*expected_category, actual_category);
+            assert!(schema["$defs"][*def_name].get("$ref").is_none());
             assert_eq!(
-                schema["$defs"][*def_name]["properties"]["id"]["const"],
-                actual_id
-            );
-            assert_eq!(
-                schema["$defs"][*def_name]["properties"]["category"]["const"],
-                actual_category
+                schema["$defs"][*def_name]["allOf"],
+                json!([
+                    {
+                        "$ref": "#/$defs/result_pair"
+                    },
+                    {
+                        "properties": {
+                            "id": {
+                                "const": actual_id
+                            },
+                            "category": {
+                                "const": actual_category
+                            }
+                        }
+                    }
+                ])
             );
         }
 

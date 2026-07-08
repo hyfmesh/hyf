@@ -218,103 +218,157 @@
       }
     },
     "result_fixture_manifest": {
-      "$ref": "#/$defs/result_pair",
-      "properties": {
-        "id": {
-          "const": "profile_0_packet_announce.fixture_manifest"
+      "allOf": [
+        {
+          "$ref": "#/$defs/result_pair"
         },
-        "category": {
-          "const": "fixture_manifest"
+        {
+          "properties": {
+            "id": {
+              "const": "profile_0_packet_announce.fixture_manifest"
+            },
+            "category": {
+              "const": "fixture_manifest"
+            }
+          }
         }
-      }
+      ]
     },
     "result_identity_signature": {
-      "$ref": "#/$defs/result_pair",
-      "properties": {
-        "id": {
-          "const": "profile_0_packet_announce.identity_signature"
+      "allOf": [
+        {
+          "$ref": "#/$defs/result_pair"
         },
-        "category": {
-          "const": "identity_signature"
+        {
+          "properties": {
+            "id": {
+              "const": "profile_0_packet_announce.identity_signature"
+            },
+            "category": {
+              "const": "identity_signature"
+            }
+          }
         }
-      }
+      ]
     },
     "result_destination_hash": {
-      "$ref": "#/$defs/result_pair",
-      "properties": {
-        "id": {
-          "const": "profile_0_packet_announce.destination_hash"
+      "allOf": [
+        {
+          "$ref": "#/$defs/result_pair"
         },
-        "category": {
-          "const": "destination_hash"
+        {
+          "properties": {
+            "id": {
+              "const": "profile_0_packet_announce.destination_hash"
+            },
+            "category": {
+              "const": "destination_hash"
+            }
+          }
         }
-      }
+      ]
     },
     "result_packet_header": {
-      "$ref": "#/$defs/result_pair",
-      "properties": {
-        "id": {
-          "const": "profile_0_packet_announce.packet_header"
+      "allOf": [
+        {
+          "$ref": "#/$defs/result_pair"
         },
-        "category": {
-          "const": "packet_header"
+        {
+          "properties": {
+            "id": {
+              "const": "profile_0_packet_announce.packet_header"
+            },
+            "category": {
+              "const": "packet_header"
+            }
+          }
         }
-      }
+      ]
     },
     "result_packet_hash": {
-      "$ref": "#/$defs/result_pair",
-      "properties": {
-        "id": {
-          "const": "profile_0_packet_announce.packet_hash"
+      "allOf": [
+        {
+          "$ref": "#/$defs/result_pair"
         },
-        "category": {
-          "const": "packet_hash"
+        {
+          "properties": {
+            "id": {
+              "const": "profile_0_packet_announce.packet_hash"
+            },
+            "category": {
+              "const": "packet_hash"
+            }
+          }
         }
-      }
+      ]
     },
     "result_announce": {
-      "$ref": "#/$defs/result_pair",
-      "properties": {
-        "id": {
-          "const": "profile_0_packet_announce.announce"
+      "allOf": [
+        {
+          "$ref": "#/$defs/result_pair"
         },
-        "category": {
-          "const": "announce"
+        {
+          "properties": {
+            "id": {
+              "const": "profile_0_packet_announce.announce"
+            },
+            "category": {
+              "const": "announce"
+            }
+          }
         }
-      }
+      ]
     },
     "result_announce_negative": {
-      "$ref": "#/$defs/result_pair",
-      "properties": {
-        "id": {
-          "const": "profile_0_packet_announce.announce_negative"
+      "allOf": [
+        {
+          "$ref": "#/$defs/result_pair"
         },
-        "category": {
-          "const": "announce_negative"
+        {
+          "properties": {
+            "id": {
+              "const": "profile_0_packet_announce.announce_negative"
+            },
+            "category": {
+              "const": "announce_negative"
+            }
+          }
         }
-      }
+      ]
     },
     "result_python_oracle_packet": {
-      "$ref": "#/$defs/result_pair",
-      "properties": {
-        "id": {
-          "const": "profile_0_packet_announce.python_oracle.packet"
+      "allOf": [
+        {
+          "$ref": "#/$defs/result_pair"
         },
-        "category": {
-          "const": "python_oracle_packet"
+        {
+          "properties": {
+            "id": {
+              "const": "profile_0_packet_announce.python_oracle.packet"
+            },
+            "category": {
+              "const": "python_oracle_packet"
+            }
+          }
         }
-      }
+      ]
     },
     "result_python_oracle_announce": {
-      "$ref": "#/$defs/result_pair",
-      "properties": {
-        "id": {
-          "const": "profile_0_packet_announce.python_oracle.announce"
+      "allOf": [
+        {
+          "$ref": "#/$defs/result_pair"
         },
-        "category": {
-          "const": "python_oracle_announce"
+        {
+          "properties": {
+            "id": {
+              "const": "profile_0_packet_announce.python_oracle.announce"
+            },
+            "category": {
+              "const": "python_oracle_announce"
+            }
+          }
         }
-      }
+      ]
     },
     "result_pair": {
       "type": "object",
