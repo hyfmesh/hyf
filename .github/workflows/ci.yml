@@ -8,6 +8,7 @@ on:
       - master
 
 env:
+  CARGO_FUZZ_VERSION: 0.13.2
   CARGO_TERM_COLOR: always
   RETICULUM_COMMIT: 422dc05549bf28f45e9b9c5172336a1ba4df0ec0
   RUST_TOOLCHAIN: 1.92.0
@@ -113,3 +114,33 @@ jobs:
         env:
           HYF_RETICULUM_PATH: .oracle/Reticulum
         run: rustup run "$RUST_TOOLCHAIN" cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  fuzz:
+    name: fuzz target build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup toolchain install nightly --profile minimal
+      - name: Install cargo-fuzz
+        run: rustup run "$RUST_TOOLCHAIN" cargo install cargo-fuzz --locked --version "$CARGO_FUZZ_VERSION"
+      - name: Resolve nightly rustc
+        run: |
+          rustc_path="$(rustup which --toolchain nightly rustc)"
+          echo "RUSTC=$rustc_path" >> "$GITHUB_ENV"
+      - name: Build fuzz targets
+        run: cargo fuzz build
+
+  benchmarks:
+    name: benchmark compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - name: Compile benchmarks
+        run: rustup run "$RUST_TOOLCHAIN" cargo bench -p hyf_rns_conformance --no-run
