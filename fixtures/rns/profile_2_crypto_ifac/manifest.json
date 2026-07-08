@@ -25,6 +25,18 @@
       "category": "token_negative",
       "case_count": 1,
       "sha256": "37323d018da98fe83d6475ca90f6db97875dbcc38f8f5b17284701102a15374f"
+    },
+    {
+      "file": "identity_encrypt_vectors.json",
+      "category": "identity_encrypt",
+      "case_count": 1,
+      "sha256": "a04695297eeda51cd270f446506e344913164e0cb7db637d0ada9e8b6885d25d"
+    },
+    {
+      "file": "identity_decrypt_vectors.json",
+      "category": "identity_decrypt",
+      "case_count": 2,
+      "sha256": "21f0a5f25e7b46a85601450ab551aa04060f23c2f57805936e3b4ad4c1680ee5"
     }
   ]
 }

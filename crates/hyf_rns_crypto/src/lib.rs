@@ -13,6 +13,8 @@ mod identity;
 #[cfg(feature = "crypto_token")]
 mod pkcs7;
 mod signing;
+#[cfg(feature = "crypto_x25519")]
+mod single_packet;
 #[cfg(feature = "crypto_token")]
 mod token;
 
@@ -27,6 +29,14 @@ pub use identity::{
 #[cfg(feature = "crypto_token")]
 pub use pkcs7::{PKCS7_BLOCK_LEN, pkcs7_pad, pkcs7_padded_len, pkcs7_unpad};
 pub use signing::{sign, verify};
+#[cfg(any(test, feature = "test_vectors"))]
+#[cfg(feature = "crypto_x25519")]
+pub use single_packet::encrypt_for_identity_with_ephemeral_and_iv;
+#[cfg(feature = "crypto_x25519")]
+pub use single_packet::{
+    RNS_SINGLE_PACKET_DERIVED_KEY_LEN, RNS_SINGLE_PACKET_EPHEMERAL_PUBLIC_LEN, RnsDecryptOutcome,
+    RnsRatchetSecretRef, decrypt_for_identity, encrypt_for_identity,
+};
 #[cfg(any(test, feature = "test_vectors"))]
 #[cfg(feature = "crypto_token")]
 pub use token::token_encrypt_with_iv;

@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 hyf_rns_core = { path = "../crates/hyf_rns_core" }
-hyf_rns_crypto = { path = "../crates/hyf_rns_crypto", features = ["crypto_token"] }
+hyf_rns_crypto = { path = "../crates/hyf_rns_crypto", features = ["crypto_x25519"] }
 hyf_rns_wire = { path = "../crates/hyf_rns_wire" }
 libfuzzer-sys = "0.4"
 
@@ -37,6 +37,13 @@ bench = false
 [[bin]]
 name = "fuzz_token_decrypt"
 path = "fuzz_targets/fuzz_token_decrypt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_single_packet_decrypt"
+path = "fuzz_targets/fuzz_single_packet_decrypt.rs"
 test = false
 doc = false
 bench = false
