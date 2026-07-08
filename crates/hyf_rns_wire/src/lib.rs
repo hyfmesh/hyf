@@ -20,7 +20,10 @@ pub use context::{
     RNS_CONTEXT_RESPONSE,
 };
 pub use error::RnsWireError;
-pub use flags::{RnsDestinationType, RnsHeaderType, RnsPacketType, RnsTransportType};
+pub use flags::{
+    RnsDestinationType, RnsHeaderType, RnsPacketFlags, RnsPacketType, RnsTransportType,
+    decode_flags, encode_flags,
+};
 
 #[cfg(test)]
 mod tests {
