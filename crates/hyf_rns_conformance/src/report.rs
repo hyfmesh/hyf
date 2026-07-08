@@ -165,6 +165,7 @@ mod tests {
         OracleEnvironment,
     };
     use crate::fixtures::{EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT};
+    use crate::profile0::{REQUIRED_PROFILE_0_RESULT_CATEGORIES, REQUIRED_PROFILE_0_RESULTS};
 
     #[test]
     fn sample_report_serializes_with_stable_profile_0_contract() -> Result<(), serde_json::Error> {
@@ -230,6 +231,220 @@ mod tests {
             json!(["passed", "failed", "invalid_environment"])
         );
         assert_eq!(schema["properties"]["results"]["minItems"], 1);
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile0_schema_records_exact_contract() -> Result<(), serde_json::Error> {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../schemas/conformance_run_profile0_final.schema.json"
+        ))?;
+        let expected_ids: Vec<&str> = REQUIRED_PROFILE_0_RESULTS
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+        let expected_categories: Vec<&str> = REQUIRED_PROFILE_0_RESULT_CATEGORIES.to_vec();
+        let expected_pair_defs = [
+            (
+                "result_fixture_manifest",
+                "profile_0_packet_announce.fixture_manifest",
+                "fixture_manifest",
+            ),
+            (
+                "result_identity_signature",
+                "profile_0_packet_announce.identity_signature",
+                "identity_signature",
+            ),
+            (
+                "result_destination_hash",
+                "profile_0_packet_announce.destination_hash",
+                "destination_hash",
+            ),
+            (
+                "result_packet_header",
+                "profile_0_packet_announce.packet_header",
+                "packet_header",
+            ),
+            (
+                "result_packet_hash",
+                "profile_0_packet_announce.packet_hash",
+                "packet_hash",
+            ),
+            (
+                "result_announce",
+                "profile_0_packet_announce.announce",
+                "announce",
+            ),
+            (
+                "result_announce_negative",
+                "profile_0_packet_announce.announce_negative",
+                "announce_negative",
+            ),
+            (
+                "result_python_oracle_packet",
+                "profile_0_packet_announce.python_oracle.packet",
+                "python_oracle_packet",
+            ),
+            (
+                "result_python_oracle_announce",
+                "profile_0_packet_announce.python_oracle.announce",
+                "python_oracle_announce",
+            ),
+        ];
+
+        assert_eq!(
+            schema["$id"],
+            "https://hyfmesh.org/schemas/conformance_run_profile0_final.schema.json"
+        );
+        assert_eq!(
+            schema["properties"]["schema"]["const"],
+            CONFORMANCE_RUN_SCHEMA
+        );
+        assert_eq!(schema["properties"]["profile"]["const"], EXPECTED_PROFILE);
+        assert_eq!(
+            schema["properties"]["hyf_commit"]["pattern"],
+            "^[0-9a-f]{40}$"
+        );
+        assert_eq!(
+            schema["properties"]["reticulum_commit"]["const"],
+            EXPECTED_RETICULUM_COMMIT
+        );
+        assert_eq!(
+            schema["properties"]["started_at"]["pattern"],
+            "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        );
+
+        assert_eq!(
+            schema["$defs"]["final_environment"]["required"],
+            json!(["os", "arch", "rust_toolchain", "oracle"])
+        );
+        assert_eq!(
+            schema["$defs"]["final_oracle_environment"]["required"],
+            json!([
+                "reticulum_module_path",
+                "reticulum_commit",
+                "rns_version",
+                "cryptography_version",
+                "pyserial_version"
+            ])
+        );
+        assert_eq!(
+            schema["$defs"]["final_oracle_environment"]["properties"]["reticulum_commit"]["const"],
+            EXPECTED_RETICULUM_COMMIT
+        );
+        assert_eq!(
+            schema["$defs"]["final_oracle_environment"]["properties"]["rns_version"]["const"],
+            "1.3.5"
+        );
+        assert_eq!(
+            schema["$defs"]["final_oracle_environment"]["properties"]["cryptography_version"]["const"],
+            "49.0.0"
+        );
+        assert_eq!(
+            schema["$defs"]["final_oracle_environment"]["properties"]["pyserial_version"]["const"],
+            "3.5"
+        );
+        assert!(
+            schema["$defs"]["final_oracle_environment"]["properties"]["reticulum_module_path"]
+                .get("const")
+                .is_none()
+        );
+
+        assert_eq!(
+            schema["properties"]["results"]["minItems"],
+            json!(REQUIRED_PROFILE_0_RESULTS.len())
+        );
+        assert_eq!(
+            schema["properties"]["results"]["maxItems"],
+            json!(REQUIRED_PROFILE_0_RESULTS.len())
+        );
+        assert_eq!(
+            schema["$defs"]["final_result"]["properties"]["id"]["enum"],
+            json!(expected_ids)
+        );
+        assert_eq!(
+            schema["$defs"]["final_result"]["properties"]["category"]["enum"],
+            json!(expected_categories)
+        );
+        assert_eq!(
+            schema["$defs"]["final_result"]["properties"]["status"]["const"],
+            "passed"
+        );
+
+        assert_eq!(expected_pair_defs.len(), REQUIRED_PROFILE_0_RESULTS.len());
+        for ((def_name, expected_id, expected_category), &(actual_id, actual_category)) in
+            expected_pair_defs.iter().zip(REQUIRED_PROFILE_0_RESULTS)
+        {
+            assert_eq!(*expected_id, actual_id);
+            assert_eq!(*expected_category, actual_category);
+            assert_eq!(
+                schema["$defs"][*def_name]["properties"]["id"]["const"],
+                actual_id
+            );
+            assert_eq!(
+                schema["$defs"][*def_name]["properties"]["category"]["const"],
+                actual_category
+            );
+        }
+
+        let expected_contains: Vec<Value> = expected_pair_defs
+            .iter()
+            .map(|(def_name, _, _)| {
+                json!({
+                    "contains": {
+                        "$ref": format!("#/$defs/{def_name}")
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                })
+            })
+            .collect();
+        assert_eq!(
+            schema["properties"]["results"]["allOf"],
+            json!(expected_contains)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile0_schema_records_malformed_report_guards() -> Result<(), serde_json::Error> {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../schemas/conformance_run_profile0_final.schema.json"
+        ))?;
+
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(
+            schema["$defs"]["final_environment"]["additionalProperties"],
+            false
+        );
+        assert_eq!(
+            schema["$defs"]["final_oracle_environment"]["additionalProperties"],
+            false
+        );
+        assert_eq!(
+            schema["$defs"]["final_result"]["additionalProperties"],
+            false
+        );
+        assert_eq!(
+            schema["properties"]["results"]["items"]["$ref"],
+            "#/$defs/final_result"
+        );
+        assert!(
+            schema["$defs"]["final_result"]["properties"]["status"]
+                .get("enum")
+                .is_none()
+        );
+        assert_eq!(
+            schema["$defs"]["final_result"]["properties"]["detail"]["minLength"],
+            1
+        );
+        assert_eq!(
+            schema["$defs"]["result_pair"]["properties"]["status"]["const"],
+            "passed"
+        );
+        assert_eq!(schema["properties"]["started_at"]["format"], "date-time");
+
         Ok(())
     }
 }

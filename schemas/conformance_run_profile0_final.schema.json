@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyfmesh.org/schemas/conformance_run_profile0_final.schema.json",
+  "title": "HYF RNS Profile 0 final conformance run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "profile",
+    "hyf_commit",
+    "reticulum_commit",
+    "started_at",
+    "environment",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "hyf.rns.conformance_run.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "const": "profile_0_packet_announce"
+    },
+    "hyf_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "reticulum_commit": {
+      "const": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "environment": {
+      "$ref": "#/$defs/final_environment"
+    },
+    "results": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "$ref": "#/$defs/final_result"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "$ref": "#/$defs/result_fixture_manifest"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "$ref": "#/$defs/result_identity_signature"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "$ref": "#/$defs/result_destination_hash"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "$ref": "#/$defs/result_packet_header"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "$ref": "#/$defs/result_packet_hash"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "$ref": "#/$defs/result_announce"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "$ref": "#/$defs/result_announce_negative"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "$ref": "#/$defs/result_python_oracle_packet"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "$ref": "#/$defs/result_python_oracle_announce"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "final_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "arch",
+        "rust_toolchain",
+        "oracle"
+      ],
+      "properties": {
+        "os": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rust_toolchain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "oracle": {
+          "$ref": "#/$defs/final_oracle_environment"
+        }
+      }
+    },
+    "final_oracle_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reticulum_module_path",
+        "reticulum_commit",
+        "rns_version",
+        "cryptography_version",
+        "pyserial_version"
+      ],
+      "properties": {
+        "reticulum_module_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reticulum_commit": {
+          "const": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+        },
+        "rns_version": {
+          "const": "1.3.5"
+        },
+        "cryptography_version": {
+          "const": "49.0.0"
+        },
+        "pyserial_version": {
+          "const": "3.5"
+        }
+      }
+    },
+    "final_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "profile_0_packet_announce.fixture_manifest",
+            "profile_0_packet_announce.identity_signature",
+            "profile_0_packet_announce.destination_hash",
+            "profile_0_packet_announce.packet_header",
+            "profile_0_packet_announce.packet_hash",
+            "profile_0_packet_announce.announce",
+            "profile_0_packet_announce.announce_negative",
+            "profile_0_packet_announce.python_oracle.packet",
+            "profile_0_packet_announce.python_oracle.announce"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "fixture_manifest",
+            "identity_signature",
+            "destination_hash",
+            "packet_header",
+            "packet_hash",
+            "announce",
+            "announce_negative",
+            "python_oracle_packet",
+            "python_oracle_announce"
+          ]
+        },
+        "status": {
+          "const": "passed"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result_fixture_manifest": {
+      "$ref": "#/$defs/result_pair",
+      "properties": {
+        "id": {
+          "const": "profile_0_packet_announce.fixture_manifest"
+        },
+        "category": {
+          "const": "fixture_manifest"
+        }
+      }
+    },
+    "result_identity_signature": {
+      "$ref": "#/$defs/result_pair",
+      "properties": {
+        "id": {
+          "const": "profile_0_packet_announce.identity_signature"
+        },
+        "category": {
+          "const": "identity_signature"
+        }
+      }
+    },
+    "result_destination_hash": {
+      "$ref": "#/$defs/result_pair",
+      "properties": {
+        "id": {
+          "const": "profile_0_packet_announce.destination_hash"
+        },
+        "category": {
+          "const": "destination_hash"
+        }
+      }
+    },
+    "result_packet_header": {
+      "$ref": "#/$defs/result_pair",
+      "properties": {
+        "id": {
+          "const": "profile_0_packet_announce.packet_header"
+        },
+        "category": {
+          "const": "packet_header"
+        }
+      }
+    },
+    "result_packet_hash": {
+      "$ref": "#/$defs/result_pair",
+      "properties": {
+        "id": {
+          "const": "profile_0_packet_announce.packet_hash"
+        },
+        "category": {
+          "const": "packet_hash"
+        }
+      }
+    },
+    "result_announce": {
+      "$ref": "#/$defs/result_pair",
+      "properties": {
+        "id": {
+          "const": "profile_0_packet_announce.announce"
+        },
+        "category": {
+          "const": "announce"
+        }
+      }
+    },
+    "result_announce_negative": {
+      "$ref": "#/$defs/result_pair",
+      "properties": {
+        "id": {
+          "const": "profile_0_packet_announce.announce_negative"
+        },
+        "category": {
+          "const": "announce_negative"
+        }
+      }
+    },
+    "result_python_oracle_packet": {
+      "$ref": "#/$defs/result_pair",
+      "properties": {
+        "id": {
+          "const": "profile_0_packet_announce.python_oracle.packet"
+        },
+        "category": {
+          "const": "python_oracle_packet"
+        }
+      }
+    },
+    "result_python_oracle_announce": {
+      "$ref": "#/$defs/result_pair",
+      "properties": {
+        "id": {
+          "const": "profile_0_packet_announce.python_oracle.announce"
+        },
+        "category": {
+          "const": "python_oracle_announce"
+        }
+      }
+    },
+    "result_pair": {
+      "type": "object",
+      "required": [
+        "id",
+        "category",
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "const": "passed"
+        }
+      }
+    }
+  }
+}
