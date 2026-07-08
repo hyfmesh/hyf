@@ -1,0 +1,36 @@
+[package]
+name = "hyf-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+hyf_rns_core = { path = "../crates/hyf_rns_core" }
+hyf_rns_wire = { path = "../crates/hyf_rns_wire" }
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "fuzz_rns_packet_decode"
+path = "fuzz_targets/fuzz_rns_packet_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_rns_packet_hash"
+path = "fuzz_targets/fuzz_rns_packet_hash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_rns_announce_decode"
+path = "fuzz_targets/fuzz_rns_announce_decode.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
