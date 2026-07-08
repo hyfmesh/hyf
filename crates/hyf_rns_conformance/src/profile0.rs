@@ -1037,7 +1037,7 @@ const TEST_SECRET_IDENTITY: [u8; 64] = [
 ];
 
 #[cfg(feature = "python_oracle")]
-const PYTHON_ORACLE_SCRIPT: &str = r#"
+pub const PYTHON_ORACLE_SCRIPT: &str = r#"
 import json
 import sys
 

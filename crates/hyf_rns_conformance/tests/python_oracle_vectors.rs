@@ -5,7 +5,7 @@ use std::process::Command;
 
 use hyf_rns_conformance::{
     OracleInvalidEnvironment, OracleStatus, PINNED_CRYPTOGRAPHY_PACKAGE, PINNED_PYSERIAL_PACKAGE,
-    check_oracle_environment_from_env,
+    check_oracle_environment_from_env, profile0::PYTHON_ORACLE_SCRIPT,
 };
 use hyf_rns_core::{RNS_MTU, RNS_TRUNCATED_HASH_LEN, RnsDestinationHash};
 use hyf_rns_crypto::secret_identity_from_bytes;
@@ -347,47 +347,3 @@ const TEST_SECRET_IDENTITY: [u8; 64] = [
     0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
     0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
 ];
-
-const PYTHON_ORACLE_SCRIPT: &str = r#"
-import json
-import sys
-
-import RNS
-
-request = json.loads(sys.argv[1])
-
-def packet_info(raw_hex):
-    packet = RNS.Packet(None, bytes.fromhex(raw_hex))
-    unpack_ok = packet.unpack()
-    return {
-        "unpack_ok": unpack_ok,
-        "header_type": packet.header_type,
-        "transport_id": None if packet.transport_id is None else packet.transport_id.hex(),
-        "destination_hash": packet.destination_hash.hex(),
-        "context": packet.context,
-        "data": packet.data.hex(),
-    }
-
-hash_packet = RNS.Packet(None, bytes.fromhex(request["hash_packet"]))
-if not hash_packet.unpack():
-    raise RuntimeError("hash packet did not unpack")
-
-announce_packet = RNS.Packet(None, bytes.fromhex(request["announce_packet"]))
-if not announce_packet.unpack():
-    raise RuntimeError("announce packet did not unpack")
-
-response = {
-    "header_1": packet_info(request["header_1_packet"]),
-    "header_2": packet_info(request["header_2_packet"]),
-    "full_hash": hash_packet.get_hash().hex(),
-    "truncated_hash": hash_packet.getTruncatedHash().hex(),
-    "announce_valid": RNS.Identity.validate_announce(announce_packet, only_validate_signature=False),
-}
-
-if response["full_hash"] != request["expected_full_hash"]:
-    raise RuntimeError("full hash mismatch")
-if response["truncated_hash"] != request["expected_truncated_hash"]:
-    raise RuntimeError("truncated hash mismatch")
-
-print(json.dumps(response, sort_keys=True))
-"#;

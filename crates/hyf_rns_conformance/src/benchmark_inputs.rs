@@ -41,8 +41,15 @@ pub fn secret_identity() -> Result<RnsSecretIdentity, FixtureError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        announce_packet, header_1_packet, header_2_packet, packet_hash_input, secret_identity,
+        ANNOUNCE_PACKET, HEADER_1_PACKET, HEADER_2_PACKET, PACKET_HASH_INPUT, announce_packet,
+        header_1_packet, header_2_packet, packet_hash_input, secret_identity,
     };
+
+    const PACKET_HEADER_FIXTURE: &str =
+        include_str!("../../../fixtures/rns/packet_header_vectors.json");
+    const PACKET_HASH_FIXTURE: &str =
+        include_str!("../../../fixtures/rns/packet_hash_vectors.json");
+    const ANNOUNCE_FIXTURE: &str = include_str!("../../../fixtures/rns/announce_vectors.json");
 
     #[test]
     fn benchmark_fixture_inputs_decode_and_secret_identity_parses() {
@@ -51,5 +58,13 @@ mod tests {
         assert!(packet_hash_input().is_ok());
         assert!(announce_packet().is_ok());
         assert!(secret_identity().is_ok());
+    }
+
+    #[test]
+    fn benchmark_packet_inputs_are_present_in_fixture_corpus() {
+        assert!(PACKET_HEADER_FIXTURE.contains(HEADER_1_PACKET));
+        assert!(PACKET_HEADER_FIXTURE.contains(HEADER_2_PACKET));
+        assert!(PACKET_HASH_FIXTURE.contains(PACKET_HASH_INPUT));
+        assert!(ANNOUNCE_FIXTURE.contains(ANNOUNCE_PACKET));
     }
 }
