@@ -1,0 +1,30 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_2_crypto_ifac",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "schema": "hyf.rns.crypto_vector.v1",
+      "profile": "profile_2_crypto_ifac",
+      "subprofile": "profile_2a_hkdf_token",
+      "case_id": "hkdf.sha256.empty_salt.context_001",
+      "determinism": {
+        "mode": "deterministic",
+        "test_only_secret_material": true
+      },
+      "inputs": {
+        "ikm_hex": "68796620686b646620696b6d",
+        "salt_hex": "",
+        "context_hex": "6879662d636f6e74657874",
+        "length": 64
+      },
+      "expected": {
+        "okm_hex": "a62c894c01b4f8582544604a201739aa88df57cc50771fdd033248f5100c3f25dda688ebde22f060499b5c785476d450d3fc57523a7d4d44722574623ebe78ea",
+        "valid": true
+      }
+    }
+  ]
+}

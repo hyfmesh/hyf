@@ -79,6 +79,6 @@ fn fixture_manifest_accepts_profile_2_shell() -> Result<(), FixtureError> {
     let manifest = parse_manifest_for_profile(PROFILE_2_MANIFEST, PROFILE_2_CRYPTO_IFAC)?;
 
     assert_eq!(manifest.profile, PROFILE_2_CRYPTO_IFAC);
-    assert!(manifest.fixtures.is_empty());
+    assert_eq!(manifest.fixtures.len(), 3);
     Ok(())
 }

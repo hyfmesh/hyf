@@ -8,8 +8,14 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+aes = { workspace = true, optional = true }
+cbc = { workspace = true, optional = true }
 ed25519-dalek.workspace = true
+hkdf = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
 hyf_rns_core.workspace = true
+rand_core = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 x25519-dalek = { workspace = true, optional = true }
 zeroize.workspace = true
 
@@ -20,7 +26,7 @@ std = ["alloc"]
 serde = []
 defmt = []
 test_vectors = []
-crypto_token = []
+crypto_token = ["dep:aes", "dep:cbc", "dep:hkdf", "dep:hmac", "dep:rand_core", "dep:sha2"]
 crypto_x25519 = ["crypto_token", "dep:x25519-dalek"]
 
 [lints]

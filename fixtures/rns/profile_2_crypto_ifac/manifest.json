@@ -7,5 +7,24 @@
   },
   "generated_by": "tools/rns_oracle",
   "generated_at": "2026-07-08T00:00:00Z",
-  "fixtures": []
+  "fixtures": [
+    {
+      "file": "hkdf_vectors.json",
+      "category": "hkdf",
+      "case_count": 1,
+      "sha256": "9d15afc94367761cf7407aa663d2d2b25b45c5268e9f0d6f5fa850ddfa80f436"
+    },
+    {
+      "file": "token_vectors.json",
+      "category": "token",
+      "case_count": 1,
+      "sha256": "315e3f13f56f62a104499d51f7b0acda5c049489c40d07350a0d90044e7574f5"
+    },
+    {
+      "file": "token_negative_vectors.json",
+      "category": "token_negative",
+      "case_count": 1,
+      "sha256": "37323d018da98fe83d6475ca90f6db97875dbcc38f8f5b17284701102a15374f"
+    }
+  ]
 }

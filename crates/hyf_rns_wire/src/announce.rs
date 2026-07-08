@@ -271,6 +271,17 @@ fn map_crypto_error(error: RnsCryptoError) -> RnsWireError {
         RnsCryptoError::InvalidSecretIdentity | RnsCryptoError::InvalidSignature => {
             RnsWireError::InvalidSignature
         }
+        RnsCryptoError::EmptyHkdfOutput
+        | RnsCryptoError::EmptyHkdfInputKeyMaterial
+        | RnsCryptoError::InvalidHkdfLength
+        | RnsCryptoError::LengthOverflow
+        | RnsCryptoError::OutputBufferTooShort { .. }
+        | RnsCryptoError::InvalidPadding
+        | RnsCryptoError::InvalidToken
+        | RnsCryptoError::InvalidTokenKeyLength { .. }
+        | RnsCryptoError::AuthenticationFailed
+        | RnsCryptoError::RandomSourceFailed
+        | RnsCryptoError::CipherFailed => RnsWireError::CryptoFailed,
     }
 }
 
