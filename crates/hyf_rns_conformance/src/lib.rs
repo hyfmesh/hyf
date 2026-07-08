@@ -45,6 +45,8 @@ pub enum OracleInvalidEnvironment {
     OracleProbeFailed,
     OracleModulePathMismatch,
     ReticulumCommitMismatch,
+    ReticulumWorktreeDirty,
+    ReticulumWorktreeStatusUnavailable,
     OraclePackageVersionMismatch,
 }
 
@@ -60,6 +62,12 @@ impl std::fmt::Display for OracleInvalidEnvironment {
             Self::OracleProbeFailed => formatter.write_str("oracle probe failed"),
             Self::OracleModulePathMismatch => formatter.write_str("oracle module path mismatch"),
             Self::ReticulumCommitMismatch => formatter.write_str("Reticulum commit mismatch"),
+            Self::ReticulumWorktreeDirty => {
+                formatter.write_str("Reticulum tracked worktree is dirty")
+            }
+            Self::ReticulumWorktreeStatusUnavailable => {
+                formatter.write_str("Reticulum worktree status unavailable")
+            }
             Self::OraclePackageVersionMismatch => {
                 formatter.write_str("oracle package version mismatch")
             }
@@ -184,17 +192,10 @@ pub fn check_oracle_environment_with_command(
             Err(reason) => return OracleReadiness::invalid_environment(reason),
         };
 
-    let Some(reticulum_commit) = reticulum_commit(reticulum_path.as_path()) else {
-        return OracleReadiness::invalid_environment(
-            OracleInvalidEnvironment::ReticulumCommitMismatch,
-        );
+    let reticulum_commit = match validate_reticulum_git_state(reticulum_path.as_path()) {
+        Ok(commit) => commit,
+        Err(reason) => return OracleReadiness::invalid_environment(reason),
     };
-
-    if reticulum_commit != PINNED_RETICULUM_COMMIT {
-        return OracleReadiness::invalid_environment(
-            OracleInvalidEnvironment::ReticulumCommitMismatch,
-        );
-    }
 
     OracleReadiness::passed(probe_metadata.with_reticulum_commit(reticulum_commit))
 }
@@ -340,6 +341,56 @@ fn reticulum_commit(reticulum_path: &Path) -> Option<String> {
     reticulum_commit_from_output(&output.stdout)
 }
 
+#[cfg(feature = "python_oracle")]
+fn validate_reticulum_git_state(reticulum_path: &Path) -> Result<String, OracleInvalidEnvironment> {
+    validate_reticulum_git_state_with_expected(reticulum_path, PINNED_RETICULUM_COMMIT)
+}
+
+#[cfg(feature = "python_oracle")]
+fn validate_reticulum_git_state_with_expected(
+    reticulum_path: &Path,
+    expected_commit: &str,
+) -> Result<String, OracleInvalidEnvironment> {
+    let Some(reticulum_commit) = reticulum_commit(reticulum_path) else {
+        return Err(OracleInvalidEnvironment::ReticulumCommitMismatch);
+    };
+
+    if reticulum_commit != expected_commit {
+        return Err(OracleInvalidEnvironment::ReticulumCommitMismatch);
+    }
+
+    let Some(reticulum_worktree_is_clean) = reticulum_tracked_worktree_is_clean(reticulum_path)
+    else {
+        return Err(OracleInvalidEnvironment::ReticulumWorktreeStatusUnavailable);
+    };
+    if !reticulum_worktree_is_clean {
+        return Err(OracleInvalidEnvironment::ReticulumWorktreeDirty);
+    }
+
+    Ok(reticulum_commit)
+}
+
+#[cfg(feature = "python_oracle")]
+fn reticulum_tracked_worktree_is_clean(reticulum_path: &Path) -> Option<bool> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(reticulum_path)
+        .arg("status")
+        .arg("--porcelain")
+        .arg("--untracked-files=no")
+        .output();
+
+    let Ok(output) = output else {
+        return None;
+    };
+
+    if !output.status.success() {
+        return None;
+    }
+
+    Some(output.stdout.is_empty())
+}
+
 #[cfg(all(test, feature = "python_oracle"))]
 fn reticulum_commit_output_is_pinned(stdout: &[u8]) -> bool {
     reticulum_commit_from_output(stdout).as_deref() == Some(PINNED_RETICULUM_COMMIT)
@@ -380,14 +431,21 @@ mod tests {
 
 #[cfg(all(test, feature = "python_oracle"))]
 mod python_oracle_tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
         OracleEnvironmentMetadata, OracleInvalidEnvironment, OracleProbeMetadata, OracleReadiness,
         OracleStatus, PINNED_CRYPTOGRAPHY_VERSION, PINNED_PYSERIAL_VERSION,
         PINNED_RETICULUM_COMMIT, check_oracle_environment, check_oracle_environment_with_command,
-        reticulum_commit_output_is_pinned, validate_oracle_probe_output,
+        reticulum_commit, reticulum_commit_output_is_pinned, reticulum_tracked_worktree_is_clean,
+        validate_oracle_probe_output, validate_reticulum_git_state,
+        validate_reticulum_git_state_with_expected,
     };
+
+    static TEST_REPO_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn missing_reticulum_path_reports_invalid_environment() {
@@ -522,6 +580,76 @@ mod python_oracle_tests {
     }
 
     #[test]
+    fn reticulum_git_state_rejects_commit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+        let repo = TestGitRepo::create()?;
+
+        assert_eq!(
+            validate_reticulum_git_state(repo.path()),
+            Err(OracleInvalidEnvironment::ReticulumCommitMismatch)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn reticulum_git_state_accepts_clean_matching_commit() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let repo = TestGitRepo::create()?;
+        let commit = reticulum_commit(repo.path()).ok_or("missing test commit")?;
+
+        assert_eq!(
+            validate_reticulum_git_state_with_expected(repo.path(), &commit),
+            Ok(commit)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn reticulum_git_state_rejects_dirty_tracked_changes() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let repo = TestGitRepo::create()?;
+        let commit = reticulum_commit(repo.path()).ok_or("missing test commit")?;
+        std::fs::write(repo.path().join("tracked.txt"), "changed\n")?;
+
+        assert_eq!(
+            validate_reticulum_git_state_with_expected(repo.path(), &commit),
+            Err(OracleInvalidEnvironment::ReticulumWorktreeDirty)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn reticulum_tracked_worktree_cleanliness_accepts_clean_repo()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let repo = TestGitRepo::create()?;
+
+        assert_eq!(reticulum_tracked_worktree_is_clean(repo.path()), Some(true));
+        Ok(())
+    }
+
+    #[test]
+    fn reticulum_tracked_worktree_cleanliness_rejects_tracked_changes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let repo = TestGitRepo::create()?;
+        std::fs::write(repo.path().join("tracked.txt"), "changed\n")?;
+
+        assert_eq!(
+            reticulum_tracked_worktree_is_clean(repo.path()),
+            Some(false)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn reticulum_tracked_worktree_cleanliness_ignores_untracked_files()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let repo = TestGitRepo::create()?;
+        std::fs::write(repo.path().join("untracked.txt"), "local only\n")?;
+
+        assert_eq!(reticulum_tracked_worktree_is_clean(repo.path()), Some(true));
+        Ok(())
+    }
+
+    #[test]
     fn passed_readiness_metadata_converts_to_report_oracle_environment() {
         let metadata = OracleEnvironmentMetadata {
             reticulum_module_path: "RNS/__init__.py".to_owned(),
@@ -544,5 +672,57 @@ mod python_oracle_tests {
         std::env::var_os("HYF_RETICULUM_PATH")
             .map(std::path::PathBuf::from)
             .map(|path| check_oracle_environment(Some(path.as_path())))
+    }
+
+    struct TestGitRepo {
+        path: PathBuf,
+    }
+
+    impl TestGitRepo {
+        fn create() -> Result<Self, Box<dyn std::error::Error>> {
+            let path = unique_test_path()?;
+            std::fs::create_dir_all(&path)?;
+            run_git(path.as_path(), &["init"])?;
+            run_git(path.as_path(), &["config", "user.name", "HYF Test"])?;
+            run_git(
+                path.as_path(),
+                &["config", "user.email", "hyf-test@example.invalid"],
+            )?;
+            std::fs::write(path.join("tracked.txt"), "initial\n")?;
+            run_git(path.as_path(), &["add", "tracked.txt"])?;
+            run_git(path.as_path(), &["commit", "-m", "initial"])?;
+            Ok(Self { path })
+        }
+
+        fn path(&self) -> &Path {
+            self.path.as_path()
+        }
+    }
+
+    impl Drop for TestGitRepo {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn unique_test_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let counter = TEST_REPO_COUNTER.fetch_add(1, Ordering::Relaxed);
+        Ok(std::env::temp_dir().join(format!(
+            "hyf-reticulum-git-state-{}-{nanos}-{counter}",
+            std::process::id()
+        )))
+    }
+
+    fn run_git(repo_path: &Path, args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .args(args)
+            .status()?;
+        if !status.success() {
+            return Err("git test command failed".into());
+        }
+        Ok(())
     }
 }
