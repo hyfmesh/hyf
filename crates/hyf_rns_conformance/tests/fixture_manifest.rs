@@ -53,7 +53,7 @@ fn fixture_manifest_tracks_exact_profile_0_fixture_set() -> Result<(), FixtureEr
             ExpectedManifestEntry {
                 file: "announce_negative_vectors.json",
                 category: "announce_negative",
-                case_count: 7,
+                case_count: 8,
                 contents: ANNOUNCE_NEGATIVE_FIXTURE,
             },
         ],

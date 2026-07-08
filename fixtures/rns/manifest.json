@@ -41,8 +41,8 @@
     {
       "file": "announce_negative_vectors.json",
       "category": "announce_negative",
-      "case_count": 7,
-      "sha256": "c89eb8fbb9b13b31cb85284a12ee473b23cde8aad8792325f535612c82eb9273"
+      "case_count": 8,
+      "sha256": "33234aed246bc92d236332bc49cbf502bdc702fcd77f678848b33e2a328a93ce"
     }
   ]
 }

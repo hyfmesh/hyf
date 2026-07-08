@@ -448,7 +448,7 @@ fn validate_fixture_manifest() -> Result<(), FixtureError> {
             ExpectedManifestEntry {
                 file: "announce_negative_vectors.json",
                 category: CATEGORY_ANNOUNCE_NEGATIVE,
-                case_count: 7,
+                case_count: 8,
                 contents: ANNOUNCE_NEGATIVE_FIXTURE,
             },
         ],
@@ -766,7 +766,7 @@ fn validate_announce_fixtures() -> Result<(), FixtureError> {
 
 fn validate_announce_negative_fixtures() -> Result<(), FixtureError> {
     let fixture = parse_fixture_cases::<AnnounceNegativeCase>(ANNOUNCE_NEGATIVE_FIXTURE)?;
-    if fixture.cases.len() != 7 {
+    if fixture.cases.len() != 8 {
         return unexpected(
             "case_count",
             "negative announce fixture case count mismatch",
@@ -796,6 +796,7 @@ fn validate_announce_negative_fixtures() -> Result<(), FixtureError> {
             "random_hash",
             "signature",
             "app_data",
+            "destination_type",
             "context_flag",
         ]
         .contains(&case.mutation.as_str())
@@ -877,6 +878,7 @@ fn signed_data_suffix_matches(
 fn expected_wire_error(error: &str) -> Result<RnsWireError, FixtureError> {
     match error {
         "DestinationMismatch" => Ok(RnsWireError::DestinationMismatch),
+        "InvalidDestinationType" => Ok(RnsWireError::InvalidDestinationType),
         "InvalidSignature" => Ok(RnsWireError::InvalidSignature),
         "MalformedAnnounce" => Ok(RnsWireError::MalformedAnnounce),
         _ => Err(FixtureError::UnexpectedFixtureValue {

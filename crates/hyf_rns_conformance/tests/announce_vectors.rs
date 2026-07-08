@@ -135,7 +135,7 @@ fn announce_fixtures_validate_against_reticulum_oracle() -> Result<(), FixtureEr
 fn announce_negative_fixtures_reject_expected_mutations() -> Result<(), FixtureError> {
     let fixture = parse_fixture_cases::<AnnounceNegativeCase>(ANNOUNCE_NEGATIVE_FIXTURE)?;
 
-    assert_eq!(fixture.cases.len(), 7);
+    assert_eq!(fixture.cases.len(), 8);
     for case in fixture.cases {
         assert!(
             case.id
@@ -152,6 +152,7 @@ fn announce_negative_fixtures_reject_expected_mutations() -> Result<(), FixtureE
                 "random_hash",
                 "signature",
                 "app_data",
+                "destination_type",
                 "context_flag",
             ]
             .contains(&case.mutation.as_str())
@@ -184,7 +185,7 @@ fn fixture_manifest_tracks_announce_vectors() -> Result<(), FixtureError> {
         &manifest,
         "announce_negative_vectors.json",
         "announce_negative",
-        7,
+        8,
         ANNOUNCE_NEGATIVE_FIXTURE,
     )?;
     Ok(())
@@ -193,6 +194,7 @@ fn fixture_manifest_tracks_announce_vectors() -> Result<(), FixtureError> {
 fn expected_wire_error(error: &str) -> Result<RnsWireError, FixtureError> {
     match error {
         "DestinationMismatch" => Ok(RnsWireError::DestinationMismatch),
+        "InvalidDestinationType" => Ok(RnsWireError::InvalidDestinationType),
         "InvalidSignature" => Ok(RnsWireError::InvalidSignature),
         "MalformedAnnounce" => Ok(RnsWireError::MalformedAnnounce),
         _ => Err(FixtureError::UnexpectedFixtureValue {
