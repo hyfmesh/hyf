@@ -40,6 +40,9 @@ pub fn secret_identity() -> Result<RnsSecretIdentity, FixtureError> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+    use std::process::Command;
+
     use super::{
         ANNOUNCE_PACKET, HEADER_1_PACKET, HEADER_2_PACKET, PACKET_HASH_INPUT, announce_packet,
         header_1_packet, header_2_packet, packet_hash_input, secret_identity,
@@ -50,6 +53,20 @@ mod tests {
     const PACKET_HASH_FIXTURE: &str =
         include_str!("../../../fixtures/rns/packet_hash_vectors.json");
     const ANNOUNCE_FIXTURE: &str = include_str!("../../../fixtures/rns/announce_vectors.json");
+    const TRACKED_FUZZ_CORPUS_SEEDS: &[&str] = &[
+        "fuzz/corpus/fuzz_rns_announce_decode/negative_context_flag",
+        "fuzz/corpus/fuzz_rns_announce_decode/negative_destination",
+        "fuzz/corpus/fuzz_rns_announce_decode/too_short",
+        "fuzz/corpus/fuzz_rns_announce_decode/valid_app_data",
+        "fuzz/corpus/fuzz_rns_announce_decode/valid_no_app_data",
+        "fuzz/corpus/fuzz_rns_packet_decode/header1_packet",
+        "fuzz/corpus/fuzz_rns_packet_decode/header2_packet",
+        "fuzz/corpus/fuzz_rns_packet_decode/too_short",
+        "fuzz/corpus/fuzz_rns_packet_hash/header1_packet",
+        "fuzz/corpus/fuzz_rns_packet_hash/header2_transport_a",
+        "fuzz/corpus/fuzz_rns_packet_hash/header2_transport_b",
+        "fuzz/corpus/fuzz_rns_packet_hash/too_short",
+    ];
 
     #[test]
     fn benchmark_fixture_inputs_decode_and_secret_identity_parses() {
@@ -66,5 +83,29 @@ mod tests {
         assert!(PACKET_HEADER_FIXTURE.contains(HEADER_2_PACKET));
         assert!(PACKET_HASH_FIXTURE.contains(PACKET_HASH_INPUT));
         assert!(ANNOUNCE_FIXTURE.contains(ANNOUNCE_PACKET));
+    }
+
+    #[test]
+    fn tracked_fuzz_corpus_seed_set_is_stable() -> Result<(), Box<dyn std::error::Error>> {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo_root)
+            .arg("ls-files")
+            .arg("fuzz/corpus/**")
+            .output()?;
+
+        if !output.status.success() {
+            return Err("git ls-files failed for fuzz corpus".into());
+        }
+
+        let mut actual = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        actual.sort();
+        let actual = actual.iter().map(String::as_str).collect::<Vec<_>>();
+        assert_eq!(actual.as_slice(), TRACKED_FUZZ_CORPUS_SEEDS);
+        Ok(())
     }
 }
