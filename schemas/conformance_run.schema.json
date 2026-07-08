@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyfmesh.org/schemas/conformance_run.schema.json",
+  "title": "HYF RNS conformance run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "profile",
+    "hyf_commit",
+    "reticulum_commit",
+    "started_at",
+    "environment",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "hyf.rns.conformance_run.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "const": "profile_0_packet_announce"
+    },
+    "hyf_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "reticulum_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/result"
+      }
+    }
+  },
+  "$defs": {
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "arch",
+        "rust_toolchain"
+      ],
+      "properties": {
+        "os": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rust_toolchain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "oracle": {
+          "$ref": "#/$defs/oracle_environment"
+        }
+      }
+    },
+    "oracle_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reticulum_module_path",
+        "reticulum_commit",
+        "cryptography_version",
+        "pyserial_version"
+      ],
+      "properties": {
+        "reticulum_module_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reticulum_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "rns_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cryptography_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pyserial_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "invalid_environment"
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

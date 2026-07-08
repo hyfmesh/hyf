@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used)]
 
 pub mod fixtures;
+pub mod report;
 
 #[cfg(feature = "python_oracle")]
 use serde::Deserialize;
