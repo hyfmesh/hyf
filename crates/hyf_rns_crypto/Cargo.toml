@@ -8,7 +8,10 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ed25519-dalek.workspace = true
 hyf_rns_core.workspace = true
+x25519-dalek.workspace = true
+zeroize.workspace = true
 
 [features]
 default = []
