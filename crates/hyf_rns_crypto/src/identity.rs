@@ -34,7 +34,7 @@ impl fmt::Debug for RnsSecretIdentity {
 
 impl RnsSecretIdentity {
     pub fn public_identity(&self) -> Result<RnsPublicIdentity, RnsCryptoError> {
-        let x25519_secret = StaticSecret::from(*self.x25519_secret);
+        let x25519_secret = self.x25519_static_secret();
         let x25519_public = X25519PublicKey::from(&x25519_secret);
         let ed25519_signing_key = SigningKey::from_bytes(&self.ed25519_secret);
         let ed25519_public = ed25519_signing_key.verifying_key();
@@ -47,6 +47,11 @@ impl RnsSecretIdentity {
 
     pub(crate) fn ed25519_signing_key(&self) -> SigningKey {
         SigningKey::from_bytes(&self.ed25519_secret)
+    }
+
+    fn x25519_static_secret(&self) -> StaticSecret {
+        let x25519_secret = Zeroizing::new(*self.x25519_secret);
+        StaticSecret::from(*x25519_secret)
     }
 }
 
