@@ -183,6 +183,7 @@ dependencies = [
  "hyf_rns_core",
  "hyf_rns_crypto",
  "hyf_rns_wire",
+ "rand_core",
  "serde",
  "serde_json",
 ]

@@ -543,7 +543,7 @@ mod tests {
         let secret = test_secret_identity()?;
         let aspects = ["announce"];
         let mut rng = FixedRng::new([0x01, 0x02, 0x03, 0x04, 0x05]);
-        let clock = FixedClock(0x01_0000_0000_00);
+        let clock = FixedClock(0x0100_0000_0000);
         let mut output = [0; RNS_MTU];
 
         assert_eq!(
