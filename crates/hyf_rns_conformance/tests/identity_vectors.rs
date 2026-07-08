@@ -1,14 +1,12 @@
-mod support;
-
+use hyf_rns_conformance::fixtures::{
+    FixtureError, FixtureFile, assert_manifest_entry, decode_hex, decode_hex_exact,
+    parse_fixture_case, parse_manifest,
+};
 use hyf_rns_crypto::{
     RNS_PUBLIC_IDENTITY_LEN, RNS_SECRET_IDENTITY_LEN, identity_hash, public_identity_from_bytes,
     public_identity_to_bytes, secret_identity_from_bytes, sign, verify,
 };
 use serde::Deserialize;
-use support::{
-    FixtureError, FixtureFile, assert_manifest_entry, decode_hex, decode_hex_exact,
-    parse_fixture_case, parse_manifest,
-};
 
 const FIXTURE: &str = include_str!("../../../fixtures/rns/identity_vectors.json");
 const MANIFEST: &str = include_str!("../../../fixtures/rns/manifest.json");

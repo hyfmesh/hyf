@@ -1,14 +1,12 @@
-mod support;
-
+use hyf_rns_conformance::fixtures::{
+    FixtureError, assert_manifest_entry, decode_hex_exact, decode_optional_hex_exact,
+    parse_fixture_cases, parse_manifest,
+};
 use hyf_rns_core::{
     RNS_NAME_HASH_LEN, RNS_TRUNCATED_HASH_LEN, RnsIdentityHash, destination_hash,
     destination_name_hash,
 };
 use serde::Deserialize;
-use support::{
-    FixtureError, assert_manifest_entry, decode_hex_exact, decode_optional_hex_exact,
-    parse_fixture_cases, parse_manifest,
-};
 
 const FIXTURE: &str = include_str!("../../../fixtures/rns/destination_hash_vectors.json");
 const MANIFEST: &str = include_str!("../../../fixtures/rns/manifest.json");

@@ -1,6 +1,6 @@
-mod support;
-
-use support::{ExpectedManifestEntry, FixtureError, assert_exact_manifest_entries, parse_manifest};
+use hyf_rns_conformance::fixtures::{
+    ExpectedManifestEntry, FixtureError, assert_exact_manifest_entries, parse_manifest,
+};
 
 const IDENTITY_FIXTURE: &str = include_str!("../../../fixtures/rns/identity_vectors.json");
 const DESTINATION_HASH_FIXTURE: &str =

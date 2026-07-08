@@ -1,5 +1,7 @@
-mod support;
-
+use hyf_rns_conformance::fixtures::{
+    FixtureError, assert_manifest_entry, decode_hex, decode_hex_exact, decode_optional_hex_exact,
+    parse_fixture_cases, parse_manifest,
+};
 use hyf_rns_core::{RNS_MTU, RNS_NAME_HASH_LEN, RNS_TRUNCATED_HASH_LEN};
 use hyf_rns_crypto::RNS_PUBLIC_IDENTITY_LEN;
 use hyf_rns_wire::{
@@ -7,10 +9,6 @@ use hyf_rns_wire::{
     RnsWireError, build_announce_signed_data, decode_packet, validate_announce_packet,
 };
 use serde::Deserialize;
-use support::{
-    FixtureError, assert_manifest_entry, decode_hex, decode_hex_exact, decode_optional_hex_exact,
-    parse_fixture_cases, parse_manifest,
-};
 
 const ANNOUNCE_FIXTURE: &str = include_str!("../../../fixtures/rns/announce_vectors.json");
 const ANNOUNCE_NEGATIVE_FIXTURE: &str =

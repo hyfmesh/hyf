@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use hyf_rns_core::full_hash;
 use serde::{Deserialize, de::DeserializeOwned};
 
