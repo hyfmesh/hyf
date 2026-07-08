@@ -27,7 +27,6 @@ fn main() {
     }
 }
 
-const EXPECTED_ORACLE_RETICULUM_MODULE_PATH: &str = "refs/Reticulum/RNS/__init__.py";
 const EXPECTED_ORACLE_RNS_VERSION: &str = "1.3.5";
 const EXPECTED_ORACLE_CRYPTOGRAPHY_VERSION: &str = "49.0.0";
 const EXPECTED_ORACLE_PYSERIAL_VERSION: &str = "3.5";
@@ -58,19 +57,44 @@ fn run_generate(args: Args) -> Result<(), CliError> {
 }
 
 fn run_validate(args: &ValidateArgs) -> Result<(), CliError> {
-    let input = std::fs::read(args.input.as_path())?;
-    validate_report_bytes(&input, args.require_final_profile0)
-}
-
-fn validate_report_bytes(input: &[u8], require_final_profile0: bool) -> Result<(), CliError> {
-    let report: ConformanceRun = serde_json::from_slice(input)?;
-    if require_final_profile0 {
-        validate_final_profile0_report(&report)?;
+    if !args.require_final_provenance
+        && (args.hyf_repo_path.is_some() || args.reticulum_path.is_some())
+    {
+        return Err(CliError::RepoPathRequiresFinalProvenance);
     }
+
+    let input = std::fs::read(args.input.as_path())?;
+    let require_final_profile0 = args.require_final_profile0
+        || args.require_final_provenance
+        || args.expected_oracle_module_path.is_some();
+    let report = validate_report_bytes(
+        &input,
+        require_final_profile0,
+        args.expected_oracle_module_path.as_deref(),
+    )?;
+    if args.require_final_provenance {
+        validate_final_report_provenance(&report, args)?;
+    }
+
     Ok(())
 }
 
-fn validate_final_profile0_report(report: &ConformanceRun) -> Result<(), CliError> {
+fn validate_report_bytes(
+    input: &[u8],
+    require_final_profile0: bool,
+    expected_oracle_module_path: Option<&str>,
+) -> Result<ConformanceRun, CliError> {
+    let report: ConformanceRun = serde_json::from_slice(input)?;
+    if require_final_profile0 {
+        validate_final_profile0_report(&report, expected_oracle_module_path)?;
+    }
+    Ok(report)
+}
+
+fn validate_final_profile0_report(
+    report: &ConformanceRun,
+    expected_oracle_module_path: Option<&str>,
+) -> Result<(), CliError> {
     if report.schema != CONFORMANCE_RUN_SCHEMA {
         return Err(CliError::FinalReportInvalid("schema mismatch"));
     }
@@ -119,7 +143,45 @@ fn validate_final_profile0_report(report: &ConformanceRun) -> Result<(), CliErro
     if !final_oracle_required_strings_are_populated(oracle) {
         return Err(CliError::FinalReportInvalid("empty oracle field"));
     }
-    validate_final_oracle_metadata(oracle)?;
+    validate_final_oracle_metadata(oracle, expected_oracle_module_path)?;
+
+    Ok(())
+}
+
+fn validate_final_report_provenance(
+    report: &ConformanceRun,
+    args: &ValidateArgs,
+) -> Result<(), CliError> {
+    let Some(hyf_repo_path) = args.hyf_repo_path.as_ref() else {
+        return Err(CliError::MissingRequired("--hyf-repo-path"));
+    };
+    validate_git_source_state(
+        hyf_repo_path.as_path(),
+        Some(&report.hyf_commit),
+        GitSource::Hyf,
+    )?;
+
+    let Some(reticulum_path) = args.reticulum_path.as_ref() else {
+        return Err(CliError::MissingRequired("--reticulum-path"));
+    };
+    validate_git_source_state(
+        reticulum_path.as_path(),
+        Some(&report.reticulum_commit),
+        GitSource::Reticulum,
+    )?;
+
+    let Some(expected_oracle_module_path) = args.expected_oracle_module_path.as_deref() else {
+        return Err(CliError::MissingRequired("--expected-oracle-module-path"));
+    };
+    let Some(oracle) = report.environment.oracle.as_ref() else {
+        return Err(CliError::FinalReportInvalid("missing oracle metadata"));
+    };
+    if oracle.reticulum_module_path != expected_oracle_module_path {
+        return Err(CliError::ExpectedOracleModulePathMismatch {
+            expected: expected_oracle_module_path.to_owned(),
+            actual: oracle.reticulum_module_path.clone(),
+        });
+    }
 
     Ok(())
 }
@@ -167,29 +229,69 @@ fn derive_hyf_commit(
     hyf_repo_path: &Path,
     expected_hyf_commit: Option<&str>,
 ) -> Result<String, CliError> {
-    let commit = git_stdout(hyf_repo_path, &["rev-parse", "HEAD"])?;
+    validate_git_source_state(hyf_repo_path, expected_hyf_commit, GitSource::Hyf)
+}
+
+fn validate_git_source_state(
+    repo_path: &Path,
+    expected_commit: Option<&str>,
+    source: GitSource,
+) -> Result<String, CliError> {
+    let commit = git_stdout(repo_path, &["rev-parse", "HEAD"])?;
     if !is_full_lower_hex_commit(&commit) {
-        return Err(CliError::InvalidHyfCommit(commit));
+        return Err(source.invalid_commit_error(commit));
     }
 
     let status = git_stdout(
-        hyf_repo_path,
+        repo_path,
         &["status", "--porcelain", "--untracked-files=all"],
     )?;
     if !status.is_empty() {
-        return Err(CliError::DirtyHyfWorktree);
+        return Err(source.dirty_worktree_error());
     }
 
-    if let Some(expected_hyf_commit) = expected_hyf_commit
-        && expected_hyf_commit != commit
+    if let Some(expected_commit) = expected_commit
+        && expected_commit != commit
     {
-        return Err(CliError::ExpectedHyfCommitMismatch {
-            expected: expected_hyf_commit.to_owned(),
-            actual: commit,
-        });
+        return Err(source.expected_commit_mismatch_error(expected_commit, commit));
     }
 
     Ok(commit)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GitSource {
+    Hyf,
+    Reticulum,
+}
+
+impl GitSource {
+    fn dirty_worktree_error(self) -> CliError {
+        match self {
+            Self::Hyf => CliError::DirtyHyfWorktree,
+            Self::Reticulum => CliError::DirtyReticulumWorktree,
+        }
+    }
+
+    fn invalid_commit_error(self, commit: String) -> CliError {
+        match self {
+            Self::Hyf => CliError::InvalidHyfCommit(commit),
+            Self::Reticulum => CliError::InvalidReticulumCommit(commit),
+        }
+    }
+
+    fn expected_commit_mismatch_error(self, expected: &str, actual: String) -> CliError {
+        match self {
+            Self::Hyf => CliError::ExpectedHyfCommitMismatch {
+                expected: expected.to_owned(),
+                actual,
+            },
+            Self::Reticulum => CliError::ExpectedReticulumCommitMismatch {
+                expected: expected.to_owned(),
+                actual,
+            },
+        }
+    }
 }
 
 fn git_stdout(repo_path: &Path, args: &[&str]) -> Result<String, CliError> {
@@ -351,8 +453,13 @@ fn validate_final_profile0_results(results: &[ConformanceResult]) -> Result<(), 
     Ok(())
 }
 
-fn validate_final_oracle_metadata(oracle: &OracleEnvironment) -> Result<(), CliError> {
-    if oracle.reticulum_module_path != EXPECTED_ORACLE_RETICULUM_MODULE_PATH {
+fn validate_final_oracle_metadata(
+    oracle: &OracleEnvironment,
+    expected_oracle_module_path: Option<&str>,
+) -> Result<(), CliError> {
+    if let Some(expected_oracle_module_path) = expected_oracle_module_path
+        && oracle.reticulum_module_path != expected_oracle_module_path
+    {
         return Err(CliError::FinalReportInvalid(
             "oracle Reticulum module path mismatch",
         ));
@@ -479,6 +586,10 @@ struct Args {
 struct ValidateArgs {
     input: PathBuf,
     require_final_profile0: bool,
+    require_final_provenance: bool,
+    hyf_repo_path: Option<PathBuf>,
+    reticulum_path: Option<PathBuf>,
+    expected_oracle_module_path: Option<String>,
 }
 
 impl ValidateArgs {
@@ -488,11 +599,26 @@ impl ValidateArgs {
     {
         let mut input = None;
         let mut require_final_profile0 = false;
+        let mut require_final_provenance = false;
+        let mut hyf_repo_path = None;
+        let mut reticulum_path = None;
+        let mut expected_oracle_module_path = None;
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--input" => input = Some(PathBuf::from(next_value(&mut args, "--input")?)),
                 "--require-final-profile0" => require_final_profile0 = true,
+                "--require-final-provenance" => require_final_provenance = true,
+                "--hyf-repo-path" => {
+                    hyf_repo_path = Some(PathBuf::from(next_value(&mut args, "--hyf-repo-path")?))
+                }
+                "--reticulum-path" => {
+                    reticulum_path = Some(PathBuf::from(next_value(&mut args, "--reticulum-path")?))
+                }
+                "--expected-oracle-module-path" => {
+                    expected_oracle_module_path =
+                        Some(next_value(&mut args, "--expected-oracle-module-path")?)
+                }
                 "--help" | "-h" => return Err(CliError::Usage),
                 _ => return Err(CliError::UnknownArgument(arg)),
             }
@@ -501,6 +627,10 @@ impl ValidateArgs {
         Ok(Self {
             input: required_path(input, "--input")?,
             require_final_profile0,
+            require_final_provenance,
+            hyf_repo_path,
+            reticulum_path,
+            expected_oracle_module_path,
         })
     }
 }
@@ -607,11 +737,22 @@ enum CliError {
     GitCommandUnavailable(io::Error),
     GitCommandFailed,
     DirtyHyfWorktree,
+    DirtyReticulumWorktree,
     InvalidHyfCommit(String),
+    InvalidReticulumCommit(String),
     ExpectedHyfCommitMismatch {
         expected: String,
         actual: String,
     },
+    ExpectedReticulumCommitMismatch {
+        expected: String,
+        actual: String,
+    },
+    ExpectedOracleModulePathMismatch {
+        expected: String,
+        actual: String,
+    },
+    RepoPathRequiresFinalProvenance,
     FinalReportInvalid(&'static str),
     #[cfg(feature = "python_oracle")]
     OraclePathRequiresOracle,
@@ -663,16 +804,43 @@ impl std::fmt::Display for CliError {
             Self::DirtyHyfWorktree => {
                 formatter.write_str("hyf repo has tracked or untracked worktree changes")
             }
+            Self::DirtyReticulumWorktree => {
+                formatter.write_str("Reticulum repo has tracked or untracked worktree changes")
+            }
             Self::InvalidHyfCommit(commit) => {
                 write!(
                     formatter,
                     "derived hyf commit is not a full git hash: {commit}"
                 )
             }
+            Self::InvalidReticulumCommit(commit) => {
+                write!(
+                    formatter,
+                    "derived Reticulum commit is not a full git hash: {commit}"
+                )
+            }
             Self::ExpectedHyfCommitMismatch { expected, actual } => {
                 write!(
                     formatter,
                     "expected hyf commit {expected}, but git HEAD is {actual}"
+                )
+            }
+            Self::ExpectedReticulumCommitMismatch { expected, actual } => {
+                write!(
+                    formatter,
+                    "expected Reticulum commit {expected}, but git HEAD is {actual}"
+                )
+            }
+            Self::ExpectedOracleModulePathMismatch { expected, actual } => {
+                write!(
+                    formatter,
+                    "expected oracle module path {expected}, but report records {actual}"
+                )
+            }
+            Self::RepoPathRequiresFinalProvenance => {
+                write!(
+                    formatter,
+                    "--hyf-repo-path and --reticulum-path are validate-only provenance inputs and require --require-final-provenance\n\n{USAGE}"
                 )
             }
             Self::FinalReportInvalid(reason) => write!(formatter, "final report invalid: {reason}"),
@@ -736,7 +904,12 @@ usage:
 
   hyf-rns-conformance-report validate \\
   --input <path> \\
-  [--require-final-profile0]";
+  [--require-final-profile0] \\
+  [--expected-oracle-module-path <path>] \\
+  [--require-final-provenance \\
+   --hyf-repo-path <path> \\
+   --reticulum-path <path> \\
+   --expected-oracle-module-path <path>]";
 
 #[cfg(test)]
 mod tests {
@@ -751,8 +924,9 @@ mod tests {
     };
 
     use super::{
-        Args, CliError, ValidateArgs, apply_report_overrides, derive_hyf_commit,
-        report_relative_path, validate_report_bytes,
+        Args, CliError, ValidateArgs, apply_report_overrides, derive_hyf_commit, git_stdout,
+        report_relative_path, run_validate, validate_final_report_provenance,
+        validate_report_bytes,
     };
     use serde_json::json;
 
@@ -819,6 +993,43 @@ mod tests {
 
         assert_eq!(args.input, PathBuf::from("report.json"));
         assert!(args.require_final_profile0);
+        assert!(!args.require_final_provenance);
+        assert!(args.hyf_repo_path.is_none());
+        assert!(args.reticulum_path.is_none());
+        assert!(args.expected_oracle_module_path.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn validate_parser_accepts_final_provenance_mode() -> Result<(), CliError> {
+        let args = ValidateArgs::parse(
+            [
+                "--input",
+                "report.json",
+                "--require-final-provenance",
+                "--hyf-repo-path",
+                ".",
+                "--reticulum-path",
+                "../refs/Reticulum",
+                "--expected-oracle-module-path",
+                "refs/Reticulum/RNS/__init__.py",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )?;
+
+        assert_eq!(args.input, PathBuf::from("report.json"));
+        assert!(!args.require_final_profile0);
+        assert!(args.require_final_provenance);
+        assert_eq!(args.hyf_repo_path, Some(PathBuf::from(".")));
+        assert_eq!(
+            args.reticulum_path,
+            Some(PathBuf::from("../refs/Reticulum"))
+        );
+        assert_eq!(
+            args.expected_oracle_module_path.as_deref(),
+            Some("refs/Reticulum/RNS/__init__.py")
+        );
         Ok(())
     }
 
@@ -827,7 +1038,37 @@ mod tests {
         let report = valid_final_report();
         let input = serde_json::to_vec(&report)?;
 
-        validate_report_bytes(&input, true)
+        validate_report_bytes(&input, true, None).map(|_| ())
+    }
+
+    #[test]
+    fn final_profile0_validator_accepts_alternate_oracle_path_without_policy()
+    -> Result<(), CliError> {
+        let mut report = valid_final_report();
+        if let Some(oracle) = report.environment.oracle.as_mut() {
+            oracle.reticulum_module_path = "RNS/__init__.py".to_owned();
+        }
+        let input = serde_json::to_vec(&report)?;
+
+        validate_report_bytes(&input, true, None).map(|_| ())
+    }
+
+    #[test]
+    fn final_profile0_validator_applies_explicit_oracle_path_policy()
+    -> Result<(), serde_json::Error> {
+        let report = valid_final_report();
+        let input = serde_json::to_vec(&report)?;
+
+        assert!(
+            validate_report_bytes(&input, true, Some("refs/Reticulum/RNS/__init__.py")).is_ok()
+        );
+        assert!(matches!(
+            validate_report_bytes(&input, true, Some("RNS/__init__.py")),
+            Err(CliError::FinalReportInvalid(
+                "oracle Reticulum module path mismatch"
+            ))
+        ));
+        Ok(())
     }
 
     #[test]
@@ -837,7 +1078,7 @@ mod tests {
         let input = serde_json::to_vec(&report)?;
 
         assert!(matches!(
-            validate_report_bytes(&input, true),
+            validate_report_bytes(&input, true, None),
             Err(CliError::Json(_))
         ));
 
@@ -846,7 +1087,7 @@ mod tests {
         let input = serde_json::to_vec(&report)?;
 
         assert!(matches!(
-            validate_report_bytes(&input, true),
+            validate_report_bytes(&input, true, None),
             Err(CliError::Json(_))
         ));
         Ok(())
@@ -965,7 +1206,7 @@ mod tests {
         let input = serde_json::to_vec(&report)?;
 
         assert!(matches!(
-            validate_report_bytes(&input, true),
+            validate_report_bytes(&input, true, None),
             Err(CliError::FinalReportInvalid("failed result present"))
         ));
         Ok(())
@@ -986,7 +1227,7 @@ mod tests {
         let input = serde_json::to_vec(&report)?;
 
         assert!(matches!(
-            validate_report_bytes(&input, true),
+            validate_report_bytes(&input, true, None),
             Err(CliError::FinalReportInvalid(
                 "invalid environment result present"
             ))
@@ -1001,7 +1242,7 @@ mod tests {
         let input = serde_json::to_vec(&report)?;
 
         assert!(matches!(
-            validate_report_bytes(&input, true),
+            validate_report_bytes(&input, true, None),
             Err(CliError::FinalReportInvalid("missing oracle metadata"))
         ));
         Ok(())
@@ -1014,7 +1255,7 @@ mod tests {
         let input = serde_json::to_vec(&report)?;
 
         assert!(matches!(
-            validate_report_bytes(&input, true),
+            validate_report_bytes(&input, true, None),
             Err(CliError::FinalReportInvalid("reticulum commit mismatch"))
         ));
         Ok(())
@@ -1023,12 +1264,6 @@ mod tests {
     #[test]
     fn final_profile0_validator_rejects_oracle_metadata_mismatch() -> Result<(), serde_json::Error>
     {
-        let mut report = valid_final_report();
-        if let Some(oracle) = report.environment.oracle.as_mut() {
-            oracle.reticulum_module_path = "/tmp/Reticulum/RNS/__init__.py".to_owned();
-        }
-        assert_final_report_invalid(&report, "oracle Reticulum module path mismatch")?;
-
         let mut report = valid_final_report();
         if let Some(oracle) = report.environment.oracle.as_mut() {
             oracle.reticulum_commit = "0000000000000000000000000000000000000000".to_owned();
@@ -1057,9 +1292,31 @@ mod tests {
     #[test]
     fn final_profile0_validator_rejects_malformed_json() {
         assert!(matches!(
-            validate_report_bytes(b"{", true),
+            validate_report_bytes(b"{", true, None),
             Err(CliError::Json(_))
         ));
+    }
+
+    #[test]
+    fn validate_rejects_repo_paths_without_final_provenance()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let report = valid_final_report();
+        let input = unique_test_path()?;
+        std::fs::write(&input, serde_json::to_vec(&report)?)?;
+        let args = ValidateArgs {
+            input,
+            require_final_profile0: true,
+            require_final_provenance: false,
+            hyf_repo_path: Some(PathBuf::from(".")),
+            reticulum_path: None,
+            expected_oracle_module_path: None,
+        };
+
+        assert!(matches!(
+            run_validate(&args),
+            Err(CliError::RepoPathRequiresFinalProvenance)
+        ));
+        Ok(())
     }
 
     #[test]
@@ -1108,6 +1365,67 @@ mod tests {
         let commit = derive_hyf_commit(repo.path(), None)?;
 
         assert_eq!(commit.len(), 40);
+        Ok(())
+    }
+
+    #[test]
+    fn final_provenance_accepts_clean_matching_repos() -> Result<(), Box<dyn std::error::Error>> {
+        let hyf_repo = TestGitRepo::create()?;
+        let reticulum_repo = TestGitRepo::create()?;
+        let report = valid_final_report_for_repos(&hyf_repo, &reticulum_repo)?;
+        let args = provenance_args(&hyf_repo, &reticulum_repo);
+
+        validate_final_report_provenance(&report, &args)?;
+        Ok(())
+    }
+
+    #[test]
+    fn final_provenance_rejects_forged_hyf_commit() -> Result<(), Box<dyn std::error::Error>> {
+        let hyf_repo = TestGitRepo::create()?;
+        let reticulum_repo = TestGitRepo::create()?;
+        let mut report = valid_final_report_for_repos(&hyf_repo, &reticulum_repo)?;
+        report.hyf_commit = "0000000000000000000000000000000000000000".to_owned();
+        let args = provenance_args(&hyf_repo, &reticulum_repo);
+
+        assert!(matches!(
+            validate_final_report_provenance(&report, &args),
+            Err(CliError::ExpectedHyfCommitMismatch { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn final_provenance_rejects_reticulum_untracked_source()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let hyf_repo = TestGitRepo::create()?;
+        let reticulum_repo = TestGitRepo::create()?;
+        let report = valid_final_report_for_repos(&hyf_repo, &reticulum_repo)?;
+        std::fs::write(
+            reticulum_repo.path().join("sitecustomize.py"),
+            "raise SystemExit\n",
+        )?;
+        let args = provenance_args(&hyf_repo, &reticulum_repo);
+
+        assert!(matches!(
+            validate_final_report_provenance(&report, &args),
+            Err(CliError::DirtyReticulumWorktree)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn final_provenance_requires_explicit_oracle_path_policy()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let hyf_repo = TestGitRepo::create()?;
+        let reticulum_repo = TestGitRepo::create()?;
+        let report = valid_final_report_for_repos(&hyf_repo, &reticulum_repo)?;
+        let mut args = provenance_args(&hyf_repo, &reticulum_repo);
+        args.expected_oracle_module_path = None;
+
+        assert!(matches!(
+            validate_final_report_provenance(&report, &args),
+            Err(CliError::MissingRequired("--expected-oracle-module-path"))
+        ));
         Ok(())
     }
 
@@ -1221,6 +1539,31 @@ mod tests {
         report.results.push(result);
     }
 
+    fn valid_final_report_for_repos(
+        hyf_repo: &TestGitRepo,
+        reticulum_repo: &TestGitRepo,
+    ) -> Result<ConformanceRun, CliError> {
+        let mut report = valid_final_report();
+        report.hyf_commit = hyf_repo.commit()?;
+        report.reticulum_commit = reticulum_repo.commit()?;
+        if let Some(oracle) = report.environment.oracle.as_mut() {
+            oracle.reticulum_commit = report.reticulum_commit.clone();
+            oracle.reticulum_module_path = "RNS/__init__.py".to_owned();
+        }
+        Ok(report)
+    }
+
+    fn provenance_args(hyf_repo: &TestGitRepo, reticulum_repo: &TestGitRepo) -> ValidateArgs {
+        ValidateArgs {
+            input: PathBuf::from("report.json"),
+            require_final_profile0: true,
+            require_final_provenance: true,
+            hyf_repo_path: Some(hyf_repo.path().to_path_buf()),
+            reticulum_path: Some(reticulum_repo.path().to_path_buf()),
+            expected_oracle_module_path: Some("RNS/__init__.py".to_owned()),
+        }
+    }
+
     fn assert_final_report_invalid(
         report: &ConformanceRun,
         reason: &'static str,
@@ -1228,7 +1571,7 @@ mod tests {
         let input = serde_json::to_vec(report)?;
 
         assert!(matches!(
-            validate_report_bytes(&input, true),
+            validate_report_bytes(&input, true, None),
             Err(CliError::FinalReportInvalid(actual)) if actual == reason
         ));
         Ok(())
@@ -1256,6 +1599,10 @@ mod tests {
 
         fn path(&self) -> &Path {
             self.path.as_path()
+        }
+
+        fn commit(&self) -> Result<String, CliError> {
+            git_stdout(self.path(), &["rev-parse", "HEAD"])
         }
     }
 
