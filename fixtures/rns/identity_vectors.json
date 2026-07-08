@@ -1,0 +1,23 @@
+{
+  "schema": "hyf.rns.fixture_case.v1",
+  "profile": "profile_0_packet_announce",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "case": {
+    "id": "profile_0_packet_announce.identity_signature.synthetic.0001",
+    "category": "identity_signature",
+    "deterministic": true,
+    "private_test_material": true,
+    "inputs": {
+      "secret_identity": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "message": "68796620706861736530362066697874757265206d657373616765"
+    },
+    "expected": {
+      "public_identity": "8f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7",
+      "identity_hash": "aca31af0441d81dbec71e82da0b4b5f5",
+      "signature": "33875a9ff62918c0ffaa9e71f3a130686cc36711d588558f8143daeb33808b142832e35d5abe628aab03ab6d969e8a2ec1659882731122bd9b4cdca569cfb80d"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "hyf.rns.fixture_manifest.v1",
+  "profile": "profile_0_packet_announce",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "generated_by": "hyf_rns_conformance phase06 oracle probe",
+  "generated_at": "2026-07-08T00:00:00Z",
+  "fixtures": [
+    {
+      "file": "identity_vectors.json",
+      "category": "identity_signature",
+      "case_count": 1,
+      "sha256": "f10105e7a61465b168c81c707fc736465781a26a0bbe4451f5a0444b841909c6"
+    }
+  ]
+}
