@@ -10,7 +10,7 @@ publish = false
 
 [dependencies]
 hyf_rns_core.workspace = true
-hyf_rns_crypto.workspace = true
+hyf_rns_crypto = { workspace = true, features = ["crypto_x25519"] }
 hyf_rns_wire.workspace = true
 rand_core.workspace = true
 serde.workspace = true

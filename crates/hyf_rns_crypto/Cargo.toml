@@ -10,7 +10,7 @@ rust-version.workspace = true
 [dependencies]
 ed25519-dalek.workspace = true
 hyf_rns_core.workspace = true
-x25519-dalek.workspace = true
+x25519-dalek = { workspace = true, optional = true }
 zeroize.workspace = true
 
 [features]
@@ -19,6 +19,9 @@ alloc = []
 std = ["alloc"]
 serde = []
 defmt = []
+test_vectors = []
+crypto_token = []
+crypto_x25519 = ["crypto_token", "dep:x25519-dalek"]
 
 [lints]
 workspace = true

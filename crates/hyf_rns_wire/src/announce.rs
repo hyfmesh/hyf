@@ -1,6 +1,6 @@
 use hyf_rns_core::{RNS_MTU, RNS_NAME_HASH_LEN, RnsDestinationHash, RnsNameHash, destination_hash};
 use hyf_rns_crypto::{
-    RNS_PUBLIC_IDENTITY_LEN, RnsCryptoError, RnsSecretIdentity, identity_hash,
+    RNS_PUBLIC_IDENTITY_LEN, RnsCryptoError, RnsPublicIdentity, RnsSecretIdentity, identity_hash,
     public_identity_from_bytes, public_identity_to_bytes, sign, verify,
 };
 use rand_core::TryRng;
@@ -50,6 +50,7 @@ pub struct RnsAnnounceRef<'a> {
 
 pub struct RnsAnnounceEncodeParams<'a> {
     pub secret_identity: &'a RnsSecretIdentity,
+    pub public_identity: RnsPublicIdentity,
     pub app_name: &'a str,
     pub aspects: &'a [&'a str],
     pub app_data: &'a [u8],
@@ -95,14 +96,11 @@ where
         });
     }
 
-    let public_identity = params
-        .secret_identity
-        .public_identity()
-        .map_err(map_crypto_error)?;
-    let public_identity_bytes = public_identity_to_bytes(&public_identity);
+    let public_identity_bytes = public_identity_to_bytes(&params.public_identity);
     let name_hash = hyf_rns_core::destination_name_hash(params.app_name, params.aspects)
         .map_err(|_| RnsWireError::InvalidDestinationName)?;
-    let destination_hash = destination_hash(name_hash, Some(identity_hash(&public_identity)));
+    let destination_hash =
+        destination_hash(name_hash, Some(identity_hash(&params.public_identity)));
     let random_hash = reticulum_random_hash(rng, clock)?;
     let unsigned_announce = RnsAnnounceRef {
         destination_hash,
@@ -336,7 +334,8 @@ fn read_array<const N: usize>(input: &[u8]) -> [u8; N] {
 mod tests {
     use hyf_rns_core::{RNS_MTU, RnsDestinationHash, RnsNameHash, destination_hash};
     use hyf_rns_crypto::{
-        identity_hash, public_identity_to_bytes, secret_identity_from_bytes, sign,
+        identity_hash, public_identity_from_bytes, public_identity_to_bytes,
+        secret_identity_from_bytes, sign,
     };
     use rand_core::{Infallible, TryRng};
 
@@ -539,6 +538,7 @@ mod tests {
         let len = encode_announce_packet(
             RnsAnnounceEncodeParams {
                 secret_identity: &secret,
+                public_identity: test_public_identity()?,
                 app_name: "hyf",
                 aspects: &aspects,
                 app_data: b"app-data",
@@ -572,6 +572,7 @@ mod tests {
             encode_announce_packet(
                 RnsAnnounceEncodeParams {
                     secret_identity: &secret,
+                    public_identity: test_public_identity()?,
                     app_name: "hyf",
                     aspects: &aspects,
                     app_data: b"",
@@ -598,6 +599,7 @@ mod tests {
             encode_announce_packet(
                 RnsAnnounceEncodeParams {
                     secret_identity: &secret,
+                    public_identity: test_public_identity()?,
                     app_name: "hyf",
                     aspects: &aspects,
                     app_data: b"",
@@ -624,6 +626,7 @@ mod tests {
             encode_announce_packet(
                 RnsAnnounceEncodeParams {
                     secret_identity: &secret,
+                    public_identity: test_public_identity()?,
                     app_name: "hyf",
                     aspects: &aspects,
                     app_data: b"",
@@ -654,6 +657,7 @@ mod tests {
             encode_announce_packet(
                 RnsAnnounceEncodeParams {
                     secret_identity: &secret,
+                    public_identity: test_public_identity()?,
                     app_name: "hyf",
                     aspects: &aspects,
                     app_data: &app_data,
@@ -683,6 +687,7 @@ mod tests {
             encode_announce_packet(
                 RnsAnnounceEncodeParams {
                     secret_identity: &secret,
+                    public_identity: test_public_identity()?,
                     app_name: "hyf.bad",
                     aspects: &aspects,
                     app_data: b"",
@@ -741,9 +746,7 @@ mod tests {
     ) -> Result<(Vec<u8>, RnsDestinationHash), RnsWireError> {
         let secret = secret_identity_from_bytes(&TEST_SECRET_IDENTITY)
             .map_err(|_| RnsWireError::InvalidPublicIdentity)?;
-        let public_identity = secret
-            .public_identity()
-            .map_err(|_| RnsWireError::InvalidPublicIdentity)?;
+        let public_identity = test_public_identity()?;
         let public_identity_bytes = public_identity_to_bytes(&public_identity);
         let name_hash = RnsNameHash::new([0x22; 10]);
         let destination_hash = destination_hash(name_hash, Some(identity_hash(&public_identity)));
@@ -777,6 +780,11 @@ mod tests {
 
     fn test_secret_identity() -> Result<hyf_rns_crypto::RnsSecretIdentity, RnsWireError> {
         secret_identity_from_bytes(&TEST_SECRET_IDENTITY)
+            .map_err(|_| RnsWireError::InvalidPublicIdentity)
+    }
+
+    fn test_public_identity() -> Result<hyf_rns_crypto::RnsPublicIdentity, RnsWireError> {
+        public_identity_from_bytes(&TEST_PUBLIC_IDENTITY)
             .map_err(|_| RnsWireError::InvalidPublicIdentity)
     }
 
@@ -863,5 +871,13 @@ mod tests {
         0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c,
         0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b,
         0x3c, 0x3d, 0x3e, 0x3f,
+    ];
+
+    const TEST_PUBLIC_IDENTITY: [u8; 64] = [
+        0x8f, 0x40, 0xc5, 0xad, 0xb6, 0x8f, 0x25, 0x62, 0x4a, 0xe5, 0xb2, 0x14, 0xea, 0x76, 0x7a,
+        0x6e, 0xc9, 0x4d, 0x82, 0x9d, 0x3d, 0x7b, 0x5e, 0x1a, 0xd1, 0xba, 0x6f, 0x3e, 0x21, 0x38,
+        0x28, 0x5f, 0x29, 0xac, 0xba, 0xe1, 0x41, 0xbc, 0xca, 0xf0, 0xb2, 0x2e, 0x1a, 0x94, 0xd3,
+        0x4d, 0x0b, 0xc7, 0x36, 0x1e, 0x52, 0x6d, 0x0b, 0xfe, 0x12, 0xc8, 0x97, 0x94, 0xbc, 0x93,
+        0x22, 0x96, 0x6d, 0xd7,
     ];
 }

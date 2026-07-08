@@ -24,7 +24,12 @@ pub fn verify(
 #[cfg(test)]
 mod tests {
     use super::{sign, verify};
-    use crate::{public_identity_from_bytes, secret_identity_from_bytes};
+    use ed25519_dalek::SigningKey;
+
+    use crate::{
+        RNS_IDENTITY_KEY_LEN, RnsPublicIdentity, public_identity_from_bytes,
+        public_identity_to_bytes, secret_identity_from_bytes,
+    };
 
     const TEST_SECRET_IDENTITY_BYTES: [u8; 64] = [
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
@@ -45,10 +50,10 @@ mod tests {
     #[test]
     fn signature_verifies_with_matching_public_identity() {
         let secret = secret_identity_from_bytes(&TEST_SECRET_IDENTITY_BYTES);
+        let public = public_identity_from_secret_bytes(&TEST_SECRET_IDENTITY_BYTES);
         let message = b"hyf phase06 signing test";
 
         let result = secret.and_then(|secret| {
-            let public = secret.public_identity()?;
             let signature = sign(&secret, message)?;
             verify(&public, message, &signature)
         });
@@ -59,9 +64,9 @@ mod tests {
     #[test]
     fn signature_rejects_altered_message() {
         let secret = secret_identity_from_bytes(&TEST_SECRET_IDENTITY_BYTES);
+        let public = public_identity_from_secret_bytes(&TEST_SECRET_IDENTITY_BYTES);
 
         let result = secret.and_then(|secret| {
-            let public = secret.public_identity()?;
             let signature = sign(&secret, b"original message")?;
             verify(&public, b"altered message", &signature)
         });
@@ -72,9 +77,9 @@ mod tests {
     #[test]
     fn signature_rejects_altered_signature() {
         let secret = secret_identity_from_bytes(&TEST_SECRET_IDENTITY_BYTES);
+        let public = public_identity_from_secret_bytes(&TEST_SECRET_IDENTITY_BYTES);
 
         let result = secret.and_then(|secret| {
-            let public = secret.public_identity()?;
             let mut signature = sign(&secret, b"message")?;
             signature[0] ^= 0x01;
             verify(&public, b"message", &signature)
@@ -86,13 +91,11 @@ mod tests {
     #[test]
     fn signature_rejects_wrong_identity() {
         let secret = secret_identity_from_bytes(&TEST_SECRET_IDENTITY_BYTES);
-        let other_public = secret_identity_from_bytes(&OTHER_SECRET_IDENTITY_BYTES)
-            .and_then(|identity| identity.public_identity());
+        let other_public = public_identity_from_secret_bytes(&OTHER_SECRET_IDENTITY_BYTES);
 
         let result = secret.and_then(|secret| {
-            let public = other_public?;
             let signature = sign(&secret, b"message")?;
-            verify(&public, b"message", &signature)
+            verify(&other_public, b"message", &signature)
         });
 
         assert!(result.is_err());
@@ -101,15 +104,28 @@ mod tests {
     #[test]
     fn public_identity_from_bytes_can_verify_signature() {
         let secret = secret_identity_from_bytes(&TEST_SECRET_IDENTITY_BYTES);
+        let public = public_identity_from_secret_bytes(&TEST_SECRET_IDENTITY_BYTES);
 
         let result = secret.and_then(|secret| {
-            let public = secret.public_identity()?;
-            let public_bytes = crate::public_identity_to_bytes(&public);
+            let public_bytes = public_identity_to_bytes(&public);
             let reparsed_public = public_identity_from_bytes(&public_bytes)?;
             let signature = sign(&secret, b"message")?;
             verify(&reparsed_public, b"message", &signature)
         });
 
         assert_eq!(result, Ok(()));
+    }
+
+    fn public_identity_from_secret_bytes(secret: &[u8; 64]) -> RnsPublicIdentity {
+        let mut ed25519_secret = [0; RNS_IDENTITY_KEY_LEN];
+        ed25519_secret.copy_from_slice(&secret[RNS_IDENTITY_KEY_LEN..]);
+        let ed25519_public = SigningKey::from_bytes(&ed25519_secret)
+            .verifying_key()
+            .to_bytes();
+
+        RnsPublicIdentity {
+            x25519_public: [0; RNS_IDENTITY_KEY_LEN],
+            ed25519_public,
+        }
     }
 }

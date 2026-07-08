@@ -2,6 +2,7 @@ use core::fmt;
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use hyf_rns_core::{RnsIdentityHash, truncated_hash};
+#[cfg(feature = "crypto_x25519")]
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
@@ -18,6 +19,7 @@ pub struct RnsPublicIdentity {
 }
 
 pub struct RnsSecretIdentity {
+    #[cfg_attr(not(feature = "crypto_x25519"), allow(dead_code))]
     x25519_secret: Zeroizing<[u8; RNS_IDENTITY_KEY_LEN]>,
     ed25519_secret: Zeroizing<[u8; RNS_IDENTITY_KEY_LEN]>,
 }
@@ -33,6 +35,7 @@ impl fmt::Debug for RnsSecretIdentity {
 }
 
 impl RnsSecretIdentity {
+    #[cfg(feature = "crypto_x25519")]
     pub fn public_identity(&self) -> Result<RnsPublicIdentity, RnsCryptoError> {
         let x25519_secret = self.x25519_static_secret();
         let x25519_public = X25519PublicKey::from(&x25519_secret);
@@ -49,7 +52,8 @@ impl RnsSecretIdentity {
         SigningKey::from_bytes(&self.ed25519_secret)
     }
 
-    fn x25519_static_secret(&self) -> StaticSecret {
+    #[cfg(feature = "crypto_x25519")]
+    pub(crate) fn x25519_static_secret(&self) -> StaticSecret {
         let x25519_secret = Zeroizing::new(*self.x25519_secret);
         StaticSecret::from(*x25519_secret)
     }
@@ -85,7 +89,6 @@ pub fn secret_identity_from_bytes(
         x25519_secret: Zeroizing::new(x25519_secret),
         ed25519_secret: Zeroizing::new(ed25519_secret),
     };
-    identity.public_identity()?;
     Ok(identity)
 }
 
@@ -111,10 +114,14 @@ pub(crate) fn ed25519_verifying_key(
 #[cfg(test)]
 mod tests {
     use super::{
-        RNS_PUBLIC_IDENTITY_LEN, RNS_SECRET_IDENTITY_LEN, identity_hash,
-        public_identity_from_bytes, public_identity_to_bytes, secret_identity_from_bytes,
+        RNS_PUBLIC_IDENTITY_LEN, identity_hash, public_identity_from_bytes,
+        public_identity_to_bytes,
     };
 
+    #[cfg(feature = "crypto_x25519")]
+    use super::{RNS_SECRET_IDENTITY_LEN, secret_identity_from_bytes};
+
+    #[cfg(feature = "crypto_x25519")]
     const TEST_SECRET_IDENTITY_BYTES: [u8; RNS_SECRET_IDENTITY_LEN] = [
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
         0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
@@ -136,6 +143,7 @@ mod tests {
         0xf5,
     ];
 
+    #[cfg(feature = "crypto_x25519")]
     #[test]
     fn secret_identity_derives_public_identity() {
         let secret = secret_identity_from_bytes(&TEST_SECRET_IDENTITY_BYTES);

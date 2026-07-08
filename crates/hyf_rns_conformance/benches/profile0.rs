@@ -70,6 +70,12 @@ fn benchmark_announce_validate(criterion: &mut Criterion) {
 
 fn benchmark_announce_encode(criterion: &mut Criterion) {
     let secret_identity = benchmark_input("secret identity", secret_identity());
+    let public_identity = benchmark_input(
+        "public identity",
+        secret_identity
+            .public_identity()
+            .map_err(FixtureError::from),
+    );
 
     criterion.bench_function("profile0_announce_encode", |bench| {
         bench.iter(|| {
@@ -80,6 +86,7 @@ fn benchmark_announce_encode(criterion: &mut Criterion) {
             let _ = encode_announce_packet(
                 RnsAnnounceEncodeParams {
                     secret_identity: black_box(&secret_identity),
+                    public_identity: black_box(public_identity),
                     app_name: black_box(APP_NAME),
                     aspects: black_box(&ASPECTS),
                     app_data: black_box(APP_DATA),

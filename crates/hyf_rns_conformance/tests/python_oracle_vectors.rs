@@ -124,6 +124,7 @@ fn encode_header_2_packet() -> Result<Vec<u8>, RnsWireError> {
 
 fn encode_test_announce() -> Result<Vec<u8>, OracleTestError> {
     let secret = secret_identity_from_bytes(&TEST_SECRET_IDENTITY)?;
+    let public_identity = secret.public_identity()?;
     let aspects = ["announce"];
     let mut rng = FixedRng::new([0x01, 0x02, 0x03, 0x04, 0x05]);
     let clock = FixedClock(0x01_0203_0405);
@@ -131,6 +132,7 @@ fn encode_test_announce() -> Result<Vec<u8>, OracleTestError> {
     let len = encode_announce_packet(
         RnsAnnounceEncodeParams {
             secret_identity: &secret,
+            public_identity,
             app_name: "hyf",
             aspects: &aspects,
             app_data: b"oracle-app-data",
