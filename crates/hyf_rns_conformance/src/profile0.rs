@@ -722,8 +722,11 @@ fn validate_announce_fixtures() -> Result<(), FixtureError> {
             || announce.signature != expected_signature
             || announce.app_data != expected_app_data.as_slice()
             || &signed_data[..RNS_TRUNCATED_HASH_LEN] != announce.destination_hash.as_bytes()
-            || &signed_data[signed_data_len - expected_app_data.len()..signed_data_len]
-                != expected_app_data.as_slice()
+            || !signed_data_suffix_matches(
+                &signed_data,
+                signed_data_len,
+                expected_app_data.as_slice(),
+            )
         {
             return unexpected("announce", "announce fixture mismatch");
         }
@@ -828,6 +831,18 @@ fn decode_optional_transport_id(
     Ok(Some(decode_hex_exact::<RNS_TRUNCATED_HASH_LEN>(
         transport_id,
     )?))
+}
+
+fn signed_data_suffix_matches(
+    signed_data: &[u8],
+    signed_data_len: usize,
+    expected_suffix: &[u8],
+) -> bool {
+    let Some(suffix_start) = signed_data_len.checked_sub(expected_suffix.len()) else {
+        return false;
+    };
+
+    signed_data.get(suffix_start..signed_data_len) == Some(expected_suffix)
 }
 
 fn expected_wire_error(error: &str) -> Result<RnsWireError, FixtureError> {
@@ -1226,6 +1241,7 @@ mod tests {
 
     use super::{
         REQUIRED_PROFILE_0_RESULT_CATEGORIES, profile_0_results, required_categories_are_present,
+        signed_data_suffix_matches,
     };
 
     #[test]
@@ -1250,6 +1266,13 @@ mod tests {
 
         assert_eq!(failed, 0);
         assert_eq!(invalid_environment, 2);
+    }
+
+    #[test]
+    fn signed_data_suffix_check_rejects_short_lengths_without_panic() {
+        assert!(signed_data_suffix_matches(&[1, 2, 3, 4], 4, &[3, 4]));
+        assert!(!signed_data_suffix_matches(&[1, 2, 3, 4], 1, &[2, 3]));
+        assert!(!signed_data_suffix_matches(&[1, 2, 3, 4], 8, &[3, 4]));
     }
 
     #[cfg(feature = "python_oracle")]

@@ -97,6 +97,18 @@ fn announce_fixtures_validate_against_reticulum_oracle() -> Result<(), FixtureEr
         let expected_app_data = decode_hex(&case.expected.app_data)?;
         let mut signed_data = [0; RNS_MTU];
         let signed_data_len = build_announce_signed_data(&announce, &mut signed_data)?;
+        let signed_app_data_start = signed_data_len
+            .checked_sub(expected_app_data.len())
+            .ok_or_else(|| FixtureError::UnexpectedFixtureValue {
+                field: "signed_data_len".to_owned(),
+                value: signed_data_len.to_string(),
+            })?;
+        let signed_app_data = signed_data
+            .get(signed_app_data_start..signed_data_len)
+            .ok_or_else(|| FixtureError::UnexpectedFixtureValue {
+                field: "signed_data_app_data".to_owned(),
+                value: signed_data_len.to_string(),
+            })?;
 
         assert_eq!(packet.flags.context_flag as u8, case.expected.context_flag);
         assert_eq!(
@@ -113,10 +125,7 @@ fn announce_fixtures_validate_against_reticulum_oracle() -> Result<(), FixtureEr
             &signed_data[..RNS_TRUNCATED_HASH_LEN],
             announce.destination_hash.as_bytes()
         );
-        assert_eq!(
-            &signed_data[signed_data_len - expected_app_data.len()..signed_data_len],
-            expected_app_data.as_slice()
-        );
+        assert_eq!(signed_app_data, expected_app_data.as_slice());
     }
 
     Ok(())
