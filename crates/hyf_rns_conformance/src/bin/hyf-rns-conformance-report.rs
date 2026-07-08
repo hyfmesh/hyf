@@ -10,6 +10,8 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use hyf_rns_conformance::profile0::profile_0_report;
+#[cfg(feature = "python_oracle")]
+use hyf_rns_conformance::profile0::profile_0_report_with_required_oracle;
 use hyf_rns_conformance::report::ConformanceEnvironment;
 
 fn main() {
@@ -21,12 +23,54 @@ fn main() {
 
 fn run() -> Result<(), CliError> {
     let args = Args::parse(std::env::args().skip(1))?;
-    let environment = ConformanceEnvironment::new(args.os, args.arch, args.rust_toolchain);
-    let report = profile_0_report(args.run_id, args.hyf_commit, args.started_at, environment);
+    let environment = ConformanceEnvironment::new(
+        args.os.clone(),
+        args.arch.clone(),
+        args.rust_toolchain.clone(),
+    );
+    let report = build_report(&args, environment)?;
     let json = serde_json::to_vec_pretty(&report)?;
 
     write_output(&args.output, &json)?;
     Ok(())
+}
+
+fn build_report(
+    args: &Args,
+    environment: ConformanceEnvironment,
+) -> Result<hyf_rns_conformance::report::ConformanceRun, CliError> {
+    #[cfg(feature = "python_oracle")]
+    {
+        if args.require_oracle {
+            let Some(reticulum_path) = args.reticulum_path.as_ref() else {
+                return Err(CliError::MissingRequired("--reticulum-path"));
+            };
+            return Ok(profile_0_report_with_required_oracle(
+                args.run_id.clone(),
+                args.hyf_commit.clone(),
+                args.started_at.clone(),
+                environment,
+                reticulum_path.as_path(),
+            )?);
+        }
+        if args.reticulum_path.is_some() {
+            return Err(CliError::OraclePathRequiresOracle);
+        }
+    }
+
+    #[cfg(not(feature = "python_oracle"))]
+    {
+        if args.require_oracle || args.reticulum_path.is_some() {
+            return Err(CliError::PythonOracleFeatureDisabled);
+        }
+    }
+
+    Ok(profile_0_report(
+        args.run_id.clone(),
+        args.hyf_commit.clone(),
+        args.started_at.clone(),
+        environment,
+    ))
 }
 
 fn write_output(output: &str, json: &[u8]) -> Result<(), CliError> {
@@ -52,6 +96,8 @@ struct Args {
     os: String,
     arch: String,
     output: String,
+    reticulum_path: Option<PathBuf>,
+    require_oracle: bool,
 }
 
 impl Args {
@@ -66,6 +112,8 @@ impl Args {
         let mut os = std::env::consts::OS.to_owned();
         let mut arch = std::env::consts::ARCH.to_owned();
         let mut output = None;
+        let mut reticulum_path = None;
+        let mut require_oracle = false;
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -78,6 +126,10 @@ impl Args {
                 "--os" => os = next_value(&mut args, "--os")?,
                 "--arch" => arch = next_value(&mut args, "--arch")?,
                 "--output" => output = Some(next_value(&mut args, "--output")?),
+                "--reticulum-path" => {
+                    reticulum_path = Some(PathBuf::from(next_value(&mut args, "--reticulum-path")?))
+                }
+                "--require-oracle" => require_oracle = true,
                 "--help" | "-h" => return Err(CliError::Usage),
                 _ => return Err(CliError::UnknownArgument(arg)),
             }
@@ -91,6 +143,8 @@ impl Args {
             os,
             arch,
             output: required(output, "--output")?,
+            reticulum_path,
+            require_oracle,
         })
     }
 }
@@ -124,6 +178,12 @@ enum CliError {
     UnknownArgument(String),
     MissingValue(&'static str),
     MissingRequired(&'static str),
+    #[cfg(feature = "python_oracle")]
+    OraclePathRequiresOracle,
+    #[cfg(not(feature = "python_oracle"))]
+    PythonOracleFeatureDisabled,
+    #[cfg(feature = "python_oracle")]
+    Oracle(hyf_rns_conformance::profile0::Profile0OracleError),
     Io(io::Error),
     Json(serde_json::Error),
 }
@@ -140,6 +200,13 @@ impl From<serde_json::Error> for CliError {
     }
 }
 
+#[cfg(feature = "python_oracle")]
+impl From<hyf_rns_conformance::profile0::Profile0OracleError> for CliError {
+    fn from(error: hyf_rns_conformance::profile0::Profile0OracleError) -> Self {
+        Self::Oracle(error)
+    }
+}
+
 impl std::fmt::Display for CliError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -149,6 +216,22 @@ impl std::fmt::Display for CliError {
             Self::MissingRequired(flag) => {
                 write!(formatter, "missing required argument {flag}\n\n{USAGE}")
             }
+            #[cfg(feature = "python_oracle")]
+            Self::OraclePathRequiresOracle => {
+                write!(
+                    formatter,
+                    "--reticulum-path requires --require-oracle for final evidence\n\n{USAGE}"
+                )
+            }
+            #[cfg(not(feature = "python_oracle"))]
+            Self::PythonOracleFeatureDisabled => {
+                write!(
+                    formatter,
+                    "python_oracle feature is required for oracle report generation\n\n{USAGE}"
+                )
+            }
+            #[cfg(feature = "python_oracle")]
+            Self::Oracle(error) => write!(formatter, "oracle report error: {error}"),
             Self::Io(error) => write!(formatter, "I/O error: {error}"),
             Self::Json(error) => write!(formatter, "JSON error: {error}"),
         }
@@ -164,11 +247,14 @@ usage: hyf-rns-conformance-report \\
   --started-at <date-time> \\
   --rust-toolchain <toolchain> \\
   --output <path|-> \\
+  [--reticulum-path <path> --require-oracle] \\
   [--os <os>] \\
   [--arch <arch>]";
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::{Args, CliError};
 
     #[test]
@@ -192,6 +278,9 @@ mod tests {
                 "rustc 1.92.0",
                 "--output",
                 "-",
+                "--require-oracle",
+                "--reticulum-path",
+                "../refs/Reticulum",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -200,6 +289,11 @@ mod tests {
         assert_eq!(args.run_id, "profile0-local-0001");
         assert_eq!(args.hyf_commit, "c7895f0");
         assert_eq!(args.output, "-");
+        assert!(args.require_oracle);
+        assert_eq!(
+            args.reticulum_path,
+            Some(PathBuf::from("../refs/Reticulum"))
+        );
         assert!(!args.os.is_empty());
         assert!(!args.arch.is_empty());
         Ok(())

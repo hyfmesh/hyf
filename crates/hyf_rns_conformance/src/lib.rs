@@ -19,6 +19,14 @@ use std::process::Command;
 
 #[cfg(feature = "python_oracle")]
 pub const PINNED_RETICULUM_COMMIT: &str = "422dc05549bf28f45e9b9c5172336a1ba4df0ec0";
+#[cfg(feature = "python_oracle")]
+pub const PINNED_CRYPTOGRAPHY_VERSION: &str = "49.0.0";
+#[cfg(feature = "python_oracle")]
+pub const PINNED_PYSERIAL_VERSION: &str = "3.5";
+#[cfg(feature = "python_oracle")]
+pub const PINNED_CRYPTOGRAPHY_PACKAGE: &str = "cryptography==49.0.0";
+#[cfg(feature = "python_oracle")]
+pub const PINNED_PYSERIAL_PACKAGE: &str = "pyserial==3.5";
 
 #[cfg(feature = "python_oracle")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,6 +44,7 @@ pub enum OracleInvalidEnvironment {
     OracleProbeFailed,
     OracleModulePathMismatch,
     ReticulumCommitMismatch,
+    OraclePackageVersionMismatch,
 }
 
 #[cfg(feature = "python_oracle")]
@@ -130,9 +139,9 @@ pub fn check_oracle_environment_with_command(
     let output = Command::new(uv_command)
         .arg("run")
         .arg("--with")
-        .arg("cryptography")
+        .arg(PINNED_CRYPTOGRAPHY_PACKAGE)
         .arg("--with")
-        .arg("pyserial")
+        .arg(PINNED_PYSERIAL_PACKAGE)
         .arg("python")
         .arg("-c")
         .arg(ORACLE_READINESS_SCRIPT)
@@ -261,6 +270,12 @@ fn validate_oracle_probe_output(
         return Err(OracleInvalidEnvironment::OracleProbeFailed);
     }
 
+    if probe.cryptography != PINNED_CRYPTOGRAPHY_VERSION
+        || probe.pyserial != PINNED_PYSERIAL_VERSION
+    {
+        return Err(OracleInvalidEnvironment::OraclePackageVersionMismatch);
+    }
+
     if !module_path_is_under_reticulum_path(Path::new(&probe.module), reticulum_path) {
         return Err(OracleInvalidEnvironment::OracleModulePathMismatch);
     }
@@ -349,9 +364,9 @@ mod python_oracle_tests {
 
     use super::{
         OracleEnvironmentMetadata, OracleInvalidEnvironment, OracleProbeMetadata, OracleReadiness,
-        OracleStatus, PINNED_RETICULUM_COMMIT, check_oracle_environment,
-        check_oracle_environment_with_command, reticulum_commit_output_is_pinned,
-        validate_oracle_probe_output,
+        OracleStatus, PINNED_CRYPTOGRAPHY_VERSION, PINNED_PYSERIAL_VERSION,
+        PINNED_RETICULUM_COMMIT, check_oracle_environment, check_oracle_environment_with_command,
+        reticulum_commit_output_is_pinned, validate_oracle_probe_output,
     };
 
     #[test]
@@ -402,8 +417,8 @@ mod python_oracle_tests {
             if let Some(metadata) = readiness.metadata() {
                 assert_eq!(metadata.reticulum_commit, PINNED_RETICULUM_COMMIT);
                 assert!(!metadata.reticulum_module_path.is_empty());
-                assert!(!metadata.cryptography_version.is_empty());
-                assert!(!metadata.pyserial_version.is_empty());
+                assert_eq!(metadata.cryptography_version, PINNED_CRYPTOGRAPHY_VERSION);
+                assert_eq!(metadata.pyserial_version, PINNED_PYSERIAL_VERSION);
             }
         }
     }
@@ -411,9 +426,9 @@ mod python_oracle_tests {
     #[test]
     fn parsed_oracle_probe_accepts_module_under_reticulum_path() -> Result<(), serde_json::Error> {
         let payload = serde_json::json!({
-            "cryptography": "44.0.0",
+            "cryptography": PINNED_CRYPTOGRAPHY_VERSION,
             "module": Path::new("src/lib.rs").to_string_lossy(),
-            "pyserial": "3.5",
+            "pyserial": PINNED_PYSERIAL_VERSION,
             "rns_version": "0.9.4",
             "status": "passed",
         });
@@ -424,8 +439,8 @@ mod python_oracle_tests {
             Ok(OracleProbeMetadata {
                 reticulum_module_path: Path::new("src/lib.rs").to_string_lossy().to_string(),
                 rns_version: Some("0.9.4".to_owned()),
-                cryptography_version: "44.0.0".to_owned(),
-                pyserial_version: "3.5".to_owned(),
+                cryptography_version: PINNED_CRYPTOGRAPHY_VERSION.to_owned(),
+                pyserial_version: PINNED_PYSERIAL_VERSION.to_owned(),
             })
         );
         Ok(())
@@ -435,9 +450,9 @@ mod python_oracle_tests {
     fn parsed_oracle_probe_rejects_module_outside_reticulum_path() -> Result<(), serde_json::Error>
     {
         let payload = serde_json::json!({
-            "cryptography": "44.0.0",
+            "cryptography": PINNED_CRYPTOGRAPHY_VERSION,
             "module": Path::new("Cargo.toml").to_string_lossy(),
-            "pyserial": "3.5",
+            "pyserial": PINNED_PYSERIAL_VERSION,
             "rns_version": null,
             "status": "passed",
         });
@@ -453,9 +468,9 @@ mod python_oracle_tests {
     #[test]
     fn parsed_oracle_probe_rejects_non_passing_status() -> Result<(), serde_json::Error> {
         let payload = serde_json::json!({
-            "cryptography": "44.0.0",
+            "cryptography": PINNED_CRYPTOGRAPHY_VERSION,
             "module": Path::new("src/lib.rs").to_string_lossy(),
-            "pyserial": "3.5",
+            "pyserial": PINNED_PYSERIAL_VERSION,
             "rns_version": null,
             "status": "failed",
         });
@@ -484,8 +499,8 @@ mod python_oracle_tests {
             reticulum_module_path: "RNS/__init__.py".to_owned(),
             reticulum_commit: PINNED_RETICULUM_COMMIT.to_owned(),
             rns_version: Some("0.9.4".to_owned()),
-            cryptography_version: "44.0.0".to_owned(),
-            pyserial_version: "3.5".to_owned(),
+            cryptography_version: PINNED_CRYPTOGRAPHY_VERSION.to_owned(),
+            pyserial_version: PINNED_PYSERIAL_VERSION.to_owned(),
         };
 
         let readiness = OracleReadiness::passed(metadata.clone());

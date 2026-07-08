@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use hyf_rns_conformance::{
-    OracleInvalidEnvironment, OracleStatus, check_oracle_environment_from_env,
+    OracleInvalidEnvironment, OracleStatus, PINNED_CRYPTOGRAPHY_PACKAGE, PINNED_PYSERIAL_PACKAGE,
+    check_oracle_environment_from_env,
 };
 use hyf_rns_core::{RNS_MTU, RNS_TRUNCATED_HASH_LEN, RnsDestinationHash};
 use hyf_rns_crypto::secret_identity_from_bytes;
@@ -148,9 +149,9 @@ fn run_reticulum_oracle(request: &OracleRequest) -> Result<OracleResponse, Oracl
     let output = Command::new("uv")
         .arg("run")
         .arg("--with")
-        .arg("cryptography")
+        .arg(PINNED_CRYPTOGRAPHY_PACKAGE)
         .arg("--with")
-        .arg("pyserial")
+        .arg(PINNED_PYSERIAL_PACKAGE)
         .arg("python")
         .arg("-c")
         .arg(PYTHON_ORACLE_SCRIPT)
