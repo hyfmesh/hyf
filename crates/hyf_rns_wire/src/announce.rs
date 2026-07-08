@@ -65,6 +65,9 @@ pub fn decode_announce_packet<'a>(
     if packet.flags.packet_type != RnsPacketType::Announce {
         return Err(RnsWireError::InvalidPacketType);
     }
+    if packet.flags.destination_type != RnsDestinationType::Single {
+        return Err(RnsWireError::InvalidDestinationType);
+    }
 
     if packet.flags.context_flag {
         decode_ratchet_announce(packet)
@@ -391,6 +394,24 @@ mod tests {
             decode_announce_packet(packet),
             Err(RnsWireError::InvalidPacketType)
         );
+    }
+
+    #[test]
+    fn rejects_non_single_announce_destinations() {
+        let data = announce_data(None, b"");
+        for destination_type in [
+            RnsDestinationType::Group,
+            RnsDestinationType::Plain,
+            RnsDestinationType::Link,
+        ] {
+            let mut packet = announce_packet(false, &data);
+            packet.flags.destination_type = destination_type;
+
+            assert_eq!(
+                decode_announce_packet(packet),
+                Err(RnsWireError::InvalidDestinationType)
+            );
+        }
     }
 
     #[test]
