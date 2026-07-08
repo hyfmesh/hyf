@@ -15,7 +15,7 @@ mod packet_hash;
 
 pub use announce::{
     RNS_ANNOUNCE_RANDOM_HASH_LEN, RNS_ANNOUNCE_RATCHET_LEN, RNS_ANNOUNCE_SIGNATURE_LEN,
-    RnsAnnounceRef, decode_announce_packet,
+    RnsAnnounceRef, build_announce_signed_data, decode_announce_packet, validate_announce_packet,
 };
 pub use context::{
     RNS_CONTEXT_CACHE_REQUEST, RNS_CONTEXT_CHANNEL, RNS_CONTEXT_COMMAND,
