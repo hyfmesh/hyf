@@ -1,0 +1,118 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_1_kiss_rnode",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.ready_001",
+      "command_byte_hex": "0f",
+      "payload_hex": "01",
+      "kiss_frame_hex": "c00f01c0",
+      "expected": {
+        "kind": "ready",
+        "value": null,
+        "rssi_dbm": null,
+        "snr_quarter_db": null,
+        "major": null,
+        "minor": null,
+        "supported": null,
+        "error": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.firmware_1_52",
+      "command_byte_hex": "50",
+      "payload_hex": "0134",
+      "kiss_frame_hex": "c0500134c0",
+      "expected": {
+        "kind": "firmware",
+        "value": null,
+        "rssi_dbm": null,
+        "snr_quarter_db": null,
+        "major": 1,
+        "minor": 52,
+        "supported": true,
+        "error": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.rx_bytes_123456",
+      "command_byte_hex": "21",
+      "payload_hex": "0001e240",
+      "kiss_frame_hex": "c0210001e240c0",
+      "expected": {
+        "kind": "rx_bytes",
+        "value": 123456,
+        "rssi_dbm": null,
+        "snr_quarter_db": null,
+        "major": null,
+        "minor": null,
+        "supported": null,
+        "error": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.rssi_3dbm",
+      "command_byte_hex": "23",
+      "payload_hex": "a0",
+      "kiss_frame_hex": "c023a0c0",
+      "expected": {
+        "kind": "rssi",
+        "value": null,
+        "rssi_dbm": 3,
+        "snr_quarter_db": null,
+        "major": null,
+        "minor": null,
+        "supported": null,
+        "error": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.snr_negative_3db",
+      "command_byte_hex": "24",
+      "payload_hex": "f4",
+      "kiss_frame_hex": "c024f4c0",
+      "expected": {
+        "kind": "snr",
+        "value": null,
+        "rssi_dbm": null,
+        "snr_quarter_db": -12,
+        "major": null,
+        "minor": null,
+        "supported": null,
+        "error": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.queue_full_error",
+      "command_byte_hex": "90",
+      "payload_hex": "04",
+      "kiss_frame_hex": "c09004c0",
+      "expected": {
+        "kind": "error",
+        "value": null,
+        "rssi_dbm": null,
+        "snr_quarter_db": null,
+        "major": null,
+        "minor": null,
+        "supported": null,
+        "error": "queue_full"
+      }
+    }
+  ]
+}

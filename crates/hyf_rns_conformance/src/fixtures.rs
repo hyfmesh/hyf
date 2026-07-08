@@ -318,6 +318,7 @@ fn hex_nibble(byte: u8) -> Result<u8, FixtureError> {
 pub enum FixtureError {
     Json(String),
     Kiss(hyf_link_kiss::KissError),
+    RNode(hyf_link_rnode::RNodeError),
     Core(hyf_rns_core::RnsCoreError),
     Crypto(hyf_rns_crypto::RnsCryptoError),
     Wire(hyf_rns_wire::RnsWireError),
@@ -382,6 +383,12 @@ impl From<hyf_link_kiss::KissError> for FixtureError {
     }
 }
 
+impl From<hyf_link_rnode::RNodeError> for FixtureError {
+    fn from(error: hyf_link_rnode::RNodeError) -> Self {
+        Self::RNode(error)
+    }
+}
+
 impl From<hyf_rns_core::RnsCoreError> for FixtureError {
     fn from(error: hyf_rns_core::RnsCoreError) -> Self {
         Self::Core(error)
@@ -405,6 +412,7 @@ impl fmt::Display for FixtureError {
         match self {
             Self::Json(error) => write!(formatter, "json error: {error}"),
             Self::Kiss(error) => write!(formatter, "kiss error: {error}"),
+            Self::RNode(error) => write!(formatter, "rnode error: {error}"),
             Self::Core(error) => write!(formatter, "core error: {error}"),
             Self::Crypto(error) => write!(formatter, "crypto error: {error}"),
             Self::Wire(error) => write!(formatter, "wire error: {error}"),
@@ -473,6 +481,7 @@ impl std::error::Error for FixtureError {}
 #[cfg(test)]
 mod tests {
     use hyf_link_kiss::KissError;
+    use hyf_link_rnode::RNodeError;
     use hyf_rns_core::RnsCoreError;
     use hyf_rns_crypto::RnsCryptoError;
     use hyf_rns_wire::RnsWireError;
@@ -508,6 +517,15 @@ mod tests {
         assert_eq!(
             FixtureError::Kiss(KissError::MalformedEscape { byte: 0x00 }).to_string(),
             "kiss error: malformed kiss escape byte: 0x00"
+        );
+        assert_eq!(
+            FixtureError::RNode(RNodeError::InvalidSpreadingFactor {
+                actual: 4,
+                minimum: 5,
+                maximum: 12,
+            })
+            .to_string(),
+            "rnode error: invalid spreading factor: actual 4, minimum 5, maximum 12"
         );
         assert_eq!(
             FixtureError::Core(RnsCoreError::DestinationAppNameContainsDot).to_string(),

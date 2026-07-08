@@ -7,6 +7,10 @@ pub struct KissFrameRef<'a> {
 }
 
 impl<'a> KissFrameRef<'a> {
+    pub const fn new(command: u8, payload: &'a [u8]) -> Self {
+        Self { command, payload }
+    }
+
     pub fn command(&self) -> u8 {
         self.command
     }

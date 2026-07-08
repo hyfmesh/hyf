@@ -1,0 +1,70 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_1_kiss_rnode",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.frequency_915mhz",
+      "command": "frequency",
+      "command_byte_hex": "01",
+      "value": 915000000,
+      "payload_hex": "3689cac0",
+      "kiss_frame_hex": "c0013689cadbdcc0"
+    },
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.bandwidth_125khz",
+      "command": "bandwidth",
+      "command_byte_hex": "02",
+      "value": 125000,
+      "payload_hex": "0001e848",
+      "kiss_frame_hex": "c0020001e848c0"
+    },
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.tx_power_22dbm",
+      "command": "tx_power",
+      "command_byte_hex": "03",
+      "value": 22,
+      "payload_hex": "16",
+      "kiss_frame_hex": "c00316c0"
+    },
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.spreading_factor_7",
+      "command": "spreading_factor",
+      "command_byte_hex": "04",
+      "value": 7,
+      "payload_hex": "07",
+      "kiss_frame_hex": "c00407c0"
+    },
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.coding_rate_5",
+      "command": "coding_rate",
+      "command_byte_hex": "05",
+      "value": 5,
+      "payload_hex": "05",
+      "kiss_frame_hex": "c00505c0"
+    },
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.radio_state_on",
+      "command": "radio_state",
+      "command_byte_hex": "06",
+      "value": 1,
+      "payload_hex": "01",
+      "kiss_frame_hex": "c00601c0"
+    }
+  ]
+}

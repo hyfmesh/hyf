@@ -17,6 +17,12 @@ const KISS_FIXTURE: &str =
     include_str!("../../../fixtures/rns/profile_1_kiss_rnode/kiss_vectors.json");
 const KISS_NEGATIVE_FIXTURE: &str =
     include_str!("../../../fixtures/rns/profile_1_kiss_rnode/kiss_negative_vectors.json");
+const RNODE_COMMAND_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_1_kiss_rnode/rnode_command_vectors.json");
+const RNODE_CONFIG_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_1_kiss_rnode/rnode_config_validation_vectors.json");
+const RNODE_STAT_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_1_kiss_rnode/rnode_stat_vectors.json");
 const PROFILE_1_MANIFEST: &str =
     include_str!("../../../fixtures/rns/profile_1_kiss_rnode/manifest.json");
 const PROFILE_2_MANIFEST: &str =
@@ -88,6 +94,24 @@ fn fixture_manifest_accepts_profile_1_shell() -> Result<(), FixtureError> {
                 category: "kiss_negative",
                 case_count: 2,
                 contents: KISS_NEGATIVE_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "rnode_command_vectors.json",
+                category: "rnode_command",
+                case_count: 6,
+                contents: RNODE_COMMAND_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "rnode_config_validation_vectors.json",
+                category: "rnode_config_validation",
+                case_count: 3,
+                contents: RNODE_CONFIG_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "rnode_stat_vectors.json",
+                category: "rnode_stat",
+                case_count: 6,
+                contents: RNODE_STAT_FIXTURE,
             },
         ],
     )

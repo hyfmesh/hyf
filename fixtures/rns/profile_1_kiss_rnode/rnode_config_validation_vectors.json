@@ -1,0 +1,61 @@
+{
+  "schema": "hyf.rns.fixture_cases.v1",
+  "profile": "profile_1_kiss_rnode",
+  "reticulum": {
+    "repo": "https://github.com/markqvist/Reticulum",
+    "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+  },
+  "cases": [
+    {
+      "schema": "hyf.rnode.config_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.config.valid_915mhz",
+      "config": {
+        "frequency_hz": 915000000,
+        "bandwidth_hz": 125000,
+        "tx_power_dbm": 22,
+        "spreading_factor": 7,
+        "coding_rate": 5,
+        "flow_control": true
+      },
+      "expected": {
+        "valid": true,
+        "error": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.config_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.config.invalid_frequency_low",
+      "config": {
+        "frequency_hz": 136999999,
+        "bandwidth_hz": 125000,
+        "tx_power_dbm": 22,
+        "spreading_factor": 7,
+        "coding_rate": 5,
+        "flow_control": true
+      },
+      "expected": {
+        "valid": false,
+        "error": "invalid_frequency_hz"
+      }
+    },
+    {
+      "schema": "hyf.rnode.config_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.config.invalid_tx_power_high",
+      "config": {
+        "frequency_hz": 915000000,
+        "bandwidth_hz": 125000,
+        "tx_power_dbm": 38,
+        "spreading_factor": 7,
+        "coding_rate": 5,
+        "flow_control": true
+      },
+      "expected": {
+        "valid": false,
+        "error": "invalid_tx_power_dbm"
+      }
+    }
+  ]
+}

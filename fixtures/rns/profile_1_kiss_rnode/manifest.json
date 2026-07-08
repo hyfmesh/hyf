@@ -19,6 +19,24 @@
       "category": "kiss_negative",
       "case_count": 2,
       "sha256": "866a9dc28aa5d183aecc50d4ade1dcb20513dbd93e37b9279ede3cc1c82f72a0"
+    },
+    {
+      "file": "rnode_command_vectors.json",
+      "category": "rnode_command",
+      "case_count": 6,
+      "sha256": "7b38b7981d350988240597675d10d51b4ece018e17443a5c67e86458bc9eb888"
+    },
+    {
+      "file": "rnode_config_validation_vectors.json",
+      "category": "rnode_config_validation",
+      "case_count": 3,
+      "sha256": "381de87cab1a32715d31ceefeeca202e55cc38e5bdefde83080027e1bd1d7be5"
+    },
+    {
+      "file": "rnode_stat_vectors.json",
+      "category": "rnode_stat",
+      "case_count": 6,
+      "sha256": "72b8547b172c83a29da47ecee522576d24c2f8c21d59d5ed7e2fefcb7d114ab5"
     }
   ]
 }

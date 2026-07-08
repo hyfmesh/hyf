@@ -2,12 +2,15 @@ use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use hyf_link_kiss::{KissDecoder, encode_data_frame};
+use hyf_link_rnode::{RNodeCommand, encode_command, parse_command_frame};
 
 const PAYLOAD: [u8; 500] = [0xc0; 500];
 
 fn profile1_link_benchmarks(criterion: &mut Criterion) {
     benchmark_kiss_encode(criterion);
     benchmark_kiss_decode(criterion);
+    benchmark_rnode_encode(criterion);
+    benchmark_rnode_parse(criterion);
 }
 
 fn benchmark_kiss_encode(criterion: &mut Criterion) {
@@ -27,6 +30,33 @@ fn benchmark_kiss_decode(criterion: &mut Criterion) {
         bench.iter(|| {
             let mut decoder = KissDecoder::<512>::new();
             let _ = decoder.push_bytes(black_box(&frame[..frame_len]), |_| Ok(()));
+        });
+    });
+}
+
+fn benchmark_rnode_encode(criterion: &mut Criterion) {
+    criterion.bench_function("profile1_rnode_encode_frequency", |bench| {
+        bench.iter(|| {
+            let mut output = [0; 16];
+            let _ = encode_command(
+                black_box(RNodeCommand::FrequencyHz(915_000_000)),
+                black_box(&mut output),
+            );
+        });
+    });
+}
+
+fn benchmark_rnode_parse(criterion: &mut Criterion) {
+    let mut frame = [0; 8];
+    let frame_len = encode_command(RNodeCommand::FrequencyHz(915_000_000), &mut frame).unwrap_or(0);
+
+    criterion.bench_function("profile1_rnode_parse_frequency", |bench| {
+        bench.iter(|| {
+            let mut decoder = KissDecoder::<16>::new();
+            let _ = decoder.push_bytes(black_box(&frame[..frame_len]), |frame| {
+                let _ = parse_command_frame(black_box(frame));
+                Ok(())
+            });
         });
     });
 }

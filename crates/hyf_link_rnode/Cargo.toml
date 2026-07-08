@@ -1,0 +1,22 @@
+[package]
+name = "hyf_link_rnode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hyf_link_kiss.workspace = true
+
+[features]
+default = []
+alloc = []
+std = ["alloc"]
+serde = []
+defmt = []
+hil_std = ["std"]
+
+[lints]
+workspace = true
