@@ -277,7 +277,7 @@ impl std::fmt::Display for OracleTestError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidEnvironment(Some(reason)) => {
-                write!(formatter, "invalid oracle environment: {reason:?}")
+                write!(formatter, "invalid oracle environment: {reason}")
             }
             Self::InvalidEnvironment(None) => {
                 write!(formatter, "invalid oracle environment")
@@ -285,8 +285,8 @@ impl std::fmt::Display for OracleTestError {
             Self::Io(error) | Self::Json(error) | Self::OracleFailed(error) => {
                 formatter.write_str(error)
             }
-            Self::Crypto(error) => write!(formatter, "{error:?}"),
-            Self::Wire(error) => write!(formatter, "{error:?}"),
+            Self::Crypto(error) => write!(formatter, "{error}"),
+            Self::Wire(error) => write!(formatter, "{error}"),
         }
     }
 }

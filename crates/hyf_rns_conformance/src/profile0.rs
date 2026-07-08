@@ -929,15 +929,15 @@ impl std::fmt::Display for Profile0OracleError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidEnvironment(Some(reason)) => {
-                write!(formatter, "invalid oracle environment: {reason:?}")
+                write!(formatter, "invalid oracle environment: {reason}")
             }
             Self::InvalidEnvironment(None) => formatter.write_str("invalid oracle environment"),
             Self::MissingOracleMetadata => formatter.write_str("missing oracle metadata"),
             Self::Io(error) | Self::Json(error) | Self::OracleFailed(error) => {
                 formatter.write_str(error)
             }
-            Self::Crypto(error) => write!(formatter, "{error:?}"),
-            Self::Wire(error) => write!(formatter, "{error:?}"),
+            Self::Crypto(error) => write!(formatter, "{error}"),
+            Self::Wire(error) => write!(formatter, "{error}"),
         }
     }
 }
@@ -1273,6 +1273,23 @@ mod tests {
         assert!(signed_data_suffix_matches(&[1, 2, 3, 4], 4, &[3, 4]));
         assert!(!signed_data_suffix_matches(&[1, 2, 3, 4], 1, &[2, 3]));
         assert!(!signed_data_suffix_matches(&[1, 2, 3, 4], 8, &[3, 4]));
+    }
+
+    #[cfg(feature = "python_oracle")]
+    #[test]
+    fn oracle_error_display_uses_stable_first_party_error_text() {
+        assert_eq!(
+            super::Profile0OracleError::InvalidEnvironment(Some(
+                crate::OracleInvalidEnvironment::OracleProbeFailed,
+            ))
+            .to_string(),
+            "invalid oracle environment: oracle probe failed"
+        );
+        assert_eq!(
+            super::Profile0OracleError::Wire(hyf_rns_wire::RnsWireError::InvalidSignature)
+                .to_string(),
+            "invalid signature"
+        );
     }
 
     #[cfg(feature = "python_oracle")]

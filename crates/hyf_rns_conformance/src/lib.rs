@@ -49,6 +49,25 @@ pub enum OracleInvalidEnvironment {
 }
 
 #[cfg(feature = "python_oracle")]
+impl std::fmt::Display for OracleInvalidEnvironment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingReticulumPath => formatter.write_str("missing Reticulum path"),
+            Self::ReticulumPathNotDirectory => {
+                formatter.write_str("Reticulum path is not a directory")
+            }
+            Self::OracleCommandUnavailable => formatter.write_str("oracle command unavailable"),
+            Self::OracleProbeFailed => formatter.write_str("oracle probe failed"),
+            Self::OracleModulePathMismatch => formatter.write_str("oracle module path mismatch"),
+            Self::ReticulumCommitMismatch => formatter.write_str("Reticulum commit mismatch"),
+            Self::OraclePackageVersionMismatch => {
+                formatter.write_str("oracle package version mismatch")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "python_oracle")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OracleEnvironmentMetadata {
     pub reticulum_module_path: String,
@@ -390,6 +409,14 @@ mod python_oracle_tests {
         assert_eq!(
             readiness.reason(),
             Some(OracleInvalidEnvironment::ReticulumPathNotDirectory)
+        );
+    }
+
+    #[test]
+    fn oracle_invalid_environment_has_stable_display_text() {
+        assert_eq!(
+            OracleInvalidEnvironment::OracleModulePathMismatch.to_string(),
+            "oracle module path mismatch"
         );
     }
 

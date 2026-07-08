@@ -367,9 +367,9 @@ impl fmt::Display for FixtureError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Json(error) => write!(formatter, "json error: {error}"),
-            Self::Core(error) => write!(formatter, "core error: {error:?}"),
-            Self::Crypto(error) => write!(formatter, "crypto error: {error:?}"),
-            Self::Wire(error) => write!(formatter, "wire error: {error:?}"),
+            Self::Core(error) => write!(formatter, "core error: {error}"),
+            Self::Crypto(error) => write!(formatter, "crypto error: {error}"),
+            Self::Wire(error) => write!(formatter, "wire error: {error}"),
             Self::SchemaMismatch { actual, expected } => {
                 write!(
                     formatter,
@@ -434,6 +434,9 @@ impl std::error::Error for FixtureError {}
 
 #[cfg(test)]
 mod tests {
+    use hyf_rns_core::RnsCoreError;
+    use hyf_rns_crypto::RnsCryptoError;
+    use hyf_rns_wire::RnsWireError;
     use serde_json::Value;
 
     use super::{
@@ -459,6 +462,26 @@ mod tests {
     fn hex_decoder_accepts_lowercase_and_rejects_uppercase() {
         assert_eq!(decode_hex("0a10ff"), Ok(vec![0x0a, 0x10, 0xff]));
         assert_eq!(decode_hex("0A"), Err(FixtureError::InvalidHex));
+    }
+
+    #[test]
+    fn fixture_error_display_uses_stable_first_party_error_text() {
+        assert_eq!(
+            FixtureError::Core(RnsCoreError::DestinationAppNameContainsDot).to_string(),
+            "core error: destination app name contains dot"
+        );
+        assert_eq!(
+            FixtureError::Crypto(RnsCryptoError::InvalidSignature).to_string(),
+            "crypto error: invalid signature"
+        );
+        assert_eq!(
+            FixtureError::Wire(RnsWireError::PacketTooShort {
+                actual: 1,
+                minimum: 2,
+            })
+            .to_string(),
+            "wire error: packet too short: actual 1, minimum 2"
+        );
     }
 
     #[test]
