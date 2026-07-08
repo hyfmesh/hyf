@@ -39,17 +39,47 @@ pub enum OracleInvalidEnvironment {
 
 #[cfg(feature = "python_oracle")]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OracleEnvironmentMetadata {
+    pub reticulum_module_path: String,
+    pub reticulum_commit: String,
+    pub rns_version: Option<String>,
+    pub cryptography_version: String,
+    pub pyserial_version: String,
+}
+
+#[cfg(feature = "python_oracle")]
+impl From<OracleEnvironmentMetadata> for crate::report::OracleEnvironment {
+    fn from(metadata: OracleEnvironmentMetadata) -> Self {
+        let mut oracle = Self::new(
+            metadata.reticulum_module_path,
+            metadata.reticulum_commit,
+            metadata.cryptography_version,
+            metadata.pyserial_version,
+        );
+
+        if let Some(rns_version) = metadata.rns_version {
+            oracle = oracle.with_rns_version(rns_version);
+        }
+
+        oracle
+    }
+}
+
+#[cfg(feature = "python_oracle")]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OracleReadiness {
     status: OracleStatus,
     reason: Option<OracleInvalidEnvironment>,
+    metadata: Option<OracleEnvironmentMetadata>,
 }
 
 #[cfg(feature = "python_oracle")]
 impl OracleReadiness {
-    pub const fn passed() -> Self {
+    pub fn passed(metadata: OracleEnvironmentMetadata) -> Self {
         Self {
             status: OracleStatus::Passed,
             reason: None,
+            metadata: Some(metadata),
         }
     }
 
@@ -57,6 +87,7 @@ impl OracleReadiness {
         Self {
             status: OracleStatus::InvalidEnvironment,
             reason: Some(reason),
+            metadata: None,
         }
     }
 
@@ -66,6 +97,10 @@ impl OracleReadiness {
 
     pub const fn reason(&self) -> Option<OracleInvalidEnvironment> {
         self.reason
+    }
+
+    pub const fn metadata(&self) -> Option<&OracleEnvironmentMetadata> {
+        self.metadata.as_ref()
     }
 }
 
@@ -113,17 +148,25 @@ pub fn check_oracle_environment_with_command(
         return OracleReadiness::invalid_environment(OracleInvalidEnvironment::OracleProbeFailed);
     }
 
-    if let Err(reason) = validate_oracle_probe_output(&output.stdout, reticulum_path.as_path()) {
-        return OracleReadiness::invalid_environment(reason);
-    }
+    let probe_metadata =
+        match validate_oracle_probe_output(&output.stdout, reticulum_path.as_path()) {
+            Ok(probe_metadata) => probe_metadata,
+            Err(reason) => return OracleReadiness::invalid_environment(reason),
+        };
 
-    if !reticulum_commit_is_pinned(reticulum_path.as_path()) {
+    let Some(reticulum_commit) = reticulum_commit(reticulum_path.as_path()) else {
+        return OracleReadiness::invalid_environment(
+            OracleInvalidEnvironment::ReticulumCommitMismatch,
+        );
+    };
+
+    if reticulum_commit != PINNED_RETICULUM_COMMIT {
         return OracleReadiness::invalid_environment(
             OracleInvalidEnvironment::ReticulumCommitMismatch,
         );
     }
 
-    OracleReadiness::passed()
+    OracleReadiness::passed(probe_metadata.with_reticulum_commit(reticulum_commit))
 }
 
 #[cfg(feature = "python_oracle")]
@@ -169,15 +212,40 @@ fn resolve_reticulum_path(reticulum_path: &Path) -> Option<PathBuf> {
 #[cfg(feature = "python_oracle")]
 #[derive(Deserialize)]
 struct OracleProbeOutput {
+    cryptography: String,
     module: String,
+    pyserial: String,
+    rns_version: Option<String>,
     status: String,
+}
+
+#[cfg(feature = "python_oracle")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OracleProbeMetadata {
+    reticulum_module_path: String,
+    rns_version: Option<String>,
+    cryptography_version: String,
+    pyserial_version: String,
+}
+
+#[cfg(feature = "python_oracle")]
+impl OracleProbeMetadata {
+    fn with_reticulum_commit(self, reticulum_commit: String) -> OracleEnvironmentMetadata {
+        OracleEnvironmentMetadata {
+            reticulum_module_path: self.reticulum_module_path,
+            reticulum_commit,
+            rns_version: self.rns_version,
+            cryptography_version: self.cryptography_version,
+            pyserial_version: self.pyserial_version,
+        }
+    }
 }
 
 #[cfg(feature = "python_oracle")]
 fn validate_oracle_probe_output(
     stdout: &[u8],
     reticulum_path: &Path,
-) -> Result<(), OracleInvalidEnvironment> {
+) -> Result<OracleProbeMetadata, OracleInvalidEnvironment> {
     let probe: OracleProbeOutput =
         serde_json::from_slice(stdout).map_err(|_| OracleInvalidEnvironment::OracleProbeFailed)?;
 
@@ -185,11 +253,23 @@ fn validate_oracle_probe_output(
         return Err(OracleInvalidEnvironment::OracleProbeFailed);
     }
 
+    if probe.cryptography.is_empty()
+        || probe.pyserial.is_empty()
+        || probe.rns_version.as_deref() == Some("")
+    {
+        return Err(OracleInvalidEnvironment::OracleProbeFailed);
+    }
+
     if !module_path_is_under_reticulum_path(Path::new(&probe.module), reticulum_path) {
         return Err(OracleInvalidEnvironment::OracleModulePathMismatch);
     }
 
-    Ok(())
+    Ok(OracleProbeMetadata {
+        reticulum_module_path: probe.module,
+        rns_version: probe.rns_version,
+        cryptography_version: probe.cryptography,
+        pyserial_version: probe.pyserial,
+    })
 }
 
 #[cfg(feature = "python_oracle")]
@@ -205,7 +285,7 @@ fn module_path_is_under_reticulum_path(module_path: &Path, reticulum_path: &Path
 }
 
 #[cfg(feature = "python_oracle")]
-fn reticulum_commit_is_pinned(reticulum_path: &Path) -> bool {
+fn reticulum_commit(reticulum_path: &Path) -> Option<String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(reticulum_path)
@@ -214,15 +294,29 @@ fn reticulum_commit_is_pinned(reticulum_path: &Path) -> bool {
         .output();
 
     let Ok(output) = output else {
-        return false;
+        return None;
     };
 
-    output.status.success() && reticulum_commit_output_is_pinned(&output.stdout)
+    if !output.status.success() {
+        return None;
+    }
+
+    reticulum_commit_from_output(&output.stdout)
+}
+
+#[cfg(all(test, feature = "python_oracle"))]
+fn reticulum_commit_output_is_pinned(stdout: &[u8]) -> bool {
+    reticulum_commit_from_output(stdout).as_deref() == Some(PINNED_RETICULUM_COMMIT)
 }
 
 #[cfg(feature = "python_oracle")]
-fn reticulum_commit_output_is_pinned(stdout: &[u8]) -> bool {
-    String::from_utf8_lossy(stdout).trim() == PINNED_RETICULUM_COMMIT
+fn reticulum_commit_from_output(stdout: &[u8]) -> Option<String> {
+    let commit = String::from_utf8_lossy(stdout).trim().to_owned();
+    if crate::fixtures::reticulum_commit_is_valid(&commit) {
+        return Some(commit);
+    }
+
+    None
 }
 
 #[cfg(feature = "python_oracle")]
@@ -237,6 +331,7 @@ print(json.dumps({
     "cryptography": cryptography.__version__,
     "module": RNS.__file__,
     "pyserial": serial.VERSION,
+    "rns_version": getattr(RNS, "__version__", None),
     "status": "passed",
 }, sort_keys=True))
 "#;
@@ -252,7 +347,8 @@ mod python_oracle_tests {
     use std::path::Path;
 
     use super::{
-        OracleInvalidEnvironment, OracleReadiness, OracleStatus, check_oracle_environment,
+        OracleEnvironmentMetadata, OracleInvalidEnvironment, OracleProbeMetadata, OracleReadiness,
+        OracleStatus, PINNED_RETICULUM_COMMIT, check_oracle_environment,
         check_oracle_environment_with_command, reticulum_commit_output_is_pinned,
         validate_oracle_probe_output,
     };
@@ -266,6 +362,7 @@ mod python_oracle_tests {
             readiness.reason(),
             Some(OracleInvalidEnvironment::MissingReticulumPath)
         );
+        assert!(readiness.metadata().is_none());
     }
 
     #[test]
@@ -298,21 +395,37 @@ mod python_oracle_tests {
         let readiness = check_oracle_environment_from_env_if_configured();
 
         if let Some(readiness) = readiness {
-            assert_eq!(readiness, OracleReadiness::passed());
+            assert_eq!(readiness.status(), OracleStatus::Passed);
+            assert_eq!(readiness.reason(), None);
+            assert!(readiness.metadata().is_some());
+            if let Some(metadata) = readiness.metadata() {
+                assert_eq!(metadata.reticulum_commit, PINNED_RETICULUM_COMMIT);
+                assert!(!metadata.reticulum_module_path.is_empty());
+                assert!(!metadata.cryptography_version.is_empty());
+                assert!(!metadata.pyserial_version.is_empty());
+            }
         }
     }
 
     #[test]
     fn parsed_oracle_probe_accepts_module_under_reticulum_path() -> Result<(), serde_json::Error> {
         let payload = serde_json::json!({
+            "cryptography": "44.0.0",
             "module": Path::new("src/lib.rs").to_string_lossy(),
+            "pyserial": "3.5",
+            "rns_version": "0.9.4",
             "status": "passed",
         });
         let stdout = serde_json::to_vec(&payload)?;
 
         assert_eq!(
             validate_oracle_probe_output(&stdout, Path::new(".")),
-            Ok(())
+            Ok(OracleProbeMetadata {
+                reticulum_module_path: Path::new("src/lib.rs").to_string_lossy().to_string(),
+                rns_version: Some("0.9.4".to_owned()),
+                cryptography_version: "44.0.0".to_owned(),
+                pyserial_version: "3.5".to_owned(),
+            })
         );
         Ok(())
     }
@@ -321,7 +434,10 @@ mod python_oracle_tests {
     fn parsed_oracle_probe_rejects_module_outside_reticulum_path() -> Result<(), serde_json::Error>
     {
         let payload = serde_json::json!({
+            "cryptography": "44.0.0",
             "module": Path::new("Cargo.toml").to_string_lossy(),
+            "pyserial": "3.5",
+            "rns_version": null,
             "status": "passed",
         });
         let stdout = serde_json::to_vec(&payload)?;
@@ -336,7 +452,10 @@ mod python_oracle_tests {
     #[test]
     fn parsed_oracle_probe_rejects_non_passing_status() -> Result<(), serde_json::Error> {
         let payload = serde_json::json!({
+            "cryptography": "44.0.0",
             "module": Path::new("src/lib.rs").to_string_lossy(),
+            "pyserial": "3.5",
+            "rns_version": null,
             "status": "failed",
         });
         let stdout = serde_json::to_vec(&payload)?;
@@ -356,6 +475,25 @@ mod python_oracle_tests {
         assert!(!reticulum_commit_output_is_pinned(
             b"0000000000000000000000000000000000000000\n"
         ));
+    }
+
+    #[test]
+    fn passed_readiness_metadata_converts_to_report_oracle_environment() {
+        let metadata = OracleEnvironmentMetadata {
+            reticulum_module_path: "RNS/__init__.py".to_owned(),
+            reticulum_commit: PINNED_RETICULUM_COMMIT.to_owned(),
+            rns_version: Some("0.9.4".to_owned()),
+            cryptography_version: "44.0.0".to_owned(),
+            pyserial_version: "3.5".to_owned(),
+        };
+
+        let readiness = OracleReadiness::passed(metadata.clone());
+        let report_oracle: crate::report::OracleEnvironment = metadata.into();
+
+        assert_eq!(readiness.status(), OracleStatus::Passed);
+        assert!(readiness.metadata().is_some());
+        assert_eq!(report_oracle.reticulum_commit, PINNED_RETICULUM_COMMIT);
+        assert_eq!(report_oracle.rns_version.as_deref(), Some("0.9.4"));
     }
 
     fn check_oracle_environment_from_env_if_configured() -> Option<OracleReadiness> {

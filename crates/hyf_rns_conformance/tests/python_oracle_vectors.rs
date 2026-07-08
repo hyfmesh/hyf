@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use hyf_rns_conformance::{
-    OracleInvalidEnvironment, OracleReadiness, check_oracle_environment_from_env,
+    OracleInvalidEnvironment, OracleStatus, check_oracle_environment_from_env,
 };
 use hyf_rns_core::{RNS_MTU, RNS_TRUNCATED_HASH_LEN, RnsDestinationHash};
 use hyf_rns_crypto::secret_identity_from_bytes;
@@ -66,7 +66,7 @@ fn rust_generated_packets_and_announces_validate_in_python_reticulum() -> Result
 
 fn require_ready_oracle() -> Result<(), OracleTestError> {
     let readiness = check_oracle_environment_from_env();
-    if readiness == OracleReadiness::passed() {
+    if readiness.status() == OracleStatus::Passed {
         return Ok(());
     }
 
