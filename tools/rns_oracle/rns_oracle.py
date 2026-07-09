@@ -399,6 +399,7 @@ def handle_ifac_verify(args: argparse.Namespace, store: FixtureStore) -> dict[st
                 {
                     "case_id": case["case_id"],
                     "valid": True,
+                    "masked_hex": masked_packet_hex,
                     "unmasked_hex": case["expected_unmasked_hex"],
                 },
             )
@@ -409,6 +410,7 @@ def handle_ifac_verify(args: argparse.Namespace, store: FixtureStore) -> dict[st
                 {
                     "case_id": case["case_id"],
                     "valid": False,
+                    "masked_hex": masked_packet_hex,
                     "error": case["expected_error"],
                 },
             )
@@ -459,6 +461,7 @@ def verify_ifac_with_reticulum(
             "ifac-verify",
             {
                 "valid": False,
+                "masked_hex": masked_packet_hex,
                 "error": "packet_too_short",
             },
             mode="python_reticulum",
@@ -468,6 +471,7 @@ def verify_ifac_with_reticulum(
             "ifac-verify",
             {
                 "valid": False,
+                "masked_hex": masked_packet_hex,
                 "error": "missing_packet_access_code",
             },
             mode="python_reticulum",
@@ -512,6 +516,7 @@ def verify_ifac_with_reticulum(
             "ifac-verify",
             {
                 "valid": False,
+                "masked_hex": masked_packet_hex,
                 "error": "invalid_packet_access_code",
             },
             mode="python_reticulum",
@@ -521,6 +526,7 @@ def verify_ifac_with_reticulum(
         "ifac-verify",
         {
             "valid": True,
+            "masked_hex": masked_packet_hex,
             "unmasked_hex": unmasked_packet.hex(),
         },
         mode="python_reticulum",

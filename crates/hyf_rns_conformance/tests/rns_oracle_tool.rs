@@ -77,6 +77,7 @@ fn rns_oracle_tool_replays_profile_1_and_profile_2_vectors() -> Result<(), Oracl
     };
     assert_eq!(ifac_response.command, "ifac-verify");
     assert_eq!(ifac_response.valid, Some(true));
+    assert_eq!(ifac_response.masked_hex, Some(IFAC_VECTOR_HEX.to_owned()));
     assert_eq!(
         ifac_response.unmasked_hex,
         Some("00031111111111111111111111111111111100aabbcc".to_owned())
@@ -372,6 +373,7 @@ fn rns_oracle_tool_validates_ifac_with_reticulum() -> Result<(), OracleToolError
     assert_eq!(verify_response.command, "ifac-verify");
     assert_eq!(verify_response.oracle.mode, "python_reticulum");
     assert_eq!(verify_response.valid, Some(true));
+    assert_eq!(verify_response.masked_hex, Some(IFAC_VECTOR_HEX.to_owned()));
     assert_eq!(
         verify_response.unmasked_hex,
         Some(IFAC_RAW_PACKET_HEX.to_owned())
