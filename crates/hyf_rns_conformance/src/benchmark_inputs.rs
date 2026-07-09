@@ -71,6 +71,7 @@ mod tests {
         "fuzz/corpus/fuzz_rns_packet_hash/header2_transport_a",
         "fuzz/corpus/fuzz_rns_packet_hash/header2_transport_b",
         "fuzz/corpus/fuzz_rns_packet_hash/too_short",
+        "fuzz/corpus/fuzz_single_packet_decrypt/valid_ciphertext_token",
         "fuzz/corpus/fuzz_token_decrypt/basic_token",
     ];
     static TEST_PATH_COUNTER: AtomicU64 = AtomicU64::new(0);

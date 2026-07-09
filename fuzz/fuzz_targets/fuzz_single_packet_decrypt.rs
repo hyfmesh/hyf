@@ -1,5 +1,8 @@
 #![no_main]
 
+mod seed_input;
+
+use hyf_rns_core::RNS_MTU;
 use hyf_rns_crypto::{decrypt_for_identity, secret_identity_from_bytes};
 use libfuzzer_sys::fuzz_target;
 
@@ -12,8 +15,11 @@ const SECRET_IDENTITY: [u8; 64] = [
 ];
 
 fuzz_target!(|data: &[u8]| {
+    let mut decoded = [0; RNS_MTU];
+    let input = seed_input::input_bytes(data, &mut decoded);
+
     if let Ok(identity) = secret_identity_from_bytes(&SECRET_IDENTITY) {
         let mut output = [0; 512];
-        let _ = decrypt_for_identity(&identity, data, &[], false, &mut output);
+        let _ = decrypt_for_identity(&identity, input, &[], false, &mut output);
     }
 });
