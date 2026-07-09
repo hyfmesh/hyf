@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
@@ -12,11 +12,138 @@ const DEFAULT_FEATURE_EXCEPTIONS: &[DefaultFeatureException] = &[DefaultFeatureE
     dependency: "libfuzzer-sys",
     kind: "normal",
 }];
+const COMMON_FEATURES: &[FeatureSpec] = &[
+    FeatureSpec {
+        name: "alloc",
+        enables: &[],
+    },
+    FeatureSpec {
+        name: "default",
+        enables: &[],
+    },
+    FeatureSpec {
+        name: "std",
+        enables: &["alloc"],
+    },
+];
+const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
+    common_features("hyf_core"),
+    common_features("hyf_crypto"),
+    common_features("hyf_wire"),
+    common_features("hyf_link"),
+    common_features("hyf_link_kiss"),
+    FeatureSurface {
+        package: "hyf_link_rnode",
+        features: &[
+            FeatureSpec {
+                name: "alloc",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "hil_std",
+                enables: &["std"],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &["alloc"],
+            },
+        ],
+    },
+    common_features("hyf_rns_core"),
+    FeatureSurface {
+        package: "hyf_rns_crypto",
+        features: &[
+            FeatureSpec {
+                name: "alloc",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "crypto_hkdf",
+                enables: &["dep:hkdf", "dep:hmac", "dep:sha2"],
+            },
+            FeatureSpec {
+                name: "crypto_token",
+                enables: &["crypto_hkdf", "dep:aes", "dep:cbc", "dep:rand_core"],
+            },
+            FeatureSpec {
+                name: "crypto_x25519",
+                enables: &["crypto_token", "dep:x25519-dalek"],
+            },
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &["alloc"],
+            },
+            FeatureSpec {
+                name: "test_vectors",
+                enables: &[],
+            },
+        ],
+    },
+    FeatureSurface {
+        package: "hyf_rns_wire",
+        features: &[
+            FeatureSpec {
+                name: "alloc",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "ifac",
+                enables: &["hyf_rns_crypto/crypto_hkdf"],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &["alloc"],
+            },
+        ],
+    },
+    FeatureSurface {
+        package: "hyf_rns_conformance",
+        features: &[
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "python_oracle",
+                enables: &[],
+            },
+        ],
+    },
+];
+
+const fn common_features(package: &'static str) -> FeatureSurface {
+    FeatureSurface {
+        package,
+        features: COMMON_FEATURES,
+    }
+}
 
 struct DefaultFeatureException {
     package: &'static str,
     dependency: &'static str,
     kind: &'static str,
+}
+
+struct FeatureSurface {
+    package: &'static str,
+    features: &'static [FeatureSpec],
+}
+
+struct FeatureSpec {
+    name: &'static str,
+    enables: &'static [&'static str],
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +157,7 @@ struct Package {
     id: String,
     name: String,
     dependencies: Vec<Dependency>,
+    features: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +181,54 @@ fn fuzz_direct_dependencies_disable_default_features() -> TestResult {
     let metadata = metadata_for_manifest(&workspace_root.join("fuzz/Cargo.toml"))?;
     let packages = packages_by_name(&metadata, FUZZ_PACKAGES)?;
     assert_direct_dependencies_disable_defaults(&packages)
+}
+
+#[test]
+fn first_party_feature_surface_is_explicit() -> TestResult {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let metadata = metadata_for_manifest(&workspace_root.join("Cargo.toml"))?;
+    let packages = workspace_packages(&metadata)?;
+
+    for expected in EXPECTED_FEATURE_SURFACE {
+        let package = package_by_name(&packages, expected.package)?;
+        assert_feature_surface(package, expected)?;
+    }
+
+    Ok(())
+}
+
+#[test]
+fn crypto_hkdf_is_intentional_dependency_isolation_feature() -> TestResult {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let metadata = metadata_for_manifest(&workspace_root.join("Cargo.toml"))?;
+    let packages = workspace_packages(&metadata)?;
+    let crypto = package_by_name(&packages, "hyf_rns_crypto")?;
+    let wire = package_by_name(&packages, "hyf_rns_wire")?;
+
+    assert_feature_enables(crypto, "crypto_hkdf", &["dep:hkdf", "dep:hmac", "dep:sha2"])?;
+    assert_feature_omits(
+        crypto,
+        "crypto_hkdf",
+        &[
+            "crypto_token",
+            "crypto_x25519",
+            "dep:aes",
+            "dep:cbc",
+            "dep:rand_core",
+            "dep:x25519-dalek",
+        ],
+    )?;
+    assert_feature_enables(wire, "ifac", &["hyf_rns_crypto/crypto_hkdf"])?;
+    assert_feature_omits(
+        wire,
+        "ifac",
+        &[
+            "hyf_rns_crypto/crypto_token",
+            "hyf_rns_crypto/crypto_x25519",
+        ],
+    )?;
+
+    Ok(())
 }
 
 fn metadata_for_manifest(manifest_path: &Path) -> TestResult<Metadata> {
@@ -126,6 +302,112 @@ fn packages_by_name<'a>(
     Ok(packages)
 }
 
+fn package_by_name<'a>(packages: &'a [&Package], package_name: &str) -> TestResult<&'a Package> {
+    packages
+        .iter()
+        .copied()
+        .find(|package| package.name == package_name)
+        .ok_or_else(|| {
+            std::io::Error::other(format!(
+                "expected package {package_name} was not present in package set"
+            ))
+            .into()
+        })
+}
+
+fn assert_feature_surface(package: &Package, expected: &FeatureSurface) -> TestResult {
+    let actual = normalized_features(&package.features);
+    let expected = expected_feature_map(expected.features);
+    if actual == expected {
+        return Ok(());
+    }
+
+    Err(std::io::Error::other(format!(
+        "feature surface mismatch for {}: actual {:?}, expected {:?}",
+        package.name, actual, expected
+    ))
+    .into())
+}
+
+fn normalized_features(features: &BTreeMap<String, Vec<String>>) -> BTreeMap<String, Vec<String>> {
+    features
+        .iter()
+        .map(|(name, enables)| (name.to_owned(), sorted_strings(enables)))
+        .collect()
+}
+
+fn expected_feature_map(features: &[FeatureSpec]) -> BTreeMap<String, Vec<String>> {
+    features
+        .iter()
+        .map(|feature| {
+            (
+                feature.name.to_owned(),
+                feature
+                    .enables
+                    .iter()
+                    .map(|enabled| (*enabled).to_owned())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+fn sorted_strings(values: &[String]) -> Vec<String> {
+    let mut values = values.to_owned();
+    values.sort();
+    values
+}
+
+fn assert_feature_enables(package: &Package, feature_name: &str, expected: &[&str]) -> TestResult {
+    let actual = feature_enables(package, feature_name)?;
+    let expected = expected
+        .iter()
+        .map(|enabled| (*enabled).to_owned())
+        .collect::<Vec<_>>();
+    if actual == expected {
+        return Ok(());
+    }
+
+    Err(std::io::Error::other(format!(
+        "{} feature {feature_name} enables {:?}, expected {:?}",
+        package.name, actual, expected
+    ))
+    .into())
+}
+
+fn assert_feature_omits(package: &Package, feature_name: &str, omitted: &[&str]) -> TestResult {
+    let actual = feature_enables(package, feature_name)?;
+    let unexpected = omitted
+        .iter()
+        .filter(|omitted| actual.iter().any(|enabled| enabled == *omitted))
+        .copied()
+        .collect::<Vec<_>>();
+    if unexpected.is_empty() {
+        return Ok(());
+    }
+
+    Err(std::io::Error::other(format!(
+        "{} feature {feature_name} enables forbidden entries: {}",
+        package.name,
+        unexpected.join(", ")
+    ))
+    .into())
+}
+
+fn feature_enables(package: &Package, feature_name: &str) -> TestResult<Vec<String>> {
+    package
+        .features
+        .get(feature_name)
+        .map(|features| sorted_strings(features))
+        .ok_or_else(|| {
+            std::io::Error::other(format!(
+                "{} does not define expected feature {feature_name}",
+                package.name
+            ))
+            .into()
+        })
+}
+
 fn assert_direct_dependencies_disable_defaults(packages: &[&Package]) -> TestResult {
     let violations = default_feature_violations(packages);
 
@@ -176,11 +458,13 @@ fn workspace_package_coverage_is_derived_from_metadata_members() -> TestResult {
                 id: "path+file:///repo/member-a#0.1.0".to_owned(),
                 name: "member_a".to_owned(),
                 dependencies: Vec::new(),
+                features: BTreeMap::new(),
             },
             Package {
                 id: "path+file:///repo/member-b#0.1.0".to_owned(),
                 name: "member_b".to_owned(),
                 dependencies: Vec::new(),
+                features: BTreeMap::new(),
             },
         ],
     };
@@ -204,6 +488,7 @@ fn explicit_package_coverage_rejects_missing_packages() {
             id: "path+file:///repo/present#0.1.0".to_owned(),
             name: "present".to_owned(),
             dependencies: Vec::new(),
+            features: BTreeMap::new(),
         }],
     };
 
