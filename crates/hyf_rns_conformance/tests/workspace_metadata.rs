@@ -48,6 +48,10 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
                 enables: &["std"],
             },
             FeatureSpec {
+                name: "rnode",
+                enables: &[],
+            },
+            FeatureSpec {
                 name: "std",
                 enables: &["alloc"],
             },
