@@ -362,8 +362,7 @@ fn run_oracle_with_packages(args: &[String]) -> Result<Option<OracleResponse>, O
             Ok(Some(serde_json::from_slice(&output.stdout)?))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("invalid oracle environment: uv command unavailable");
-            Ok(None)
+            oracle_unavailable("invalid oracle environment: uv command unavailable")
         }
         Err(error) => Err(error.into()),
     }
@@ -380,8 +379,7 @@ fn run_oracle_raw(args: &[&str]) -> Result<Option<std::process::Output>, OracleT
     match output {
         Ok(output) => Ok(Some(output)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("invalid oracle environment: uv command unavailable");
-            Ok(None)
+            oracle_unavailable("invalid oracle environment: uv command unavailable")
         }
         Err(error) => Err(error.into()),
     }
@@ -455,15 +453,25 @@ fn assert_identity_decrypt_failed(
 
 fn reticulum_path_for_tool() -> Result<Option<PathBuf>, OracleToolError> {
     if let Some(path) = std::env::var_os("HYF_RETICULUM_PATH").map(PathBuf::from)
-        && let Some(path) = resolve_reticulum_candidate(path)?
+        && let Some(path) = resolve_reticulum_candidate(path.clone())?
     {
         return Ok(Some(path));
+    } else if std::env::var_os("HYF_RETICULUM_PATH").is_some() && oracle_strict() {
+        return Err(OracleToolError::InvalidEnvironment(
+            "invalid oracle environment: HYF_RETICULUM_PATH is unavailable".to_owned(),
+        ));
     }
 
     let default_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
         .join("refs/Reticulum");
-    resolve_reticulum_candidate(default_path)
+    let resolved = resolve_reticulum_candidate(default_path)?;
+    if resolved.is_none() && oracle_strict() {
+        return Err(OracleToolError::InvalidEnvironment(
+            "invalid oracle environment: Reticulum path unavailable".to_owned(),
+        ));
+    }
+    Ok(resolved)
 }
 
 fn resolve_reticulum_candidate(path: PathBuf) -> Result<Option<PathBuf>, OracleToolError> {
@@ -499,6 +507,22 @@ fn hex(bytes: &[u8]) -> String {
     output
 }
 
+fn oracle_unavailable<T>(message: &str) -> Result<Option<T>, OracleToolError> {
+    if oracle_strict() {
+        Err(OracleToolError::InvalidEnvironment(message.to_owned()))
+    } else {
+        eprintln!("{message}");
+        Ok(None)
+    }
+}
+
+fn oracle_strict() -> bool {
+    matches!(
+        std::env::var("HYF_RNS_ORACLE_STRICT").as_deref(),
+        Ok("1" | "true" | "TRUE" | "yes" | "YES")
+    )
+}
+
 #[derive(Debug, Deserialize)]
 struct OracleResponse {
     command: String,
@@ -532,6 +556,7 @@ enum OracleToolError {
     Io(String),
     Json(String),
     Crypto(String),
+    InvalidEnvironment(String),
     OracleFailed(String),
 }
 
@@ -559,6 +584,7 @@ impl std::fmt::Display for OracleToolError {
             Self::Io(error)
             | Self::Json(error)
             | Self::Crypto(error)
+            | Self::InvalidEnvironment(error)
             | Self::OracleFailed(error) => formatter.write_str(error),
         }
     }
