@@ -17,6 +17,10 @@ RETICULUM_REPO = "https://github.com/markqvist/Reticulum"
 RETICULUM_COMMIT = "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
 PROFILE_1 = "profile_1_kiss_rnode"
 PROFILE_2 = "profile_2_crypto_ifac"
+REQUIRED_PACKAGES = {
+    "cryptography": "49.0.0",
+    "pyserial": "3.5",
+}
 
 FEND = 0xC0
 FESC = 0xDB
@@ -79,30 +83,31 @@ def build_parser() -> argparse.ArgumentParser:
         subcommands.add_parser("hkdf-vector"),
         handle_hkdf_vector,
     )
-    with_case(
-        subcommands.add_parser("token-encrypt"),
-        handle_token_encrypt,
-    )
-    with_hex(
-        subcommands.add_parser("token-decrypt"),
-        handle_token_decrypt,
-    )
+    token_encrypt = subcommands.add_parser("token-encrypt")
+    with_case(token_encrypt, handle_token_encrypt)
+    add_token_test_flags(token_encrypt)
+
+    token_decrypt = subcommands.add_parser("token-decrypt")
+    with_hex(token_decrypt, handle_token_decrypt)
+    add_token_test_flags(token_decrypt)
+
     with_case(
         subcommands.add_parser("identity-encrypt"),
         handle_identity_encrypt,
     )
-    with_hex(
-        subcommands.add_parser("identity-decrypt"),
-        handle_identity_decrypt,
-    )
-    with_case(
-        subcommands.add_parser("ifac-apply"),
-        handle_ifac_apply,
-    )
-    with_hex(
-        subcommands.add_parser("ifac-verify"),
-        handle_ifac_verify,
-    )
+
+    identity_decrypt = subcommands.add_parser("identity-decrypt")
+    with_hex(identity_decrypt, handle_identity_decrypt)
+    add_identity_test_flags(identity_decrypt)
+
+    ifac_apply = subcommands.add_parser("ifac-apply")
+    with_case(ifac_apply, handle_ifac_apply)
+    add_ifac_test_flags(ifac_apply)
+
+    ifac_verify = subcommands.add_parser("ifac-verify")
+    with_hex(ifac_verify, handle_ifac_verify)
+    add_ifac_test_flags(ifac_verify)
+
     with_case(
         subcommands.add_parser("kiss-encode"),
         handle_kiss_encode,
@@ -129,6 +134,23 @@ def with_hex(parser: argparse.ArgumentParser, handler: Any) -> None:
     parser.set_defaults(handler=handler)
 
 
+def add_token_test_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--test-token-key-hex")
+    parser.add_argument("--test-plaintext-hex")
+    parser.add_argument("--test-iv-hex")
+
+
+def add_identity_test_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--test-recipient-secret-identity-hex")
+    parser.add_argument("--test-ratchet-secret-hex", action="append", default=[])
+
+
+def add_ifac_test_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--test-ifac-identity-secret-hex")
+    parser.add_argument("--test-ifac-key-hex")
+    parser.add_argument("--test-ifac-size", type=int)
+
+
 def handle_probe(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
     del store
     reticulum_path = args.reticulum_path or os.environ.get("HYF_RETICULUM_PATH")
@@ -147,18 +169,26 @@ def handle_probe(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any
     if status:
         raise OracleError("invalid_environment: Reticulum worktree is dirty")
 
+    packages = required_package_versions()
+
     sys.path.insert(0, str(path))
     try:
         import RNS  # type: ignore[import-not-found]
     except ImportError as error:
         raise OracleError("invalid_environment: RNS import failed") from error
 
+    module_path = Path(RNS.__file__).resolve()
+    try:
+        module_path.relative_to(path.resolve())
+    except ValueError as error:
+        raise OracleError("invalid_environment: RNS import resolved outside Reticulum path") from error
+
     return envelope(
         "probe",
         {
-            "cryptography": package_version("cryptography"),
-            "module": str(Path(RNS.__file__)),
-            "pyserial": package_version("pyserial"),
+            "cryptography": packages["cryptography"],
+            "module": str(module_path),
+            "pyserial": packages["pyserial"],
             "rns_version": getattr(RNS, "__version__", None),
             "status": "passed",
         },
@@ -172,11 +202,13 @@ def handle_hkdf_vector(args: argparse.Namespace, store: FixtureStore) -> dict[st
 
 
 def handle_token_encrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
+    validate_token_test_inputs(args)
     case = find_case(store.profile_2("token_vectors.json"), args.case_id)
     return case_envelope("token-encrypt", case)
 
 
 def handle_token_decrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
+    validate_token_test_inputs(args)
     token_hex = validate_hex(args.hex_value, "token")
     for case in store.profile_2("token_vectors.json")["cases"]:
         if case.get("expected", {}).get("token_hex") == token_hex:
@@ -207,6 +239,7 @@ def handle_identity_encrypt(args: argparse.Namespace, store: FixtureStore) -> di
 
 
 def handle_identity_decrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
+    validate_identity_test_inputs(args)
     ciphertext_hex = validate_hex(args.hex_value, "ciphertext")
     for case in store.profile_2("identity_decrypt_vectors.json")["cases"]:
         if case.get("inputs", {}).get("ciphertext_token_hex") == ciphertext_hex:
@@ -224,11 +257,13 @@ def handle_identity_decrypt(args: argparse.Namespace, store: FixtureStore) -> di
 
 
 def handle_ifac_apply(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
+    validate_ifac_test_inputs(args)
     case = find_case(store.profile_2("ifac_vectors.json"), args.case_id)
     return case_envelope("ifac-apply", case)
 
 
 def handle_ifac_verify(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
+    validate_ifac_test_inputs(args)
     masked_packet_hex = validate_hex(args.hex_value, "masked packet")
     for case in store.profile_2("ifac_vectors.json")["cases"]:
         if case.get("masked_packet_hex") == masked_packet_hex:
@@ -344,6 +379,61 @@ def validate_hex(value: str, label: str) -> str:
     return normalized
 
 
+def validate_optional_hex(
+    args: argparse.Namespace,
+    attr: str,
+    label: str,
+    *,
+    lengths: set[int] | None = None,
+) -> str | None:
+    value = getattr(args, attr, None)
+    if value is None:
+        return None
+    normalized = validate_hex(value, label)
+    byte_len = len(normalized) // 2
+    if lengths is not None and byte_len not in lengths:
+        allowed = " or ".join(str(length) for length in sorted(lengths))
+        raise OracleError(f"{label} hex must be {allowed} bytes")
+    return normalized
+
+
+def validate_token_test_inputs(args: argparse.Namespace) -> None:
+    validate_optional_hex(
+        args,
+        "test_token_key_hex",
+        "test token key",
+        lengths={32, 64},
+    )
+    validate_optional_hex(args, "test_plaintext_hex", "test plaintext")
+    validate_optional_hex(args, "test_iv_hex", "test IV", lengths={16})
+
+
+def validate_identity_test_inputs(args: argparse.Namespace) -> None:
+    validate_optional_hex(
+        args,
+        "test_recipient_secret_identity_hex",
+        "test recipient secret identity",
+        lengths={64},
+    )
+    for ratchet_hex in getattr(args, "test_ratchet_secret_hex", []):
+        normalized = validate_hex(ratchet_hex, "test ratchet secret")
+        if len(normalized) // 2 != 32:
+            raise OracleError("test ratchet secret hex must be 32 bytes")
+
+
+def validate_ifac_test_inputs(args: argparse.Namespace) -> None:
+    validate_optional_hex(
+        args,
+        "test_ifac_identity_secret_hex",
+        "test IFAC identity secret",
+        lengths={64},
+    )
+    validate_optional_hex(args, "test_ifac_key_hex", "test IFAC key")
+    if getattr(args, "test_ifac_size", None) is not None:
+        if not 1 <= args.test_ifac_size <= 64:
+            raise OracleError("test IFAC size must be between 1 and 64 bytes")
+
+
 def encode_kiss(command: int, payload: bytes) -> bytes:
     output = bytearray([FEND, command])
     for byte in payload:
@@ -409,6 +499,20 @@ def git_stdout(repo: Path, *args: str) -> str:
     if output.returncode != 0:
         raise OracleError("invalid_environment: git command failed")
     return output.stdout.strip()
+
+
+def required_package_versions() -> dict[str, str]:
+    versions = {}
+    for package_name, required_version in REQUIRED_PACKAGES.items():
+        actual_version = package_version(package_name)
+        if actual_version != required_version:
+            actual = actual_version if actual_version is not None else "missing"
+            raise OracleError(
+                f"invalid_environment: {package_name} version mismatch: "
+                f"expected {required_version}, actual {actual}"
+            )
+        versions[package_name] = actual_version
+    return versions
 
 
 def package_version(package_name: str) -> str | None:

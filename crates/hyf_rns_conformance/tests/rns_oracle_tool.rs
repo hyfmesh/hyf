@@ -14,6 +14,7 @@ fn rns_oracle_tool_replays_profile_1_and_profile_2_vectors() -> Result<(), Oracl
         return Ok(());
     };
     assert_eq!(kiss_response.command, "kiss-encode");
+    assert_eq!(kiss_response.oracle.mode, "fixture_replay");
     assert_eq!(
         kiss_response.oracle.reticulum.commit,
         EXPECTED_RETICULUM_COMMIT
@@ -38,6 +39,7 @@ fn rns_oracle_tool_replays_profile_1_and_profile_2_vectors() -> Result<(), Oracl
         return Ok(());
     };
     assert_eq!(token_response.command, "token-decrypt");
+    assert_eq!(token_response.oracle.mode, "fixture_replay");
     assert_eq!(token_response.valid, Some(true));
     assert_eq!(
         token_response.plaintext_hex,
@@ -65,6 +67,63 @@ fn rns_oracle_tool_rejects_unknown_cases() -> Result<(), OracleToolError> {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("unknown case"));
+    assert!(output.stdout.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn rns_oracle_tool_rejects_bad_hex_inputs() -> Result<(), OracleToolError> {
+    let Some(output) = run_oracle_raw(&["token-decrypt", "--hex", "abc"])? else {
+        return Ok(());
+    };
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("token hex must have an even length"));
+    assert!(output.stdout.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn rns_oracle_tool_rejects_bad_test_only_inputs() -> Result<(), OracleToolError> {
+    let Some(output) = run_oracle_raw(&[
+        "token-decrypt",
+        "--hex",
+        TOKEN_VECTOR_HEX,
+        "--test-token-key-hex",
+        "00",
+    ])?
+    else {
+        return Ok(());
+    };
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("test token key hex must be 32 or 64 bytes")
+    );
+    assert!(output.stdout.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn rns_oracle_probe_rejects_invalid_environment() -> Result<(), OracleToolError> {
+    let Some(output) = run_oracle_raw(&[
+        "probe",
+        "--reticulum-path",
+        "/definitely/not/a/reticulum/checkout",
+    ])?
+    else {
+        return Ok(());
+    };
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("invalid_environment: Reticulum path is not a directory")
+    );
     assert!(output.stdout.is_empty());
 
     Ok(())
@@ -119,6 +178,7 @@ struct OracleResponse {
 
 #[derive(Debug, Deserialize)]
 struct OracleMetadata {
+    mode: String,
     reticulum: ReticulumMetadata,
 }
 
