@@ -218,7 +218,8 @@ mod tests {
     };
     use crate::{
         RNS_SECRET_IDENTITY_LEN, RNS_TOKEN_HMAC_LEN, RNS_TOKEN_IV_LEN, RnsCryptoError,
-        public_identity_from_bytes, secret_identity_from_bytes, token::retag_token_for_test,
+        public_identity_from_bytes, secret_identity_from_bytes,
+        token::token_retag_for_test_vectors,
     };
     use rand_core::{Infallible, TryCryptoRng, TryRng};
     use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
@@ -474,7 +475,7 @@ mod tests {
         let token_start = RNS_SINGLE_PACKET_EPHEMERAL_PUBLIC_LEN;
         let iv_last = token_start + RNS_TOKEN_IV_LEN - 1;
         ciphertext[iv_last] ^= 0x01;
-        retag_token_for_test(&token_key[..], &mut ciphertext[token_start..ciphertext_len])?;
+        token_retag_for_test_vectors(&token_key[..], &mut ciphertext[token_start..ciphertext_len])?;
         let mut plaintext = [0x55; 64];
 
         assert_eq!(

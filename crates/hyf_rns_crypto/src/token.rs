@@ -200,8 +200,8 @@ fn verify_hmac_sha256(key: &[u8], message: &[u8], tag: &[u8]) -> Result<(), RnsC
         .map_err(|_| RnsCryptoError::AuthenticationFailed)
 }
 
-#[cfg(test)]
-pub(crate) fn retag_token_for_test(key: &[u8], token: &mut [u8]) -> Result<(), RnsCryptoError> {
+#[cfg(any(test, feature = "test_vectors"))]
+pub fn token_retag_for_test_vectors(key: &[u8], token: &mut [u8]) -> Result<(), RnsCryptoError> {
     let keys = TokenKeys::split(key)?;
     if token.len() <= RNS_TOKEN_HMAC_LEN {
         return Err(RnsCryptoError::InvalidToken);
@@ -269,8 +269,8 @@ impl TokenKeys {
 #[cfg(test)]
 mod tests {
     use super::{
-        RNS_TOKEN_HMAC_LEN, RNS_TOKEN_IV_LEN, RNS_TOKEN_OVERHEAD, retag_token_for_test,
-        token_decrypt, token_encrypt, token_encrypt_with_iv,
+        RNS_TOKEN_HMAC_LEN, RNS_TOKEN_IV_LEN, RNS_TOKEN_OVERHEAD, token_decrypt, token_encrypt,
+        token_encrypt_with_iv, token_retag_for_test_vectors,
     };
     use crate::RnsCryptoError;
     use rand_core::{Infallible, TryCryptoRng, TryRng};
@@ -359,7 +359,7 @@ mod tests {
         let mut token = [0; 128];
         let len = token_encrypt_with_iv(&KEY_32, b"hello token", IV, &mut token)?;
         token[RNS_TOKEN_IV_LEN - 1] ^= 0x01;
-        retag_token_for_test(&KEY_32, &mut token[..len])?;
+        token_retag_for_test_vectors(&KEY_32, &mut token[..len])?;
         let mut decrypted = [0x55; 64];
 
         assert_eq!(

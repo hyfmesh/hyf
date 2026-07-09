@@ -135,6 +135,7 @@ def with_hex(parser: argparse.ArgumentParser, handler: Any) -> None:
 
 
 def add_token_test_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--reticulum-path")
     parser.add_argument("--test-token-key-hex")
     parser.add_argument("--test-plaintext-hex")
     parser.add_argument("--test-iv-hex")
@@ -153,7 +154,23 @@ def add_ifac_test_flags(parser: argparse.ArgumentParser) -> None:
 
 def handle_probe(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
     del store
-    reticulum_path = args.reticulum_path or os.environ.get("HYF_RETICULUM_PATH")
+    rns, packages, module_path = load_reticulum(args)
+
+    return envelope(
+        "probe",
+        {
+            "cryptography": packages["cryptography"],
+            "module": str(module_path),
+            "pyserial": packages["pyserial"],
+            "rns_version": getattr(rns, "__version__", None),
+            "status": "passed",
+        },
+        mode="python_reticulum",
+    )
+
+
+def load_reticulum(args: argparse.Namespace) -> tuple[Any, dict[str, str], Path]:
+    reticulum_path = getattr(args, "reticulum_path", None) or os.environ.get("HYF_RETICULUM_PATH")
     if not reticulum_path:
         raise OracleError("invalid_environment: missing Reticulum path")
 
@@ -183,17 +200,7 @@ def handle_probe(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any
     except ValueError as error:
         raise OracleError("invalid_environment: RNS import resolved outside Reticulum path") from error
 
-    return envelope(
-        "probe",
-        {
-            "cryptography": packages["cryptography"],
-            "module": str(module_path),
-            "pyserial": packages["pyserial"],
-            "rns_version": getattr(RNS, "__version__", None),
-            "status": "passed",
-        },
-        mode="python_reticulum",
-    )
+    return RNS, packages, module_path
 
 
 def handle_hkdf_vector(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
@@ -208,8 +215,10 @@ def handle_token_encrypt(args: argparse.Namespace, store: FixtureStore) -> dict[
 
 
 def handle_token_decrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
-    validate_token_test_inputs(args)
+    token_key_hex = validate_token_test_inputs(args)
     token_hex = validate_hex(args.hex_value, "token")
+    if token_key_hex is not None:
+        return handle_token_decrypt_with_reticulum(args, token_hex, token_key_hex)
     for case in store.profile_2("token_vectors.json")["cases"]:
         if case.get("expected", {}).get("token_hex") == token_hex:
             return envelope(
@@ -231,6 +240,36 @@ def handle_token_decrypt(args: argparse.Namespace, store: FixtureStore) -> dict[
                 },
             )
     raise OracleError("unknown token hex")
+
+
+def handle_token_decrypt_with_reticulum(
+    args: argparse.Namespace,
+    token_hex: str,
+    token_key_hex: str,
+) -> dict[str, Any]:
+    load_reticulum(args)
+    from RNS.Cryptography.Token import Token  # type: ignore[import-not-found]
+
+    try:
+        plaintext = Token(bytes.fromhex(token_key_hex)).decrypt(bytes.fromhex(token_hex))
+    except Exception as error:
+        return envelope(
+            "token-decrypt",
+            {
+                "valid": False,
+                "error": classify_token_decrypt_error(error),
+            },
+            mode="python_reticulum",
+        )
+
+    return envelope(
+        "token-decrypt",
+        {
+            "valid": True,
+            "plaintext_hex": plaintext.hex(),
+        },
+        mode="python_reticulum",
+    )
 
 
 def handle_identity_encrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
@@ -397,8 +436,8 @@ def validate_optional_hex(
     return normalized
 
 
-def validate_token_test_inputs(args: argparse.Namespace) -> None:
-    validate_optional_hex(
+def validate_token_test_inputs(args: argparse.Namespace) -> str | None:
+    token_key_hex = validate_optional_hex(
         args,
         "test_token_key_hex",
         "test token key",
@@ -406,6 +445,7 @@ def validate_token_test_inputs(args: argparse.Namespace) -> None:
     )
     validate_optional_hex(args, "test_plaintext_hex", "test plaintext")
     validate_optional_hex(args, "test_iv_hex", "test IV", lengths={16})
+    return token_key_hex
 
 
 def validate_identity_test_inputs(args: argparse.Namespace) -> None:
@@ -432,6 +472,17 @@ def validate_ifac_test_inputs(args: argparse.Namespace) -> None:
     if getattr(args, "test_ifac_size", None) is not None:
         if not 1 <= args.test_ifac_size <= 64:
             raise OracleError("test IFAC size must be between 1 and 64 bytes")
+
+
+def classify_token_decrypt_error(error: Exception) -> str:
+    message = str(error).lower()
+    if "hmac was invalid" in message:
+        return "authentication_failed"
+    if "cannot verify hmac" in message:
+        return "invalid_token"
+    if "padding" in message or "unpad" in message:
+        return "invalid_padding"
+    return "invalid_token"
 
 
 def encode_kiss(command: int, payload: bytes) -> bytes:

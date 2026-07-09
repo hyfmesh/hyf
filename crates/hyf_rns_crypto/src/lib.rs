@@ -37,13 +37,13 @@ pub use single_packet::{
     RNS_SINGLE_PACKET_DERIVED_KEY_LEN, RNS_SINGLE_PACKET_EPHEMERAL_PUBLIC_LEN, RnsDecryptOutcome,
     RnsRatchetSecretRef, decrypt_for_identity, encrypt_for_identity,
 };
-#[cfg(any(test, feature = "test_vectors"))]
-#[cfg(feature = "crypto_token")]
-pub use token::token_encrypt_with_iv;
 #[cfg(feature = "crypto_token")]
 pub use token::{
     RNS_TOKEN_HMAC_LEN, RNS_TOKEN_IV_LEN, RNS_TOKEN_OVERHEAD, token_decrypt, token_encrypt,
 };
+#[cfg(any(test, feature = "test_vectors"))]
+#[cfg(feature = "crypto_token")]
+pub use token::{token_encrypt_with_iv, token_retag_for_test_vectors};
 
 #[cfg(test)]
 mod tests {
