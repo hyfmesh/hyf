@@ -357,17 +357,40 @@ def handle_identity_decrypt_with_reticulum(
 
 def handle_ifac_apply(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
     if has_ifac_test_inputs(args):
-        validate_ifac_test_inputs(args)
-        return unsupported_ifac_oracle(args, "ifac-apply")
+        ifac_identity_secret_hex, ifac_key_hex, ifac_size = validate_ifac_test_inputs(args)
+        case = find_case(store.profile_2("ifac_vectors.json"), args.case_id)
+        raw_packet_hex = validate_hex(case["raw_packet_hex"], "raw packet")
+        masked_packet = apply_ifac_with_reticulum(
+            args,
+            raw_packet_hex,
+            ifac_identity_secret_hex,
+            ifac_key_hex,
+            ifac_size,
+        )
+        return envelope(
+            "ifac-apply",
+            {
+                "case_id": args.case_id,
+                "masked_hex": masked_packet.hex(),
+                "valid": True,
+            },
+            mode="python_reticulum",
+        )
     case = find_case(store.profile_2("ifac_vectors.json"), args.case_id)
     return case_envelope("ifac-apply", case)
 
 
 def handle_ifac_verify(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
     if has_ifac_test_inputs(args):
-        validate_ifac_test_inputs(args)
-        validate_hex(args.hex_value, "masked packet")
-        return unsupported_ifac_oracle(args, "ifac-verify")
+        ifac_identity_secret_hex, ifac_key_hex, ifac_size = validate_ifac_test_inputs(args)
+        masked_packet_hex = validate_hex(args.hex_value, "masked packet")
+        return verify_ifac_with_reticulum(
+            args,
+            masked_packet_hex,
+            ifac_identity_secret_hex,
+            ifac_key_hex,
+            ifac_size,
+        )
     masked_packet_hex = validate_hex(args.hex_value, "masked packet")
     for case in store.profile_2("ifac_vectors.json")["cases"]:
         if case.get("masked_packet_hex") == masked_packet_hex:
@@ -392,19 +415,115 @@ def handle_ifac_verify(args: argparse.Namespace, store: FixtureStore) -> dict[st
     raise OracleError("unknown IFAC packet hex")
 
 
-def unsupported_ifac_oracle(args: argparse.Namespace, command: str) -> dict[str, Any]:
-    load_reticulum(args)
+def apply_ifac_with_reticulum(
+    args: argparse.Namespace,
+    raw_packet_hex: str,
+    ifac_identity_secret_hex: str,
+    ifac_key_hex: str,
+    ifac_size: int,
+) -> bytes:
+    rns, _packages, _module_path = load_reticulum(args)
+
+    class CaptureInterface:
+        def __init__(self) -> None:
+            self.outgoing: bytes | None = None
+
+        def process_outgoing(self, data: bytes) -> None:
+            self.outgoing = data
+
+        def __str__(self) -> str:
+            return "hyf-ifac-oracle"
+
+    CaptureInterface.ifac_identity = rns.Identity.from_bytes(
+        bytes.fromhex(ifac_identity_secret_hex)
+    )
+    CaptureInterface.ifac_key = bytes.fromhex(ifac_key_hex)
+    CaptureInterface.ifac_size = ifac_size
+
+    interface = CaptureInterface()
+    rns.Transport.transmit(interface, bytes.fromhex(raw_packet_hex))
+    if interface.outgoing is None:
+        raise OracleError("Reticulum IFAC apply did not emit a packet")
+    return interface.outgoing
+
+
+def verify_ifac_with_reticulum(
+    args: argparse.Namespace,
+    masked_packet_hex: str,
+    ifac_identity_secret_hex: str,
+    ifac_key_hex: str,
+    ifac_size: int,
+) -> dict[str, Any]:
+    if len(masked_packet_hex) // 2 <= 2 + ifac_size:
+        return envelope(
+            "ifac-verify",
+            {
+                "valid": False,
+                "error": "packet_too_short",
+            },
+            mode="python_reticulum",
+        )
+    if bytes.fromhex(masked_packet_hex)[0] & 0x80 != 0x80:
+        return envelope(
+            "ifac-verify",
+            {
+                "valid": False,
+                "error": "missing_packet_access_code",
+            },
+            mode="python_reticulum",
+        )
+
+    rns, _packages, _module_path = load_reticulum(args)
+    captured: dict[str, bytes] = {}
+
+    class CaptureInterface:
+        pass
+
+    CaptureInterface.ifac_identity = rns.Identity.from_bytes(
+        bytes.fromhex(ifac_identity_secret_hex)
+    )
+    CaptureInterface.ifac_key = bytes.fromhex(ifac_key_hex)
+    CaptureInterface.ifac_size = ifac_size
+
+    class CapturePacket:
+        def __init__(self, destination: Any, raw: bytes) -> None:
+            del destination
+            captured["raw"] = raw
+
+        def unpack(self) -> bool:
+            return False
+
+    original_packet = rns.Packet
+    original_ready = rns.Transport.ready
+    original_identity = rns.Transport.identity
+    try:
+        rns.Packet = CapturePacket
+        rns.Transport.ready = True
+        rns.Transport.identity = object()
+        rns.Transport.inbound(bytes.fromhex(masked_packet_hex), CaptureInterface())
+    finally:
+        rns.Packet = original_packet
+        rns.Transport.ready = original_ready
+        rns.Transport.identity = original_identity
+
+    unmasked_packet = captured.get("raw")
+    if unmasked_packet is None:
+        return envelope(
+            "ifac-verify",
+            {
+                "valid": False,
+                "error": "invalid_packet_access_code",
+            },
+            mode="python_reticulum",
+        )
+
     return envelope(
-        command,
+        "ifac-verify",
         {
-            "valid": False,
-            "error": "unsupported_oracle_limitation",
-            "reason": (
-                "Reticulum IFAC apply/verify behavior is embedded in transport "
-                "interface flow and is not exposed as a standalone oracle API"
-            ),
+            "valid": True,
+            "unmasked_hex": unmasked_packet.hex(),
         },
-        mode="unsupported_oracle_limitation",
+        mode="python_reticulum",
     )
 
 
@@ -745,17 +864,22 @@ def validate_identity_encrypt_test_inputs(
     )
 
 
-def validate_ifac_test_inputs(args: argparse.Namespace) -> None:
-    validate_optional_hex(
+def validate_ifac_test_inputs(args: argparse.Namespace) -> tuple[str, str, int]:
+    ifac_size = getattr(args, "test_ifac_size", None)
+    if ifac_size is not None and not 1 <= ifac_size <= 64:
+        raise OracleError("test IFAC size must be between 1 and 64 bytes")
+    ifac_identity_secret_hex = validate_optional_hex(
         args,
         "test_ifac_identity_secret_hex",
         "test IFAC identity secret",
         lengths={64},
     )
-    validate_optional_hex(args, "test_ifac_key_hex", "test IFAC key")
-    if getattr(args, "test_ifac_size", None) is not None:
-        if not 1 <= args.test_ifac_size <= 64:
-            raise OracleError("test IFAC size must be between 1 and 64 bytes")
+    ifac_key_hex = validate_optional_hex(args, "test_ifac_key_hex", "test IFAC key")
+    if ifac_identity_secret_hex is None or ifac_key_hex is None or ifac_size is None:
+        raise OracleError(
+            "IFAC test inputs require IFAC identity secret, IFAC key, and IFAC size"
+        )
+    return ifac_identity_secret_hex, ifac_key_hex, ifac_size
 
 
 def has_ifac_test_inputs(args: argparse.Namespace) -> bool:

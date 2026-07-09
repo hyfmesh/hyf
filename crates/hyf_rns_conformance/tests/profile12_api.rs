@@ -64,8 +64,8 @@ fn profile_2_required_results_match_handoff2_contract() {
                 "rns_oracle_python_reticulum",
             ),
             (
-                "profile_2_crypto_ifac.rns_oracle.unsupported_ifac",
-                "rns_oracle_unsupported",
+                "profile_2_crypto_ifac.rns_oracle.python_reticulum.ifac",
+                "rns_oracle_python_reticulum",
             ),
         ],
     );

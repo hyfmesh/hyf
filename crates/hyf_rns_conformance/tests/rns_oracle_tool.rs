@@ -349,21 +349,32 @@ fn rns_oracle_tool_reports_reticulum_identity_failures() -> Result<(), OracleToo
 }
 
 #[test]
-fn rns_oracle_tool_reports_ifac_unsupported_limitation() -> Result<(), OracleToolError> {
+fn rns_oracle_tool_validates_ifac_with_reticulum() -> Result<(), OracleToolError> {
     let Some(reticulum_path) = reticulum_path_for_tool()? else {
         return Ok(());
     };
-    let args = ifac_oracle_args(&reticulum_path);
-    let Some(response) = run_oracle_with_packages(&args)? else {
+
+    let apply_args = ifac_apply_oracle_args(&reticulum_path);
+    let Some(apply_response) = run_oracle_with_packages(&apply_args)? else {
         return Ok(());
     };
 
-    assert_eq!(response.command, "ifac-verify");
-    assert_eq!(response.oracle.mode, "unsupported_oracle_limitation");
-    assert_eq!(response.valid, Some(false));
+    assert_eq!(apply_response.command, "ifac-apply");
+    assert_eq!(apply_response.oracle.mode, "python_reticulum");
+    assert_eq!(apply_response.valid, Some(true));
+    assert_eq!(apply_response.masked_hex, Some(IFAC_VECTOR_HEX.to_owned()));
+
+    let verify_args = ifac_oracle_args(&reticulum_path);
+    let Some(verify_response) = run_oracle_with_packages(&verify_args)? else {
+        return Ok(());
+    };
+
+    assert_eq!(verify_response.command, "ifac-verify");
+    assert_eq!(verify_response.oracle.mode, "python_reticulum");
+    assert_eq!(verify_response.valid, Some(true));
     assert_eq!(
-        response.error,
-        Some("unsupported_oracle_limitation".to_owned())
+        verify_response.unmasked_hex,
+        Some(IFAC_RAW_PACKET_HEX.to_owned())
     );
 
     Ok(())
@@ -628,6 +639,22 @@ fn ifac_oracle_args(reticulum_path: &Path) -> Vec<String> {
     ]
 }
 
+fn ifac_apply_oracle_args(reticulum_path: &Path) -> Vec<String> {
+    vec![
+        "ifac-apply".to_owned(),
+        "--case".to_owned(),
+        "ifac.apply_verify.size8.basic_001".to_owned(),
+        "--test-ifac-identity-secret-hex".to_owned(),
+        hex(&IFAC_SECRET_IDENTITY),
+        "--test-ifac-key-hex".to_owned(),
+        hex(&IFAC_KEY),
+        "--test-ifac-size".to_owned(),
+        "8".to_owned(),
+        "--reticulum-path".to_owned(),
+        reticulum_path.to_string_lossy().into_owned(),
+    ]
+}
+
 fn assert_identity_decrypt_failed(
     ciphertext: &[u8],
     reticulum_path: &Path,
@@ -726,6 +753,7 @@ struct OracleResponse {
     token_hex: Option<String>,
     ciphertext_token_hex: Option<String>,
     ephemeral_public_hex: Option<String>,
+    masked_hex: Option<String>,
     reticulum_self_validation: Option<String>,
     test_only_secret_material: Option<bool>,
     unmasked_hex: Option<String>,
@@ -797,6 +825,7 @@ const TOKEN_VECTOR_HEX: &str = concat!(
 );
 
 const IFAC_VECTOR_HEX: &str = "dd38fc4c4749c011f90f9628d201d3afb2ff08c0741fd11d98a37c1b54ad";
+const IFAC_RAW_PACKET_HEX: &str = "00031111111111111111111111111111111100aabbcc";
 
 const TOKEN_PLAINTEXT: &[u8] = b"hello token";
 const TOKEN_KEY_32: [u8; 32] = [

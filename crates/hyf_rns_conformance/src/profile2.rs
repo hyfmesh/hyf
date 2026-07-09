@@ -18,7 +18,6 @@ pub const CATEGORY_IFAC: &str = "ifac";
 pub const CATEGORY_RNS_ORACLE_FIXTURE_REPLAY: &str = "rns_oracle_fixture_replay";
 pub const CATEGORY_RNS_ORACLE_TEST_ONLY_SHIM: &str = "rns_oracle_test_only_shim";
 pub const CATEGORY_RNS_ORACLE_PYTHON_RETICULUM: &str = "rns_oracle_python_reticulum";
-pub const CATEGORY_RNS_ORACLE_UNSUPPORTED: &str = "rns_oracle_unsupported";
 
 pub const RESULT_ID_FIXTURE_MANIFEST: &str = "profile_2_crypto_ifac.fixture_manifest";
 pub const RESULT_ID_HKDF: &str = "profile_2_crypto_ifac.hkdf";
@@ -36,8 +35,8 @@ pub const RESULT_ID_RNS_ORACLE_TEST_ONLY_SHIM_IDENTITY_GENERATION: &str =
     "profile_2_crypto_ifac.rns_oracle.test_only_oracle_shim.identity_generation";
 pub const RESULT_ID_RNS_ORACLE_PYTHON_RETICULUM_IDENTITY: &str =
     "profile_2_crypto_ifac.rns_oracle.python_reticulum.identity";
-pub const RESULT_ID_RNS_ORACLE_UNSUPPORTED_IFAC: &str =
-    "profile_2_crypto_ifac.rns_oracle.unsupported_ifac";
+pub const RESULT_ID_RNS_ORACLE_PYTHON_RETICULUM_IFAC: &str =
+    "profile_2_crypto_ifac.rns_oracle.python_reticulum.ifac";
 
 pub const REQUIRED_PROFILE_2_RESULTS: &[(&str, &str)] = &[
     (RESULT_ID_FIXTURE_MANIFEST, CATEGORY_FIXTURE_MANIFEST),
@@ -67,8 +66,8 @@ pub const REQUIRED_PROFILE_2_RESULTS: &[(&str, &str)] = &[
         CATEGORY_RNS_ORACLE_PYTHON_RETICULUM,
     ),
     (
-        RESULT_ID_RNS_ORACLE_UNSUPPORTED_IFAC,
-        CATEGORY_RNS_ORACLE_UNSUPPORTED,
+        RESULT_ID_RNS_ORACLE_PYTHON_RETICULUM_IFAC,
+        CATEGORY_RNS_ORACLE_PYTHON_RETICULUM,
     ),
 ];
 
@@ -82,7 +81,6 @@ pub const REQUIRED_PROFILE_2_RESULT_CATEGORIES: &[&str] = &[
     CATEGORY_RNS_ORACLE_FIXTURE_REPLAY,
     CATEGORY_RNS_ORACLE_TEST_ONLY_SHIM,
     CATEGORY_RNS_ORACLE_PYTHON_RETICULUM,
-    CATEGORY_RNS_ORACLE_UNSUPPORTED,
 ];
 
 const MANIFEST: &str = include_str!("../../../fixtures/rns/profile_2_crypto_ifac/manifest.json");
@@ -162,9 +160,9 @@ pub fn profile_2_oracle_unavailable_results() -> [ConformanceResult; 6] {
             "Reticulum identity decrypt proof requires python_oracle evidence tooling",
         ),
         invalid_environment_result(
-            RESULT_ID_RNS_ORACLE_UNSUPPORTED_IFAC,
-            CATEGORY_RNS_ORACLE_UNSUPPORTED,
-            "standalone IFAC is not proven by the local Reticulum oracle",
+            RESULT_ID_RNS_ORACLE_PYTHON_RETICULUM_IFAC,
+            CATEGORY_RNS_ORACLE_PYTHON_RETICULUM,
+            "Reticulum IFAC proof requires python_oracle evidence tooling",
         ),
     ]
 }
