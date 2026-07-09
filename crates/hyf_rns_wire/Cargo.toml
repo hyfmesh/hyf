@@ -11,6 +11,7 @@ rust-version.workspace = true
 hyf_rns_core.workspace = true
 hyf_rns_crypto.workspace = true
 rand_core.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 allocation-counter.workspace = true

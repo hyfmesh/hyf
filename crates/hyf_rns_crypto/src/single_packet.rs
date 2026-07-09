@@ -81,7 +81,7 @@ where
     encrypt_with_secret(
         recipient,
         plaintext,
-        *ephemeral_secret,
+        ephemeral_secret,
         out,
         |key, plaintext, out| token_encrypt(key, plaintext, rng, out),
     )
@@ -95,6 +95,7 @@ pub fn encrypt_for_identity_with_ephemeral_and_iv(
     iv: [u8; crate::RNS_TOKEN_IV_LEN],
     out: &mut [u8],
 ) -> Result<usize, RnsCryptoError> {
+    let ephemeral_secret = Zeroizing::new(ephemeral_secret);
     encrypt_with_secret(
         recipient,
         plaintext,
@@ -109,7 +110,8 @@ pub fn derive_identity_token_key_for_test_vectors(
     recipient: &RnsPublicIdentity,
     ephemeral_secret: [u8; RNS_IDENTITY_KEY_LEN],
 ) -> Result<[u8; RNS_SINGLE_PACKET_DERIVED_KEY_LEN], RnsCryptoError> {
-    let ephemeral_secret = StaticSecret::from(ephemeral_secret);
+    let ephemeral_secret = Zeroizing::new(ephemeral_secret);
+    let ephemeral_secret = StaticSecret::from(*ephemeral_secret);
     let recipient_public = X25519PublicKey::from(recipient.x25519_public);
     let shared = ephemeral_secret.diffie_hellman(&recipient_public);
     let key = derive_token_key(&shared, recipient)?;
@@ -132,7 +134,8 @@ pub fn decrypt_for_identity<'a>(
     let token = &ciphertext_token[RNS_SINGLE_PACKET_EPHEMERAL_PUBLIC_LEN..];
 
     for (index, ratchet) in ratchets.iter().enumerate() {
-        let ratchet_secret = StaticSecret::from(*ratchet.as_bytes());
+        let ratchet_secret = Zeroizing::new(*ratchet.as_bytes());
+        let ratchet_secret = StaticSecret::from(*ratchet_secret);
         match decrypt_with_secret_len(
             &ratchet_secret,
             &recipient_public,
@@ -173,7 +176,7 @@ pub fn decrypt_for_identity<'a>(
 fn encrypt_with_secret(
     recipient: &RnsPublicIdentity,
     plaintext: &[u8],
-    ephemeral_secret: [u8; RNS_IDENTITY_KEY_LEN],
+    ephemeral_secret: Zeroizing<[u8; RNS_IDENTITY_KEY_LEN]>,
     out: &mut [u8],
     token_encryptor: impl FnOnce(&[u8], &[u8], &mut [u8]) -> Result<usize, RnsCryptoError>,
 ) -> Result<usize, RnsCryptoError> {
@@ -185,7 +188,7 @@ fn encrypt_with_secret(
         });
     }
 
-    let ephemeral_secret = StaticSecret::from(ephemeral_secret);
+    let ephemeral_secret = StaticSecret::from(*ephemeral_secret);
     let ephemeral_public = X25519PublicKey::from(&ephemeral_secret);
     let recipient_public = X25519PublicKey::from(recipient.x25519_public);
     let shared = ephemeral_secret.diffie_hellman(&recipient_public);

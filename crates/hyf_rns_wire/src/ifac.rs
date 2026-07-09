@@ -1,5 +1,6 @@
 use hyf_rns_core::RNS_MTU;
 use hyf_rns_crypto::{RnsCryptoError, RnsSecretIdentity, rns_hkdf_sha256, sign};
+use zeroize::Zeroizing;
 
 use crate::{RnsWireError, flags::IFAC_FLAG};
 
@@ -82,11 +83,11 @@ pub fn ifac_verify_inbound(
     }
 
     let ifac = &masked_packet[HEADER_LEN..HEADER_LEN + ifac_size];
-    let mut mask = [0; RNS_MTU];
+    let mut mask = Zeroizing::new([0; RNS_MTU]);
     rns_hkdf_sha256(&mut mask[..masked_packet.len()], ifac, Some(ifac_key), None)
         .map_err(map_crypto_error)?;
 
-    let mut unmasked = [0; RNS_MTU];
+    let mut unmasked = Zeroizing::new([0; RNS_MTU]);
     unmasked[0] = (masked_packet[0] ^ mask[0]) & !IFAC_FLAG;
     unmasked[1] = masked_packet[1] ^ mask[1];
     for (output_index, output_byte) in unmasked

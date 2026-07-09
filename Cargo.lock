@@ -442,6 +442,7 @@ dependencies = [
  "hyf_rns_core",
  "hyf_rns_crypto",
  "rand_core",
+ "zeroize",
 ]
 
 [[package]]

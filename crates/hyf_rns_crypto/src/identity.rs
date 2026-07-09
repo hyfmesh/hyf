@@ -54,8 +54,7 @@ impl RnsSecretIdentity {
 
     #[cfg(feature = "crypto_x25519")]
     pub(crate) fn x25519_static_secret(&self) -> StaticSecret {
-        let x25519_secret = Zeroizing::new(*self.x25519_secret);
-        StaticSecret::from(*x25519_secret)
+        StaticSecret::from(*self.x25519_secret)
     }
 }
 
@@ -79,15 +78,15 @@ pub fn public_identity_from_bytes(
 pub fn secret_identity_from_bytes(
     bytes: &[u8; RNS_SECRET_IDENTITY_LEN],
 ) -> Result<RnsSecretIdentity, RnsCryptoError> {
-    let mut x25519_secret = [0; RNS_IDENTITY_KEY_LEN];
+    let mut x25519_secret = Zeroizing::new([0; RNS_IDENTITY_KEY_LEN]);
     x25519_secret.copy_from_slice(&bytes[..RNS_IDENTITY_KEY_LEN]);
 
-    let mut ed25519_secret = [0; RNS_IDENTITY_KEY_LEN];
+    let mut ed25519_secret = Zeroizing::new([0; RNS_IDENTITY_KEY_LEN]);
     ed25519_secret.copy_from_slice(&bytes[RNS_IDENTITY_KEY_LEN..]);
 
     let identity = RnsSecretIdentity {
-        x25519_secret: Zeroizing::new(x25519_secret),
-        ed25519_secret: Zeroizing::new(ed25519_secret),
+        x25519_secret,
+        ed25519_secret,
     };
     Ok(identity)
 }
