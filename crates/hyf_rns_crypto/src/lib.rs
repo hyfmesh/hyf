@@ -7,7 +7,7 @@
 #![deny(clippy::unwrap_used)]
 
 mod error;
-#[cfg(feature = "crypto_token")]
+#[cfg(feature = "crypto_hkdf")]
 mod hkdf;
 mod identity;
 #[cfg(feature = "crypto_token")]
@@ -19,7 +19,7 @@ mod single_packet;
 mod token;
 
 pub use error::RnsCryptoError;
-#[cfg(feature = "crypto_token")]
+#[cfg(feature = "crypto_hkdf")]
 pub use hkdf::rns_hkdf_sha256;
 pub use identity::{
     RNS_IDENTITY_KEY_LEN, RNS_PUBLIC_IDENTITY_LEN, RNS_SECRET_IDENTITY_LEN, RnsPublicIdentity,
