@@ -1,4 +1,4 @@
-use std::hint::black_box;
+use std::{fmt::Display, hint::black_box};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use hyf_link_kiss::{KissDecoder, encode_data_frame};
@@ -24,7 +24,10 @@ fn benchmark_kiss_encode(criterion: &mut Criterion) {
 
 fn benchmark_kiss_decode(criterion: &mut Criterion) {
     let mut frame = [0; 1003];
-    let frame_len = encode_data_frame(&PAYLOAD, &mut frame).unwrap_or(0);
+    let frame_len = benchmark_input(
+        "profile1 KISS decode frame",
+        encode_data_frame(&PAYLOAD, &mut frame),
+    );
 
     criterion.bench_function("profile1_kiss_decode_500", |bench| {
         bench.iter(|| {
@@ -48,7 +51,10 @@ fn benchmark_rnode_encode(criterion: &mut Criterion) {
 
 fn benchmark_rnode_parse(criterion: &mut Criterion) {
     let mut frame = [0; 8];
-    let frame_len = encode_command(RNodeCommand::FrequencyHz(915_000_000), &mut frame).unwrap_or(0);
+    let frame_len = benchmark_input(
+        "profile1 RNode parse frame",
+        encode_command(RNodeCommand::FrequencyHz(915_000_000), &mut frame),
+    );
 
     criterion.bench_function("profile1_rnode_parse_frequency", |bench| {
         bench.iter(|| {
@@ -59,6 +65,16 @@ fn benchmark_rnode_parse(criterion: &mut Criterion) {
             });
         });
     });
+}
+
+fn benchmark_input<T, E: Display>(name: &str, result: Result<T, E>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("profile1 benchmark setup failed for {name}: {error}");
+            std::process::exit(2);
+        }
+    }
 }
 
 criterion_group!(benches, profile1_link_benchmarks);
