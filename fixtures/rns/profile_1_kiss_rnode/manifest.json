@@ -6,37 +6,37 @@
     "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
   },
   "generated_by": "tools/rns_oracle",
-  "generated_at": "2026-07-08T00:00:00Z",
+  "generated_at": "2026-07-09T00:00:00Z",
   "fixtures": [
     {
       "file": "kiss_vectors.json",
       "category": "kiss",
-      "case_count": 3,
-      "sha256": "93e0214a03c69709fee9ce4856ad3b5ef12068aeb6b7e5742665779e270fb5b9"
+      "case_count": 5,
+      "sha256": "8763acc8914faf348d0629be4c27fea4aaf30acaca4f4d23adf04f36ef136b66"
     },
     {
       "file": "kiss_negative_vectors.json",
       "category": "kiss_negative",
-      "case_count": 2,
-      "sha256": "866a9dc28aa5d183aecc50d4ade1dcb20513dbd93e37b9279ede3cc1c82f72a0"
+      "case_count": 4,
+      "sha256": "02951e6d3f1fbf72b7b1c97ce17560fa6e7e1ef1198f6ca314d83a1a1ab6b399"
     },
     {
       "file": "rnode_command_vectors.json",
       "category": "rnode_command",
-      "case_count": 6,
-      "sha256": "7b38b7981d350988240597675d10d51b4ece018e17443a5c67e86458bc9eb888"
+      "case_count": 10,
+      "sha256": "d1917300b4745f7bfd7f716aee27e546393a9e2f3b81b8eef916acf4b01251a1"
     },
     {
       "file": "rnode_config_validation_vectors.json",
       "category": "rnode_config_validation",
-      "case_count": 3,
-      "sha256": "381de87cab1a32715d31ceefeeca202e55cc38e5bdefde83080027e1bd1d7be5"
+      "case_count": 7,
+      "sha256": "9d277f329efe6d26c93b77091dfb5e2096161fe98db02989d65b34762d969e48"
     },
     {
       "file": "rnode_stat_vectors.json",
       "category": "rnode_stat",
-      "case_count": 6,
-      "sha256": "72b8547b172c83a29da47ecee522576d24c2f8c21d59d5ed7e2fefcb7d114ab5"
+      "case_count": 11,
+      "sha256": "871a0bcdd0fac8c34cad663312443c5882b31dfe434dc66a27b433db99f093ca"
     }
   ]
 }

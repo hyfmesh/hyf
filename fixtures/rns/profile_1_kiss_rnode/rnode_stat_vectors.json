@@ -113,6 +113,111 @@
         "supported": null,
         "error": "queue_full"
       }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.tx_bytes_654321",
+      "command_byte_hex": "22",
+      "payload_hex": "0009fbf1",
+      "kiss_frame_hex": "c0220009fbf1c0",
+      "expected": {
+        "kind": "tx_bytes",
+        "value": 654321,
+        "rssi_dbm": null,
+        "snr_quarter_db": null,
+        "major": null,
+        "minor": null,
+        "supported": null,
+        "error": null,
+        "radio_state": null,
+        "command_hex": null,
+        "payload_hex": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.firmware_1_51_unsupported",
+      "command_byte_hex": "50",
+      "payload_hex": "0133",
+      "kiss_frame_hex": "c0500133c0",
+      "expected": {
+        "kind": "firmware",
+        "value": null,
+        "rssi_dbm": null,
+        "snr_quarter_db": null,
+        "major": 1,
+        "minor": 51,
+        "supported": false,
+        "error": null,
+        "radio_state": null,
+        "command_hex": null,
+        "payload_hex": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.memory_low_error",
+      "command_byte_hex": "90",
+      "payload_hex": "05",
+      "kiss_frame_hex": "c09005c0",
+      "expected": {
+        "kind": "error",
+        "value": null,
+        "rssi_dbm": null,
+        "snr_quarter_db": null,
+        "major": null,
+        "minor": null,
+        "supported": null,
+        "error": "memory_low",
+        "radio_state": null,
+        "command_hex": null,
+        "payload_hex": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.radio_state_ask_config",
+      "command_byte_hex": "06",
+      "payload_hex": "ff",
+      "kiss_frame_hex": "c006ffc0",
+      "expected": {
+        "kind": "radio_state",
+        "value": null,
+        "rssi_dbm": null,
+        "snr_quarter_db": null,
+        "major": null,
+        "minor": null,
+        "supported": null,
+        "error": null,
+        "radio_state": "ask",
+        "command_hex": null,
+        "payload_hex": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.event_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.event.unknown_command_7f",
+      "command_byte_hex": "7f",
+      "payload_hex": "0102",
+      "kiss_frame_hex": "c07f0102c0",
+      "expected": {
+        "kind": "unknown",
+        "value": null,
+        "rssi_dbm": null,
+        "snr_quarter_db": null,
+        "major": null,
+        "minor": null,
+        "supported": null,
+        "error": null,
+        "radio_state": null,
+        "command_hex": "7f",
+        "payload_hex": "0102"
+      }
     }
   ]
 }

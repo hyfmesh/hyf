@@ -78,6 +78,18 @@
       "masked_packet_hex": "dd38fc4c4749c011f90f9628d201d3afb2ff08c0741fd11d98a37c1b54ad",
       "output_len": 4,
       "expected_error": "output_buffer_too_short"
+    },
+    {
+      "schema": "hyf.rns.ifac_vector.v1",
+      "profile": "profile_2_crypto_ifac",
+      "subprofile": "profile_2c_ifac",
+      "case_id": "ifac.verify.wrong_key_001",
+      "ifac_size": 8,
+      "ifac_key_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "ifac_identity_secret_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "test_only_secret_material": true,
+      "masked_packet_hex": "dd38fc4c4749c011f90f9628d201d3afb2ff08c0741fd11d98a37c1b54ad",
+      "expected_error": "invalid_packet_access_code"
     }
   ]
 }

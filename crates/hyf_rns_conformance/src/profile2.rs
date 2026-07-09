@@ -115,18 +115,18 @@ pub fn profile_2_fixture_results() -> Vec<ConformanceResult> {
         fixture_result(
             RESULT_ID_HKDF,
             CATEGORY_HKDF,
-            validate_fixture_cases(HKDF_FIXTURE, 1),
+            validate_fixture_cases(HKDF_FIXTURE, 3),
         ),
         fixture_result(RESULT_ID_TOKEN, CATEGORY_TOKEN, validate_token_fixtures()),
         fixture_result(
             RESULT_ID_IDENTITY_ENCRYPT,
             CATEGORY_IDENTITY_ENCRYPT,
-            validate_fixture_cases(IDENTITY_ENCRYPT_FIXTURE, 1),
+            validate_fixture_cases(IDENTITY_ENCRYPT_FIXTURE, 2),
         ),
         fixture_result(
             RESULT_ID_IDENTITY_DECRYPT,
             CATEGORY_IDENTITY_DECRYPT,
-            validate_fixture_cases(IDENTITY_DECRYPT_FIXTURE, 5),
+            validate_fixture_cases(IDENTITY_DECRYPT_FIXTURE, 6),
         ),
         fixture_result(RESULT_ID_IFAC, CATEGORY_IFAC, validate_ifac_fixtures()),
     ]
@@ -203,43 +203,43 @@ fn validate_fixture_manifest() -> Result<(), FixtureError> {
             ExpectedManifestEntry {
                 file: "hkdf_vectors.json",
                 category: CATEGORY_HKDF,
-                case_count: 1,
+                case_count: 3,
                 contents: HKDF_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "token_vectors.json",
                 category: CATEGORY_TOKEN,
-                case_count: 1,
+                case_count: 2,
                 contents: TOKEN_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "token_negative_vectors.json",
                 category: "token_negative",
-                case_count: 4,
+                case_count: 5,
                 contents: TOKEN_NEGATIVE_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "identity_encrypt_vectors.json",
                 category: CATEGORY_IDENTITY_ENCRYPT,
-                case_count: 1,
+                case_count: 2,
                 contents: IDENTITY_ENCRYPT_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "identity_decrypt_vectors.json",
                 category: CATEGORY_IDENTITY_DECRYPT,
-                case_count: 5,
+                case_count: 6,
                 contents: IDENTITY_DECRYPT_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "ifac_vectors.json",
                 category: CATEGORY_IFAC,
-                case_count: 1,
+                case_count: 2,
                 contents: IFAC_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "ifac_negative_vectors.json",
                 category: "ifac_negative",
-                case_count: 6,
+                case_count: 7,
                 contents: IFAC_NEGATIVE_FIXTURE,
             },
         ],
@@ -247,13 +247,13 @@ fn validate_fixture_manifest() -> Result<(), FixtureError> {
 }
 
 fn validate_token_fixtures() -> Result<(), FixtureError> {
-    validate_fixture_cases(TOKEN_FIXTURE, 1)?;
-    validate_fixture_cases(TOKEN_NEGATIVE_FIXTURE, 4)
+    validate_fixture_cases(TOKEN_FIXTURE, 2)?;
+    validate_fixture_cases(TOKEN_NEGATIVE_FIXTURE, 5)
 }
 
 fn validate_ifac_fixtures() -> Result<(), FixtureError> {
-    validate_fixture_cases(IFAC_FIXTURE, 1)?;
-    validate_fixture_cases(IFAC_NEGATIVE_FIXTURE, 6)
+    validate_fixture_cases(IFAC_FIXTURE, 2)?;
+    validate_fixture_cases(IFAC_NEGATIVE_FIXTURE, 7)
 }
 
 fn validate_fixture_cases(contents: &str, expected_count: usize) -> Result<(), FixtureError> {

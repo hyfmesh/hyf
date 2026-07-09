@@ -56,6 +56,74 @@
         "valid": false,
         "error": "invalid_tx_power_dbm"
       }
+    },
+    {
+      "schema": "hyf.rnode.config_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.config.valid_lower_boundaries",
+      "config": {
+        "frequency_hz": 137000000,
+        "bandwidth_hz": 7800,
+        "tx_power_dbm": 0,
+        "spreading_factor": 5,
+        "coding_rate": 5,
+        "flow_control": false
+      },
+      "expected": {
+        "valid": true,
+        "error": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.config_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.config.valid_upper_boundaries",
+      "config": {
+        "frequency_hz": 3000000000,
+        "bandwidth_hz": 1625000,
+        "tx_power_dbm": 37,
+        "spreading_factor": 12,
+        "coding_rate": 8,
+        "flow_control": true
+      },
+      "expected": {
+        "valid": true,
+        "error": null
+      }
+    },
+    {
+      "schema": "hyf.rnode.config_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.config.invalid_bandwidth_low",
+      "config": {
+        "frequency_hz": 915000000,
+        "bandwidth_hz": 7799,
+        "tx_power_dbm": 22,
+        "spreading_factor": 7,
+        "coding_rate": 5,
+        "flow_control": true
+      },
+      "expected": {
+        "valid": false,
+        "error": "invalid_bandwidth_hz"
+      }
+    },
+    {
+      "schema": "hyf.rnode.config_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.config.invalid_spreading_factor_high",
+      "config": {
+        "frequency_hz": 915000000,
+        "bandwidth_hz": 125000,
+        "tx_power_dbm": 22,
+        "spreading_factor": 13,
+        "coding_rate": 5,
+        "flow_control": true
+      },
+      "expected": {
+        "valid": false,
+        "error": "invalid_spreading_factor"
+      }
     }
   ]
 }

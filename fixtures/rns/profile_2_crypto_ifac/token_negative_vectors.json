@@ -77,6 +77,24 @@
         "error": "invalid_padding",
         "valid": false
       }
+    },
+    {
+      "schema": "hyf.rns.crypto_vector.v1",
+      "profile": "profile_2_crypto_ifac",
+      "subprofile": "profile_2a_hkdf_token",
+      "case_id": "token.invalid_key_length_001",
+      "determinism": {
+        "mode": "fixed_iv",
+        "test_only_secret_material": true
+      },
+      "inputs": {
+        "key_hex": "00010203040506",
+        "token_hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf111c0579413c7cd45de041e1e99e50a79a67288e721b62e303e18a6d4afcc34c75ff00a0919f0a0e67686886ede87f67"
+      },
+      "expected": {
+        "error": "invalid_token_key_length",
+        "valid": false
+      }
     }
   ]
 }

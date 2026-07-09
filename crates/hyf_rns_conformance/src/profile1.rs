@@ -77,17 +77,17 @@ pub fn profile_1_fixture_results() -> Vec<ConformanceResult> {
         fixture_result(
             RESULT_ID_RNODE_COMMAND,
             CATEGORY_RNODE_COMMAND,
-            validate_fixture_cases(RNODE_COMMAND_FIXTURE, 6),
+            validate_fixture_cases(RNODE_COMMAND_FIXTURE, 10),
         ),
         fixture_result(
             RESULT_ID_RNODE_CONFIG_VALIDATION,
             CATEGORY_RNODE_CONFIG_VALIDATION,
-            validate_fixture_cases(RNODE_CONFIG_FIXTURE, 3),
+            validate_fixture_cases(RNODE_CONFIG_FIXTURE, 7),
         ),
         fixture_result(
             RESULT_ID_RNODE_STAT,
             CATEGORY_RNODE_STAT,
-            validate_fixture_cases(RNODE_STAT_FIXTURE, 6),
+            validate_fixture_cases(RNODE_STAT_FIXTURE, 11),
         ),
     ]
 }
@@ -136,31 +136,31 @@ fn validate_fixture_manifest() -> Result<(), FixtureError> {
             ExpectedManifestEntry {
                 file: "kiss_vectors.json",
                 category: CATEGORY_KISS,
-                case_count: 3,
+                case_count: 5,
                 contents: KISS_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "kiss_negative_vectors.json",
                 category: "kiss_negative",
-                case_count: 2,
+                case_count: 4,
                 contents: KISS_NEGATIVE_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "rnode_command_vectors.json",
                 category: CATEGORY_RNODE_COMMAND,
-                case_count: 6,
+                case_count: 10,
                 contents: RNODE_COMMAND_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "rnode_config_validation_vectors.json",
                 category: CATEGORY_RNODE_CONFIG_VALIDATION,
-                case_count: 3,
+                case_count: 7,
                 contents: RNODE_CONFIG_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "rnode_stat_vectors.json",
                 category: CATEGORY_RNODE_STAT,
-                case_count: 6,
+                case_count: 11,
                 contents: RNODE_STAT_FIXTURE,
             },
         ],
@@ -168,8 +168,8 @@ fn validate_fixture_manifest() -> Result<(), FixtureError> {
 }
 
 fn validate_kiss_fixtures() -> Result<(), FixtureError> {
-    validate_fixture_cases(KISS_FIXTURE, 3)?;
-    validate_fixture_cases(KISS_NEGATIVE_FIXTURE, 2)
+    validate_fixture_cases(KISS_FIXTURE, 5)?;
+    validate_fixture_cases(KISS_NEGATIVE_FIXTURE, 4)
 }
 
 fn validate_fixture_cases(contents: &str, expected_count: usize) -> Result<(), FixtureError> {

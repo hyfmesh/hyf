@@ -65,6 +65,46 @@
       "value": 1,
       "payload_hex": "01",
       "kiss_frame_hex": "c00601c0"
+    },
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.radio_state_ask",
+      "command": "radio_state",
+      "command_byte_hex": "06",
+      "value": 255,
+      "payload_hex": "ff",
+      "kiss_frame_hex": "c006ffc0"
+    },
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.detect_request",
+      "command": "detect",
+      "command_byte_hex": "08",
+      "value": 115,
+      "payload_hex": "73",
+      "kiss_frame_hex": "c00873c0"
+    },
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.leave_request",
+      "command": "leave",
+      "command_byte_hex": "0a",
+      "value": 255,
+      "payload_hex": "ff",
+      "kiss_frame_hex": "c00affc0"
+    },
+    {
+      "schema": "hyf.rnode.command_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "rnode.command.ready_disabled",
+      "command": "ready",
+      "command_byte_hex": "0f",
+      "value": 0,
+      "payload_hex": "00",
+      "kiss_frame_hex": "c00f00c0"
     }
   ]
 }

@@ -13,7 +13,9 @@
       "command_hex": "00",
       "payload_hex": "010203",
       "encoded_hex": "c000010203c0",
-      "chunks_hex": ["c000010203c0"],
+      "chunks_hex": [
+        "c000010203c0"
+      ],
       "expected_frames": [
         {
           "kind": "data",
@@ -29,7 +31,11 @@
       "command_hex": "00",
       "payload_hex": "c0db01",
       "encoded_hex": "c000dbdcdbdd01c0",
-      "chunks_hex": ["c000", "dbdcdb", "dd01c0"],
+      "chunks_hex": [
+        "c000",
+        "dbdcdb",
+        "dd01c0"
+      ],
       "expected_frames": [
         {
           "kind": "data",
@@ -45,12 +51,60 @@
       "command_hex": "0f",
       "payload_hex": "",
       "encoded_hex": "c00fc0",
-      "chunks_hex": ["c0", "0f", "c0"],
+      "chunks_hex": [
+        "c0",
+        "0f",
+        "c0"
+      ],
       "expected_frames": [
         {
           "kind": "command",
           "command_hex": "0f",
           "payload_hex": ""
+        }
+      ]
+    },
+    {
+      "schema": "hyf.rns.kiss_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "kiss.stream.multiframe_001",
+      "command_hex": "00",
+      "payload_hex": "10",
+      "encoded_hex": "c00010c0",
+      "chunks_hex": [
+        "c00010c0c00f55c0"
+      ],
+      "expected_frames": [
+        {
+          "kind": "data",
+          "command_hex": "00",
+          "payload_hex": "10"
+        },
+        {
+          "kind": "command",
+          "command_hex": "0f",
+          "payload_hex": "55"
+        }
+      ]
+    },
+    {
+      "schema": "hyf.rns.kiss_vector.v1",
+      "profile": "profile_1_kiss_rnode",
+      "case_id": "kiss.command.detect_payload_split_001",
+      "command_hex": "08",
+      "payload_hex": "73",
+      "encoded_hex": "c00873c0",
+      "chunks_hex": [
+        "c0",
+        "08",
+        "73",
+        "c0"
+      ],
+      "expected_frames": [
+        {
+          "kind": "command",
+          "command_hex": "08",
+          "payload_hex": "73"
         }
       ]
     }

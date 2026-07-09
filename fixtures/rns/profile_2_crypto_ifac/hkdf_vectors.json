@@ -25,6 +25,46 @@
         "okm_hex": "a62c894c01b4f8582544604a201739aa88df57cc50771fdd033248f5100c3f25dda688ebde22f060499b5c785476d450d3fc57523a7d4d44722574623ebe78ea",
         "valid": true
       }
+    },
+    {
+      "schema": "hyf.rns.crypto_vector.v1",
+      "profile": "profile_2_crypto_ifac",
+      "subprofile": "profile_2a_hkdf_token",
+      "case_id": "hkdf.sha256.no_salt.no_context_001",
+      "determinism": {
+        "mode": "deterministic",
+        "test_only_secret_material": true
+      },
+      "inputs": {
+        "ikm_hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+        "salt_hex": "",
+        "context_hex": "",
+        "length": 32
+      },
+      "expected": {
+        "okm_hex": "fd7d6735042b686edd0f296a1d215460f6e2f0036f0a05067e3caebf41f7f6e6",
+        "valid": true
+      }
+    },
+    {
+      "schema": "hyf.rns.crypto_vector.v1",
+      "profile": "profile_2_crypto_ifac",
+      "subprofile": "profile_2a_hkdf_token",
+      "case_id": "hkdf.sha256.salted.context_002",
+      "determinism": {
+        "mode": "deterministic",
+        "test_only_secret_material": true
+      },
+      "inputs": {
+        "ikm_hex": "68796620686b646620696b6d2032",
+        "salt_hex": "0102030405060708",
+        "context_hex": "6879662d636f6e746578742d32",
+        "length": 42
+      },
+      "expected": {
+        "okm_hex": "17213e9ca54f87d7efaf9b2148d0aeceb6689747d822b3b7fb07e869ceb0fe669cf0727f1106390ee4e8",
+        "valid": true
+      }
     }
   ]
 }

@@ -61,31 +61,31 @@ fn profile_1_manifest_tracks_kiss_vectors() -> Result<(), FixtureError> {
             ExpectedManifestEntry {
                 file: "kiss_vectors.json",
                 category: "kiss",
-                case_count: 3,
+                case_count: 5,
                 contents: KISS_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "kiss_negative_vectors.json",
                 category: "kiss_negative",
-                case_count: 2,
+                case_count: 4,
                 contents: KISS_NEGATIVE_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "rnode_command_vectors.json",
                 category: "rnode_command",
-                case_count: 6,
+                case_count: 10,
                 contents: RNODE_COMMAND_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "rnode_config_validation_vectors.json",
                 category: "rnode_config_validation",
-                case_count: 3,
+                case_count: 7,
                 contents: RNODE_CONFIG_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "rnode_stat_vectors.json",
                 category: "rnode_stat",
-                case_count: 6,
+                case_count: 11,
                 contents: RNODE_STAT_FIXTURE,
             },
         ],
@@ -140,6 +140,7 @@ fn kiss_negative_vectors_fail_closed() -> Result<(), FixtureError> {
         assert_eq!(case.profile, PROFILE_1_KISS_RNODE);
         let result = match case.decoder_capacity {
             3 => decode_chunks::<3>(&case.chunks_hex),
+            4 => decode_chunks::<4>(&case.chunks_hex),
             64 => decode_chunks::<64>(&case.chunks_hex),
             other => {
                 return Err(FixtureError::UnexpectedFixtureValue {
@@ -187,7 +188,9 @@ fn assert_kiss_case_fields(case: &KissVector) -> Result<(), FixtureError> {
     match case.case_id.as_str() {
         "kiss.data.no_escape_001"
         | "kiss.data.escapes_fend_fesc_001"
-        | "kiss.command.ready_empty_001" => Ok(()),
+        | "kiss.command.ready_empty_001"
+        | "kiss.stream.multiframe_001"
+        | "kiss.command.detect_payload_split_001" => Ok(()),
         other => Err(FixtureError::UnexpectedFixtureValue {
             field: "case_id".to_owned(),
             value: other.to_owned(),

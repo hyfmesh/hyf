@@ -1,7 +1,7 @@
 use hyf_link_kiss::{KissDecoder, KissFrameRef, encode_command_frame};
 use hyf_link_rnode::{
-    RNodeCommand, RNodeConfig, RNodeError, RNodeEvent, RNodeHardwareError, RNodeRadioState,
-    RNodeStat, encode_command, parse_command_frame, validate_config,
+    RNodeCommand, RNodeConfig, RNodeConfigReport, RNodeError, RNodeEvent, RNodeHardwareError,
+    RNodeRadioState, RNodeStat, encode_command, parse_command_frame, validate_config,
 };
 use hyf_rns_conformance::fixtures::{
     ExpectedManifestEntry, FixtureCasesFile, FixtureError, PROFILE_1_KISS_RNODE,
@@ -80,6 +80,9 @@ struct RNodeEventExpected {
     minor: Option<u8>,
     supported: Option<bool>,
     error: Option<String>,
+    radio_state: Option<String>,
+    command_hex: Option<String>,
+    payload_hex: Option<String>,
 }
 
 #[test]
@@ -92,31 +95,31 @@ fn profile_1_manifest_tracks_rnode_vectors() -> Result<(), FixtureError> {
             ExpectedManifestEntry {
                 file: "kiss_vectors.json",
                 category: "kiss",
-                case_count: 3,
+                case_count: 5,
                 contents: KISS_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "kiss_negative_vectors.json",
                 category: "kiss_negative",
-                case_count: 2,
+                case_count: 4,
                 contents: KISS_NEGATIVE_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "rnode_command_vectors.json",
                 category: "rnode_command",
-                case_count: 6,
+                case_count: 10,
                 contents: RNODE_COMMAND_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "rnode_config_validation_vectors.json",
                 category: "rnode_config_validation",
-                case_count: 3,
+                case_count: 7,
                 contents: RNODE_CONFIG_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "rnode_stat_vectors.json",
                 category: "rnode_stat",
-                case_count: 6,
+                case_count: 11,
                 contents: RNODE_STAT_FIXTURE,
             },
         ],
@@ -240,6 +243,16 @@ fn rnode_command_from_case(case: &RNodeCommandVector) -> Result<RNodeCommand, Fi
                 });
             }
         })),
+        "detect" => Ok(RNodeCommand::Detect),
+        "leave" => Ok(RNodeCommand::Leave),
+        "ready" => match case.value {
+            0 => Ok(RNodeCommand::Ready(false)),
+            1 => Ok(RNodeCommand::Ready(true)),
+            other => Err(FixtureError::UnexpectedFixtureValue {
+                field: "value".to_owned(),
+                value: other.to_string(),
+            }),
+        },
         other => Err(FixtureError::UnexpectedFixtureValue {
             field: "command".to_owned(),
             value: other.to_owned(),
@@ -299,10 +312,37 @@ fn assert_expected_event(
             assert_eq!(Some(value), expected.snr_quarter_db);
             Ok(())
         }
+        (RNodeEvent::ConfigReport(RNodeConfigReport::RadioState(state)), "radio_state") => {
+            assert_eq!(
+                expected.radio_state.as_deref(),
+                Some(rnode_radio_state_code(state))
+            );
+            Ok(())
+        }
+        (RNodeEvent::Unknown { command, payload }, "unknown") => {
+            let expected_command = decode_hex_exact::<1>(required_expected_str(
+                &expected.command_hex,
+                "command_hex",
+            )?)?[0];
+            let expected_payload =
+                decode_hex(required_expected_str(&expected.payload_hex, "payload_hex")?)?;
+
+            assert_eq!(command, expected_command);
+            assert_eq!(payload, expected_payload.as_slice());
+            Ok(())
+        }
         (_, other) => Err(FixtureError::UnexpectedFixtureValue {
             field: "kind".to_owned(),
             value: other.to_owned(),
         }),
+    }
+}
+
+fn rnode_radio_state_code(state: RNodeRadioState) -> &'static str {
+    match state {
+        RNodeRadioState::Off => "off",
+        RNodeRadioState::On => "on",
+        RNodeRadioState::Ask => "ask",
     }
 }
 
@@ -328,4 +368,16 @@ fn hardware_error_code(error: RNodeHardwareError) -> Option<&'static str> {
         RNodeHardwareError::ModemTimeout => "modem_timeout",
         RNodeHardwareError::Unknown(_) => "unknown",
     })
+}
+
+fn required_expected_str<'a>(
+    value: &'a Option<String>,
+    field: &'static str,
+) -> Result<&'a str, FixtureError> {
+    value
+        .as_deref()
+        .ok_or_else(|| FixtureError::UnexpectedFixtureValue {
+            field: field.to_owned(),
+            value: "<missing>".to_owned(),
+        })
 }

@@ -5,8 +5,9 @@ use hyf_rns_conformance::fixtures::{
 };
 use hyf_rns_crypto::{
     RNS_PUBLIC_IDENTITY_LEN, RNS_SECRET_IDENTITY_LEN, RNS_TOKEN_IV_LEN, RnsCryptoError,
-    decrypt_for_identity, encrypt_for_identity_with_ephemeral_and_iv, public_identity_from_bytes,
-    rns_hkdf_sha256, secret_identity_from_bytes, token_decrypt, token_encrypt_with_iv,
+    RnsRatchetSecretRef, decrypt_for_identity, encrypt_for_identity_with_ephemeral_and_iv,
+    public_identity_from_bytes, rns_hkdf_sha256, secret_identity_from_bytes, token_decrypt,
+    token_encrypt_with_iv,
 };
 use hyf_rns_wire::{RnsWireError, ifac_apply_outbound, ifac_verify_inbound};
 use serde::Deserialize;
@@ -59,6 +60,7 @@ struct CryptoInputs {
     ephemeral_secret_hex: Option<String>,
     ciphertext_token_hex: Option<String>,
     output_len: Option<usize>,
+    enforce_ratchets: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,43 +100,43 @@ fn profile_2_manifest_tracks_crypto_vectors() -> Result<(), FixtureError> {
             ExpectedManifestEntry {
                 file: "hkdf_vectors.json",
                 category: "hkdf",
-                case_count: 1,
+                case_count: 3,
                 contents: HKDF_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "token_vectors.json",
                 category: "token",
-                case_count: 1,
+                case_count: 2,
                 contents: TOKEN_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "token_negative_vectors.json",
                 category: "token_negative",
-                case_count: 4,
+                case_count: 5,
                 contents: TOKEN_NEGATIVE_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "identity_encrypt_vectors.json",
                 category: "identity_encrypt",
-                case_count: 1,
+                case_count: 2,
                 contents: IDENTITY_ENCRYPT_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "identity_decrypt_vectors.json",
                 category: "identity_decrypt",
-                case_count: 5,
+                case_count: 6,
                 contents: IDENTITY_DECRYPT_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "ifac_vectors.json",
                 category: "ifac",
-                case_count: 1,
+                case_count: 2,
                 contents: IFAC_FIXTURE,
             },
             ExpectedManifestEntry {
                 file: "ifac_negative_vectors.json",
                 category: "ifac_negative",
-                case_count: 6,
+                case_count: 7,
                 contents: IFAC_NEGATIVE_FIXTURE,
             },
         ],
@@ -150,7 +152,11 @@ fn hkdf_vectors_match_expected_output() -> Result<(), FixtureError> {
         assert_common_case_fields(
             &case,
             "profile_2a_hkdf_token",
-            "hkdf.sha256.empty_salt.context_001",
+            &[
+                "hkdf.sha256.empty_salt.context_001",
+                "hkdf.sha256.no_salt.no_context_001",
+                "hkdf.sha256.salted.context_002",
+            ],
         );
         assert_eq!(case.determinism.mode, "deterministic");
         let ikm = decode_required_hex(case.inputs.ikm_hex.as_ref(), "ikm_hex")?;
@@ -178,7 +184,10 @@ fn token_vectors_encrypt_and_decrypt() -> Result<(), FixtureError> {
         assert_common_case_fields(
             &case,
             "profile_2a_hkdf_token",
-            "token.aes128.fixed_iv.basic_001",
+            &[
+                "token.aes128.fixed_iv.basic_001",
+                "token.aes256.fixed_iv.basic_001",
+            ],
         );
         assert_eq!(case.determinism.mode, "fixed_iv");
         let key = decode_required_hex(case.inputs.key_hex.as_ref(), "key_hex")?;
@@ -222,7 +231,8 @@ fn token_negative_vectors_fail_closed() -> Result<(), FixtureError> {
         match case.case_id.as_str() {
             "token.aes128.short_token_001"
             | "token.aes128.malformed_length_001"
-            | "token.aes128.bad_hmac_001" => {
+            | "token.aes128.bad_hmac_001"
+            | "token.invalid_key_length_001" => {
                 assert!(output.iter().all(|byte| *byte == 0x55));
             }
             "token.aes128.bad_padding_001" => {
@@ -250,7 +260,10 @@ fn identity_encrypt_vectors_match_expected_ciphertext() -> Result<(), FixtureErr
         assert_common_case_fields(
             &case,
             "profile_2b_identity_encryption",
-            "identity_encrypt.fixed_ephemeral.fixed_iv.basic_001",
+            &[
+                "identity_encrypt.fixed_ephemeral.fixed_iv.basic_001",
+                "identity_encrypt.fixed_ephemeral.fixed_iv.alt_plaintext_002",
+            ],
         );
         assert_eq!(case.determinism.mode, "fixed_ephemeral_fixed_iv");
         let recipient_public = decode_required_hex_exact::<RNS_PUBLIC_IDENTITY_LEN>(
@@ -306,19 +319,27 @@ fn identity_decrypt_vectors_decrypt_and_fail_closed() -> Result<(), FixtureError
         )?;
         let recipient = secret_identity_from_bytes(&recipient_secret)?;
         let mut plaintext = vec![0x55; ciphertext.len()];
+        let enforce_ratchets = case.inputs.enforce_ratchets.unwrap_or(false);
 
         match case.case_id.as_str() {
             "identity_decrypt.fixed_ephemeral.fixed_iv.basic_001" => {
                 let expected_plaintext =
                     decode_required_hex(case.expected.plaintext_hex.as_ref(), "plaintext_hex")?;
-                let outcome =
-                    decrypt_for_identity(&recipient, &ciphertext, &[], false, &mut plaintext)?;
+                let outcome = decrypt_for_identity(
+                    &recipient,
+                    &ciphertext,
+                    &[],
+                    enforce_ratchets,
+                    &mut plaintext,
+                )?;
 
                 assert!(case.expected.valid);
+                assert!(!enforce_ratchets);
                 assert_eq!(outcome.ratchet_index(), None);
                 assert_eq!(outcome.plaintext(), expected_plaintext);
             }
             "identity_decrypt.noncontributory_ephemeral_001" => {
+                assert!(!enforce_ratchets);
                 assert!(!case.expected.valid);
                 assert_eq!(
                     case.expected.error.as_deref(),
@@ -332,13 +353,21 @@ fn identity_decrypt_vectors_decrypt_and_fail_closed() -> Result<(), FixtureError
             }
             "identity_decrypt.bad_hmac_001"
             | "identity_decrypt.bad_padding_001"
-            | "identity_decrypt.output_too_small_001" => {
+            | "identity_decrypt.output_too_small_001"
+            | "identity_decrypt.enforced_empty_ratchets_001" => {
                 assert!(!case.expected.valid);
                 let output_len = case.inputs.output_len.unwrap_or(ciphertext.len());
                 let mut plaintext = vec![0x55; output_len];
                 let error = expected_crypto_error(case.expected.error.as_deref())?;
+                let ratchets: [RnsRatchetSecretRef<'_>; 0] = [];
                 assert_eq!(
-                    decrypt_for_identity(&recipient, &ciphertext, &[], false, &mut plaintext),
+                    decrypt_for_identity(
+                        &recipient,
+                        &ciphertext,
+                        &ratchets,
+                        enforce_ratchets,
+                        &mut plaintext,
+                    ),
                     Err(error)
                 );
                 match case.case_id.as_str() {
@@ -367,7 +396,13 @@ fn ifac_vectors_apply_verify_and_decode() -> Result<(), FixtureError> {
         parse_fixture_cases_for_profile(IFAC_FIXTURE, PROFILE_2_CRYPTO_IFAC)?;
 
     for case in fixture.cases {
-        assert_ifac_common_case_fields(&case, "ifac.apply_verify.size8.basic_001");
+        assert_ifac_common_case_fields(
+            &case,
+            &[
+                "ifac.apply_verify.size8.basic_001",
+                "ifac.apply_verify.size16.basic_001",
+            ],
+        );
         let ifac_key = decode_hex(&case.ifac_key_hex)?;
         let ifac_identity_secret =
             decode_hex_exact::<RNS_SECRET_IDENTITY_LEN>(&case.ifac_identity_secret_hex)?;
@@ -424,7 +459,7 @@ fn ifac_negative_vectors_fail_closed() -> Result<(), FixtureError> {
         let identity = secret_identity_from_bytes(&ifac_identity_secret)?;
 
         match case.case_id.as_str() {
-            "ifac.verify.bad_code_001" => {
+            "ifac.verify.bad_code_001" | "ifac.verify.wrong_key_001" => {
                 let masked_packet = required_bytes(masked_packet.as_ref(), "masked_packet_hex")?;
                 let mut output = vec![0x55; masked_packet.len()];
                 assert_eq!(
@@ -562,20 +597,28 @@ fn ifac_negative_vectors_fail_closed() -> Result<(), FixtureError> {
 fn assert_common_case_fields(
     case: &CryptoVector,
     expected_subprofile: &str,
-    expected_case_id: &str,
+    expected_case_ids: &[&str],
 ) {
     assert_eq!(case.schema, "hyf.rns.crypto_vector.v1");
     assert_eq!(case.profile, PROFILE_2_CRYPTO_IFAC);
     assert_eq!(case.subprofile, expected_subprofile);
-    assert_eq!(case.case_id, expected_case_id);
+    assert!(
+        expected_case_ids.contains(&case.case_id.as_str()),
+        "unexpected case_id {}",
+        case.case_id
+    );
     assert!(case.determinism.test_only_secret_material);
 }
 
-fn assert_ifac_common_case_fields(case: &IfacVector, expected_case_id: &str) {
+fn assert_ifac_common_case_fields(case: &IfacVector, expected_case_ids: &[&str]) {
     assert_eq!(case.schema, "hyf.rns.ifac_vector.v1");
     assert_eq!(case.profile, PROFILE_2_CRYPTO_IFAC);
     assert_eq!(case.subprofile, "profile_2c_ifac");
-    assert_eq!(case.case_id, expected_case_id);
+    assert!(
+        expected_case_ids.contains(&case.case_id.as_str()),
+        "unexpected case_id {}",
+        case.case_id
+    );
     assert!(case.test_only_secret_material);
 }
 
@@ -621,6 +664,7 @@ fn expected_crypto_error(value: Option<&str>) -> Result<RnsCryptoError, FixtureE
         Some("invalid_padding") => Ok(RnsCryptoError::InvalidPadding),
         Some("invalid_public_identity") => Ok(RnsCryptoError::InvalidPublicIdentity),
         Some("invalid_token") => Ok(RnsCryptoError::InvalidToken),
+        Some("invalid_token_key_length") => Ok(RnsCryptoError::InvalidTokenKeyLength { actual: 7 }),
         Some("output_buffer_too_short") => Ok(RnsCryptoError::OutputBufferTooShort {
             actual: 4,
             required: 16,

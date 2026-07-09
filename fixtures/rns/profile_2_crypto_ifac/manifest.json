@@ -6,49 +6,49 @@
     "commit": "422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
   },
   "generated_by": "tools/rns_oracle",
-  "generated_at": "2026-07-08T00:00:00Z",
+  "generated_at": "2026-07-09T00:00:00Z",
   "fixtures": [
     {
       "file": "hkdf_vectors.json",
       "category": "hkdf",
-      "case_count": 1,
-      "sha256": "9d15afc94367761cf7407aa663d2d2b25b45c5268e9f0d6f5fa850ddfa80f436"
+      "case_count": 3,
+      "sha256": "d1c0e6f88a712005512105fd33540e5b319d10bb68de1347e4ff95d16ef22a55"
     },
     {
       "file": "token_vectors.json",
       "category": "token",
-      "case_count": 1,
-      "sha256": "315e3f13f56f62a104499d51f7b0acda5c049489c40d07350a0d90044e7574f5"
+      "case_count": 2,
+      "sha256": "ab169c0011751df6badf5c80faa666b5dc5bf0e4e752ce10cd8ac0ddf07e56d7"
     },
     {
       "file": "token_negative_vectors.json",
       "category": "token_negative",
-      "case_count": 4,
-      "sha256": "9450e1505b7a428c59b02f8c3fe7f6f873dea4083db993082986b1220e2a5da0"
+      "case_count": 5,
+      "sha256": "b7b2fa43aff768ba1cb3cf45b92cfb2a85d850c54fe2a4a03ea1b177e5681f3b"
     },
     {
       "file": "identity_encrypt_vectors.json",
       "category": "identity_encrypt",
-      "case_count": 1,
-      "sha256": "a04695297eeda51cd270f446506e344913164e0cb7db637d0ada9e8b6885d25d"
+      "case_count": 2,
+      "sha256": "e43f2327c634bf10e19f8d894b5dc7d8ea2ed249e70c7c053413ecf4b7e3f507"
     },
     {
       "file": "identity_decrypt_vectors.json",
       "category": "identity_decrypt",
-      "case_count": 5,
-      "sha256": "feb3ecc47686c1edd5ae4c306452830c8e018afdf34ab5eaa758aec7de261a66"
+      "case_count": 6,
+      "sha256": "ceaa09cf6c360dcc0b8db32e0edfef4bcf8f66d9579e8a992618f0f53ffc5fdd"
     },
     {
       "file": "ifac_vectors.json",
       "category": "ifac",
-      "case_count": 1,
-      "sha256": "fc92e0ccf9379284c6987fd227f544dcf69f7f443eeb9835392dd204144e024c"
+      "case_count": 2,
+      "sha256": "ad95dbb5c72981b61dac4b3b62d369edb04d692c81c3e5007e6ed994ff49c10c"
     },
     {
       "file": "ifac_negative_vectors.json",
       "category": "ifac_negative",
-      "case_count": 6,
-      "sha256": "a30a48fe1c925a6830a5eb3fa5bf82d8172ee3a6394bc6feaf9749d3d85b9f81"
+      "case_count": 7,
+      "sha256": "84da3af093a4bff6a6d1bb849c250690cb98b84e5584c087bf89bf36803a0faf"
     }
   ]
 }
