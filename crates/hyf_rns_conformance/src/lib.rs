@@ -8,6 +8,8 @@
 pub mod benchmark_inputs;
 pub mod fixtures;
 pub mod profile0;
+pub mod profile1;
+pub mod profile2;
 pub mod report;
 pub mod runner;
 
