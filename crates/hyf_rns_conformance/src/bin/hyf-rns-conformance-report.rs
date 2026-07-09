@@ -304,7 +304,15 @@ fn build_report(
                     environment,
                 ));
             };
-            let evidence = Profile2FinalEvidence::from_capture_dir(capture_dir.as_path())?;
+            let Some(report_path_root) = args.report_path_root.as_ref() else {
+                return Err(CliError::MissingRequired("--report-path-root"));
+            };
+            let mut evidence = Profile2FinalEvidence::from_capture_dir(capture_dir.as_path())?;
+            let oracle_module_path = report_relative_path(
+                evidence.oracle_environment().reticulum_module_path.as_str(),
+                report_path_root.as_path(),
+            )?;
+            evidence = evidence.with_oracle_module_path(oracle_module_path);
             Ok(profile_2_final_report(
                 args.run_id.clone(),
                 hyf_commit,
@@ -689,8 +697,10 @@ fn apply_report_overrides(report: &mut ConformanceRun, args: &Args) -> Result<()
         let Some(oracle) = report.environment.oracle.as_mut() else {
             return Err(CliError::ReportPathRootRequiresOracle);
         };
-        oracle.reticulum_module_path =
-            report_relative_path(&oracle.reticulum_module_path, report_path_root)?;
+        if Path::new(&oracle.reticulum_module_path).is_absolute() {
+            oracle.reticulum_module_path =
+                report_relative_path(&oracle.reticulum_module_path, report_path_root)?;
+        }
     }
 
     Ok(())
@@ -1200,8 +1210,9 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use hyf_rns_conformance::fixtures::PROFILE_1_KISS_RNODE;
+    use hyf_rns_conformance::fixtures::{EXPECTED_RETICULUM_COMMIT, PROFILE_1_KISS_RNODE};
     use hyf_rns_conformance::profile0::{REQUIRED_PROFILE_0_RESULTS, profile_0_report};
+    use hyf_rns_conformance::profile2::{Profile2FinalEvidence, profile_2_final_report};
     use hyf_rns_conformance::report::{
         ConformanceEnvironment, ConformanceResult, ConformanceRun, OracleEnvironment,
     };
@@ -1412,6 +1423,33 @@ mod tests {
         );
         assert!(matches!(
             validate_report_bytes(&input, true, Some("RNS/__init__.py")),
+            Err(CliError::FinalReportInvalid(
+                "oracle Reticulum module path mismatch"
+            ))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn final_profile2_validator_applies_explicit_oracle_path_policy()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let report = valid_profile2_final_report()?;
+        let input = serde_json::to_vec(&report)?;
+
+        assert!(
+            validate_report_bytes(
+                &input,
+                Some(ReportProfile::Profile2),
+                Some("refs/Reticulum/RNS/__init__.py")
+            )
+            .is_ok()
+        );
+        assert!(matches!(
+            validate_report_bytes(
+                &input,
+                Some(ReportProfile::Profile2),
+                Some("RNS/__init__.py")
+            ),
             Err(CliError::FinalReportInvalid(
                 "oracle Reticulum module path mismatch"
             ))
@@ -1963,6 +2001,37 @@ mod tests {
             ConformanceEnvironment::new("macos", "aarch64", "rustc 1.92.0"),
             Vec::new(),
         ))
+    }
+
+    fn valid_profile2_final_report() -> Result<ConformanceRun, CliError> {
+        let oracle = OracleEnvironment::new(
+            "refs/Reticulum/RNS/__init__.py",
+            EXPECTED_RETICULUM_COMMIT,
+            "49.0.0",
+            "3.5",
+        )
+        .with_rns_version("1.3.5");
+        let evidence = Profile2FinalEvidence::new(
+            oracle,
+            vec![
+                "hkdf-vector".to_owned(),
+                "token-decrypt".to_owned(),
+                "identity-decrypt".to_owned(),
+                "ifac-verify".to_owned(),
+            ],
+            "token-encrypt",
+            "token-decrypt",
+            "identity-encrypt",
+            "identity-decrypt",
+            vec!["ifac-apply".to_owned(), "ifac-verify".to_owned()],
+        )?;
+        Ok(profile_2_final_report(
+            "profile2-final-0001",
+            "0123456789abcdef0123456789abcdef01234567",
+            "2026-07-08T00:00:00Z",
+            ConformanceEnvironment::new("macos", "aarch64", "rustc 1.92.0"),
+            &evidence,
+        )?)
     }
 
     fn provenance_args(hyf_repo: &TestGitRepo, reticulum_repo: &TestGitRepo) -> ValidateArgs {

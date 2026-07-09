@@ -11,7 +11,9 @@ use hyf_rns_conformance::profile2::{
     Profile2FinalEvidence, REQUIRED_PROFILE_2_RESULTS, profile_2_final_report, profile_2_report,
     profile_2_results, profile_2_rust_proof_inputs, validate_profile_2_final_report,
 };
-use hyf_rns_conformance::report::{ConformanceEnvironment, ConformanceStatus, OracleEnvironment};
+use hyf_rns_conformance::report::{
+    ConformanceEnvironment, ConformanceRun, ConformanceStatus, OracleEnvironment,
+};
 
 #[test]
 fn profile_1_required_results_match_handoff2_contract() {
@@ -323,6 +325,41 @@ fn profile_2_final_report_rejects_missing_oracle_environment()
     Ok(())
 }
 
+#[test]
+fn profile_2_final_report_rejects_invalid_oracle_metadata() -> Result<(), Box<dyn std::error::Error>>
+{
+    let report = profile_2_final_report_for_tests()?;
+
+    let mut wrong_commit = report.clone();
+    oracle_mut(&mut wrong_commit)?.reticulum_commit =
+        "0000000000000000000000000000000000000000".to_owned();
+    assert!(validate_profile_2_final_report(&wrong_commit).is_err());
+
+    let mut missing_rns_version = report.clone();
+    oracle_mut(&mut missing_rns_version)?.rns_version = None;
+    assert!(validate_profile_2_final_report(&missing_rns_version).is_err());
+
+    let mut wrong_cryptography = report.clone();
+    oracle_mut(&mut wrong_cryptography)?.cryptography_version = "48.0.0".to_owned();
+    assert!(validate_profile_2_final_report(&wrong_cryptography).is_err());
+
+    let mut wrong_pyserial = report.clone();
+    oracle_mut(&mut wrong_pyserial)?.pyserial_version = "3.4".to_owned();
+    assert!(validate_profile_2_final_report(&wrong_pyserial).is_err());
+
+    let mut absolute_path = report.clone();
+    oracle_mut(&mut absolute_path)?.reticulum_module_path =
+        "/tmp/Reticulum/RNS/__init__.py".to_owned();
+    assert!(validate_profile_2_final_report(&absolute_path).is_err());
+
+    let mut traversal_path = report;
+    oracle_mut(&mut traversal_path)?.reticulum_module_path =
+        "refs/Reticulum/../RNS/__init__.py".to_owned();
+    assert!(validate_profile_2_final_report(&traversal_path).is_err());
+
+    Ok(())
+}
+
 fn assert_required_pairs(actual: &[(&str, &str)], expected: &[(&str, &str)]) {
     assert_eq!(actual, expected);
     let unique_ids: BTreeSet<&str> = actual.iter().map(|(id, _)| *id).collect();
@@ -365,4 +402,23 @@ fn profile_2_final_evidence() -> Result<Profile2FinalEvidence, Box<dyn std::erro
         "identity-decrypt",
         vec!["ifac-apply".to_owned(), "ifac-verify".to_owned()],
     )?)
+}
+
+fn profile_2_final_report_for_tests() -> Result<ConformanceRun, Box<dyn std::error::Error>> {
+    let evidence = profile_2_final_evidence()?;
+    Ok(profile_2_final_report(
+        "profile2-final-0001",
+        "1111111111111111111111111111111111111111",
+        "2026-07-09T00:00:00Z",
+        ConformanceEnvironment::new("macos", "aarch64", "rustc 1.92.0"),
+        &evidence,
+    )?)
+}
+
+fn oracle_mut(report: &mut ConformanceRun) -> Result<&mut OracleEnvironment, std::io::Error> {
+    report
+        .environment
+        .oracle
+        .as_mut()
+        .ok_or_else(|| std::io::Error::other("missing oracle"))
 }

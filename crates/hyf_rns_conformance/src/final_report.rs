@@ -1,16 +1,20 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path};
 
 use serde_json::Value;
 
-use crate::report::{ConformanceResult, ConformanceStatus};
+use crate::fixtures::EXPECTED_RETICULUM_COMMIT;
+use crate::report::{ConformanceResult, ConformanceStatus, OracleEnvironment};
 
 pub const DETAIL_KEY_ORACLE_MODE: &str = "oracle_mode";
 pub const DETAIL_KEY_EVIDENCE_ROLE: &str = "evidence_role";
 pub const DETAIL_KEY_COMPATIBILITY_PROOF: &str = "compatibility_proof";
 pub const DETAIL_KEY_COMMANDS: &str = "commands";
 pub const DETAIL_KEY_RETICULUM_COMMIT: &str = "reticulum_commit";
+pub const EXPECTED_FINAL_ORACLE_RNS_VERSION: &str = "1.3.5";
+pub const EXPECTED_FINAL_ORACLE_CRYPTOGRAPHY_VERSION: &str = "49.0.0";
+pub const EXPECTED_FINAL_ORACLE_PYSERIAL_VERSION: &str = "3.5";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExpectedOracleDetail<'a> {
@@ -178,6 +182,53 @@ pub fn require_equal(actual: &str, expected: &str, message: &str) -> Result<(), 
         )));
     }
     Ok(())
+}
+
+pub fn validate_final_oracle_metadata(
+    oracle: &OracleEnvironment,
+    expected_oracle_module_path: Option<&str>,
+) -> Result<(), FinalReportError> {
+    if let Some(expected_oracle_module_path) = expected_oracle_module_path
+        && oracle.reticulum_module_path != expected_oracle_module_path
+    {
+        return Err(invalid_evidence("oracle Reticulum module path mismatch"));
+    }
+    if !is_portable_repo_relative_path(&oracle.reticulum_module_path) {
+        return Err(invalid_evidence(
+            "oracle Reticulum module path is not portable repo-relative",
+        ));
+    }
+    if oracle.reticulum_commit != EXPECTED_RETICULUM_COMMIT {
+        return Err(invalid_evidence("oracle reticulum commit mismatch"));
+    }
+    if oracle.rns_version.as_deref() != Some(EXPECTED_FINAL_ORACLE_RNS_VERSION) {
+        return Err(invalid_evidence("oracle RNS version mismatch"));
+    }
+    if oracle.cryptography_version != EXPECTED_FINAL_ORACLE_CRYPTOGRAPHY_VERSION {
+        return Err(invalid_evidence("oracle cryptography version mismatch"));
+    }
+    if oracle.pyserial_version != EXPECTED_FINAL_ORACLE_PYSERIAL_VERSION {
+        return Err(invalid_evidence("oracle pyserial version mismatch"));
+    }
+    Ok(())
+}
+
+fn is_portable_repo_relative_path(value: &str) -> bool {
+    if value.is_empty()
+        || value.starts_with('/')
+        || value.ends_with('/')
+        || value.contains('\\')
+        || value.contains(':')
+        || value.contains("//")
+    {
+        return false;
+    }
+
+    let path = Path::new(value);
+    !path.is_absolute()
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
 }
 
 pub fn validate_final_results(

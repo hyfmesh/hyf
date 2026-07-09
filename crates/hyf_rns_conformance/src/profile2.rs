@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::final_report::{
     ExpectedFinalResult, ExpectedOracleDetail, FinalReportError, expect_bool_field, expect_capture,
     expect_string_field, invalid_evidence, load_capture, optional_string_field, oracle_detail,
-    require_equal, required_string_field, validate_final_results,
+    require_equal, required_string_field, validate_final_oracle_metadata, validate_final_results,
 };
 use crate::fixtures::{
     EXPECTED_RETICULUM_COMMIT, ExpectedManifestEntry, FixtureCasesFile, FixtureError,
@@ -745,6 +745,11 @@ impl Profile2FinalEvidence {
         &self.oracle_environment
     }
 
+    pub fn with_oracle_module_path(mut self, reticulum_module_path: impl Into<String>) -> Self {
+        self.oracle_environment.reticulum_module_path = reticulum_module_path.into();
+        self
+    }
+
     fn validate_commands(&self) -> Result<(), FinalReportError> {
         if self.token_generation_command != "token-encrypt"
             || self.token_python_command != "token-decrypt"
@@ -898,15 +903,7 @@ pub fn validate_profile_2_final_report(report: &ConformanceRun) -> Result<(), Fi
             "Profile 2 final report is missing oracle environment metadata",
         ));
     };
-    if oracle.reticulum_commit != EXPECTED_RETICULUM_COMMIT
-        || oracle.reticulum_module_path.is_empty()
-        || oracle.cryptography_version.is_empty()
-        || oracle.pyserial_version.is_empty()
-    {
-        return Err(invalid_evidence(
-            "Profile 2 final report has invalid oracle environment metadata",
-        ));
-    }
+    validate_final_oracle_metadata(oracle, None)?;
     validate_final_results(
         &report.results,
         PROFILE_2_FINAL_RESULTS,
