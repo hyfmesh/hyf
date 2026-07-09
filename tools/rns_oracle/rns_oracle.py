@@ -142,11 +142,13 @@ def add_token_test_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def add_identity_test_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--reticulum-path")
     parser.add_argument("--test-recipient-secret-identity-hex")
     parser.add_argument("--test-ratchet-secret-hex", action="append", default=[])
 
 
 def add_ifac_test_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--reticulum-path")
     parser.add_argument("--test-ifac-identity-secret-hex")
     parser.add_argument("--test-ifac-key-hex")
     parser.add_argument("--test-ifac-size", type=int)
@@ -278,8 +280,10 @@ def handle_identity_encrypt(args: argparse.Namespace, store: FixtureStore) -> di
 
 
 def handle_identity_decrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
-    validate_identity_test_inputs(args)
+    recipient_secret_hex = validate_identity_test_inputs(args)
     ciphertext_hex = validate_hex(args.hex_value, "ciphertext")
+    if recipient_secret_hex is not None:
+        return handle_identity_decrypt_with_reticulum(args, ciphertext_hex, recipient_secret_hex)
     for case in store.profile_2("identity_decrypt_vectors.json")["cases"]:
         if case.get("inputs", {}).get("ciphertext_token_hex") == ciphertext_hex:
             expected = case["expected"]
@@ -295,14 +299,47 @@ def handle_identity_decrypt(args: argparse.Namespace, store: FixtureStore) -> di
     raise OracleError("unknown identity ciphertext hex")
 
 
+def handle_identity_decrypt_with_reticulum(
+    args: argparse.Namespace,
+    ciphertext_hex: str,
+    recipient_secret_hex: str,
+) -> dict[str, Any]:
+    rns, _packages, _module_path = load_reticulum(args)
+    identity = rns.Identity.from_bytes(bytes.fromhex(recipient_secret_hex))
+    plaintext = identity.decrypt(bytes.fromhex(ciphertext_hex))
+    if plaintext is None:
+        return envelope(
+            "identity-decrypt",
+            {
+                "valid": False,
+                "error": "decrypt_failed",
+            },
+            mode="python_reticulum",
+        )
+
+    return envelope(
+        "identity-decrypt",
+        {
+            "valid": True,
+            "plaintext_hex": plaintext.hex(),
+        },
+        mode="python_reticulum",
+    )
+
+
 def handle_ifac_apply(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
-    validate_ifac_test_inputs(args)
+    if has_ifac_test_inputs(args):
+        validate_ifac_test_inputs(args)
+        return unsupported_ifac_oracle(args, "ifac-apply")
     case = find_case(store.profile_2("ifac_vectors.json"), args.case_id)
     return case_envelope("ifac-apply", case)
 
 
 def handle_ifac_verify(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
-    validate_ifac_test_inputs(args)
+    if has_ifac_test_inputs(args):
+        validate_ifac_test_inputs(args)
+        validate_hex(args.hex_value, "masked packet")
+        return unsupported_ifac_oracle(args, "ifac-verify")
     masked_packet_hex = validate_hex(args.hex_value, "masked packet")
     for case in store.profile_2("ifac_vectors.json")["cases"]:
         if case.get("masked_packet_hex") == masked_packet_hex:
@@ -325,6 +362,22 @@ def handle_ifac_verify(args: argparse.Namespace, store: FixtureStore) -> dict[st
                 },
             )
     raise OracleError("unknown IFAC packet hex")
+
+
+def unsupported_ifac_oracle(args: argparse.Namespace, command: str) -> dict[str, Any]:
+    load_reticulum(args)
+    return envelope(
+        command,
+        {
+            "valid": False,
+            "error": "unsupported_oracle_limitation",
+            "reason": (
+                "Reticulum IFAC apply/verify behavior is embedded in transport "
+                "interface flow and is not exposed as a standalone oracle API"
+            ),
+        },
+        mode="unsupported_oracle_limitation",
+    )
 
 
 def handle_kiss_encode(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
@@ -448,8 +501,8 @@ def validate_token_test_inputs(args: argparse.Namespace) -> str | None:
     return token_key_hex
 
 
-def validate_identity_test_inputs(args: argparse.Namespace) -> None:
-    validate_optional_hex(
+def validate_identity_test_inputs(args: argparse.Namespace) -> str | None:
+    recipient_secret_hex = validate_optional_hex(
         args,
         "test_recipient_secret_identity_hex",
         "test recipient secret identity",
@@ -459,6 +512,7 @@ def validate_identity_test_inputs(args: argparse.Namespace) -> None:
         normalized = validate_hex(ratchet_hex, "test ratchet secret")
         if len(normalized) // 2 != 32:
             raise OracleError("test ratchet secret hex must be 32 bytes")
+    return recipient_secret_hex
 
 
 def validate_ifac_test_inputs(args: argparse.Namespace) -> None:
@@ -472,6 +526,14 @@ def validate_ifac_test_inputs(args: argparse.Namespace) -> None:
     if getattr(args, "test_ifac_size", None) is not None:
         if not 1 <= args.test_ifac_size <= 64:
             raise OracleError("test IFAC size must be between 1 and 64 bytes")
+
+
+def has_ifac_test_inputs(args: argparse.Namespace) -> bool:
+    return (
+        getattr(args, "test_ifac_identity_secret_hex", None) is not None
+        or getattr(args, "test_ifac_key_hex", None) is not None
+        or getattr(args, "test_ifac_size", None) is not None
+    )
 
 
 def classify_token_decrypt_error(error: Exception) -> str:

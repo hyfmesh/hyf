@@ -82,6 +82,18 @@ pub fn encrypt_for_identity_with_ephemeral_and_iv(
     )
 }
 
+#[cfg(any(test, feature = "test_vectors"))]
+pub fn derive_identity_token_key_for_test_vectors(
+    recipient: &RnsPublicIdentity,
+    ephemeral_secret: [u8; RNS_IDENTITY_KEY_LEN],
+) -> Result<[u8; RNS_SINGLE_PACKET_DERIVED_KEY_LEN], RnsCryptoError> {
+    let ephemeral_secret = StaticSecret::from(ephemeral_secret);
+    let recipient_public = X25519PublicKey::from(recipient.x25519_public);
+    let shared = ephemeral_secret.diffie_hellman(&recipient_public);
+    let key = derive_token_key(&shared, recipient)?;
+    Ok(*key)
+}
+
 pub fn decrypt_for_identity<'a>(
     recipient: &RnsSecretIdentity,
     ciphertext_token: &[u8],
