@@ -178,6 +178,25 @@ fn profile_2_rust_proof_inputs_match_deterministic_vectors()
 }
 
 #[test]
+fn profile_2_rust_proof_inputs_debug_redacts_hex_material() -> Result<(), Box<dyn std::error::Error>>
+{
+    let proof = profile_2_rust_proof_inputs()?;
+    let debug = format!("{proof:?}");
+
+    assert!(debug.contains("Profile2RustProofInputs"));
+    assert!(debug.contains("token_hex: \"<redacted>\""));
+    assert!(debug.contains("identity_ciphertext_token_hex: \"<redacted>\""));
+    assert!(!debug.contains(&proof.plaintext_hex));
+    assert!(!debug.contains(&proof.token_key_hex));
+    assert!(!debug.contains(&proof.token_hex));
+    assert!(!debug.contains(&proof.recipient_secret_identity_hex));
+    assert!(!debug.contains(&proof.ephemeral_secret_hex));
+    assert!(!debug.contains(&proof.identity_ciphertext_token_hex));
+
+    Ok(())
+}
+
+#[test]
 fn profile_1_final_report_uses_strict_oracle_rows() -> Result<(), Box<dyn std::error::Error>> {
     let evidence =
         Profile1FinalEvidence::new(vec!["kiss-encode".to_owned(), "rnode-command".to_owned()])?;

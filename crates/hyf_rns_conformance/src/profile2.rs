@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fmt;
 use std::path::Path;
 
 use hyf_rns_crypto::{
@@ -234,7 +235,7 @@ const PROFILE_2_RUST_PROOF_EPHEMERAL_SECRET: [u8; 32] = [
     0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
 ];
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Eq, PartialEq, Serialize)]
 pub struct Profile2RustProofInputs {
     pub command: &'static str,
     pub mode: &'static str,
@@ -249,6 +250,27 @@ pub struct Profile2RustProofInputs {
     pub iv_hex: String,
     pub identity_ciphertext_token_hex: String,
     pub ephemeral_public_hex: String,
+}
+
+impl fmt::Debug for Profile2RustProofInputs {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Profile2RustProofInputs")
+            .field("command", &self.command)
+            .field("mode", &self.mode)
+            .field("valid", &self.valid)
+            .field("test_only_secret_material", &self.test_only_secret_material)
+            .field("plaintext_hex", &"<redacted>")
+            .field("token_key_hex", &"<redacted>")
+            .field("token_hex", &"<redacted>")
+            .field("recipient_public_identity_hex", &"<redacted>")
+            .field("recipient_secret_identity_hex", &"<redacted>")
+            .field("ephemeral_secret_hex", &"<redacted>")
+            .field("iv_hex", &"<redacted>")
+            .field("identity_ciphertext_token_hex", &"<redacted>")
+            .field("ephemeral_public_hex", &"<redacted>")
+            .finish()
+    }
 }
 
 pub fn profile_2_rust_proof_inputs() -> Result<Profile2RustProofInputs, FinalReportError> {
