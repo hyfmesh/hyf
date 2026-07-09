@@ -28,6 +28,42 @@
       "schema": "hyf.rns.crypto_vector.v1",
       "profile": "profile_2_crypto_ifac",
       "subprofile": "profile_2b_identity_encryption",
+      "case_id": "identity_decrypt.bad_hmac_001",
+      "determinism": {
+        "mode": "fixed_ephemeral_fixed_iv",
+        "test_only_secret_material": true
+      },
+      "inputs": {
+        "recipient_secret_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        "ciphertext_token_hex": "79a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51aa0a1a2a3a4a5a6a7a8a9aaabacadaeafc1f1620c9bf8b161cbd5536f10c482662ef6fad6fe6505ca27881be51c960edeea53f50db43a316488184da2ada17213"
+      },
+      "expected": {
+        "error": "authentication_failed",
+        "valid": false
+      }
+    },
+    {
+      "schema": "hyf.rns.crypto_vector.v1",
+      "profile": "profile_2_crypto_ifac",
+      "subprofile": "profile_2b_identity_encryption",
+      "case_id": "identity_decrypt.bad_padding_001",
+      "determinism": {
+        "mode": "fixed_ephemeral_fixed_iv",
+        "test_only_secret_material": true
+      },
+      "inputs": {
+        "recipient_secret_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        "ciphertext_token_hex": "79a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51aa0a1a2a3a4a5a6a7a8a9aaabacadae8fc1f1620c9bf8b161cbd5536f10c4826651aa72cf4c0d99755e2ded38463bbf828b2fc5170f23c1c7e0d56f6d25e9c05a"
+      },
+      "expected": {
+        "error": "invalid_padding",
+        "valid": false
+      }
+    },
+    {
+      "schema": "hyf.rns.crypto_vector.v1",
+      "profile": "profile_2_crypto_ifac",
+      "subprofile": "profile_2b_identity_encryption",
       "case_id": "identity_decrypt.noncontributory_ephemeral_001",
       "determinism": {
         "mode": "fixed_ephemeral_fixed_iv",
@@ -39,6 +75,25 @@
       },
       "expected": {
         "error": "invalid_public_identity",
+        "valid": false
+      }
+    },
+    {
+      "schema": "hyf.rns.crypto_vector.v1",
+      "profile": "profile_2_crypto_ifac",
+      "subprofile": "profile_2b_identity_encryption",
+      "case_id": "identity_decrypt.output_too_small_001",
+      "determinism": {
+        "mode": "fixed_ephemeral_fixed_iv",
+        "test_only_secret_material": true
+      },
+      "inputs": {
+        "recipient_secret_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        "ciphertext_token_hex": "79a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51aa0a1a2a3a4a5a6a7a8a9aaabacadaeafc1f1620c9bf8b161cbd5536f10c482662ef6fad6fe6505ca27881be51c960edeea53f50db43a316488184da2ada17212",
+        "output_len": 4
+      },
+      "expected": {
+        "error": "output_buffer_too_short",
         "valid": false
       }
     }

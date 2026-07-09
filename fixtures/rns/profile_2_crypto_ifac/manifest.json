@@ -23,8 +23,8 @@
     {
       "file": "token_negative_vectors.json",
       "category": "token_negative",
-      "case_count": 1,
-      "sha256": "37323d018da98fe83d6475ca90f6db97875dbcc38f8f5b17284701102a15374f"
+      "case_count": 4,
+      "sha256": "9450e1505b7a428c59b02f8c3fe7f6f873dea4083db993082986b1220e2a5da0"
     },
     {
       "file": "identity_encrypt_vectors.json",
@@ -35,8 +35,8 @@
     {
       "file": "identity_decrypt_vectors.json",
       "category": "identity_decrypt",
-      "case_count": 2,
-      "sha256": "21f0a5f25e7b46a85601450ab551aa04060f23c2f57805936e3b4ad4c1680ee5"
+      "case_count": 5,
+      "sha256": "feb3ecc47686c1edd5ae4c306452830c8e018afdf34ab5eaa758aec7de261a66"
     },
     {
       "file": "ifac_vectors.json",
@@ -47,8 +47,8 @@
     {
       "file": "ifac_negative_vectors.json",
       "category": "ifac_negative",
-      "case_count": 2,
-      "sha256": "7c465cc2420a6394571bb10f425b8b9a5949b702bcadab88d4d065da6d9e298c"
+      "case_count": 6,
+      "sha256": "a30a48fe1c925a6830a5eb3fa5bf82d8172ee3a6394bc6feaf9749d3d85b9f81"
     }
   ]
 }

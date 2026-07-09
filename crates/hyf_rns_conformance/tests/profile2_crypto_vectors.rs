@@ -58,6 +58,7 @@ struct CryptoInputs {
     recipient_secret_hex: Option<String>,
     ephemeral_secret_hex: Option<String>,
     ciphertext_token_hex: Option<String>,
+    output_len: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,8 +82,9 @@ struct IfacVector {
     ifac_identity_secret_hex: String,
     test_only_secret_material: bool,
     raw_packet_hex: Option<String>,
-    masked_packet_hex: String,
+    masked_packet_hex: Option<String>,
     expected_unmasked_hex: Option<String>,
+    output_len: Option<usize>,
     expected_error: Option<String>,
 }
 
@@ -108,7 +110,7 @@ fn profile_2_manifest_tracks_crypto_vectors() -> Result<(), FixtureError> {
             ExpectedManifestEntry {
                 file: "token_negative_vectors.json",
                 category: "token_negative",
-                case_count: 1,
+                case_count: 4,
                 contents: TOKEN_NEGATIVE_FIXTURE,
             },
             ExpectedManifestEntry {
@@ -120,7 +122,7 @@ fn profile_2_manifest_tracks_crypto_vectors() -> Result<(), FixtureError> {
             ExpectedManifestEntry {
                 file: "identity_decrypt_vectors.json",
                 category: "identity_decrypt",
-                case_count: 2,
+                case_count: 5,
                 contents: IDENTITY_DECRYPT_FIXTURE,
             },
             ExpectedManifestEntry {
@@ -132,7 +134,7 @@ fn profile_2_manifest_tracks_crypto_vectors() -> Result<(), FixtureError> {
             ExpectedManifestEntry {
                 file: "ifac_negative_vectors.json",
                 category: "ifac_negative",
-                case_count: 2,
+                case_count: 6,
                 contents: IFAC_NEGATIVE_FIXTURE,
             },
         ],
@@ -205,21 +207,35 @@ fn token_negative_vectors_fail_closed() -> Result<(), FixtureError> {
         parse_fixture_cases_for_profile(TOKEN_NEGATIVE_FIXTURE, PROFILE_2_CRYPTO_IFAC)?;
 
     for case in fixture.cases {
-        assert_common_case_fields(&case, "profile_2a_hkdf_token", "token.aes128.bad_hmac_001");
+        assert_eq!(case.schema, "hyf.rns.crypto_vector.v1");
+        assert_eq!(case.profile, PROFILE_2_CRYPTO_IFAC);
+        assert_eq!(case.subprofile, "profile_2a_hkdf_token");
+        assert_eq!(case.determinism.mode, "fixed_iv");
+        assert!(case.determinism.test_only_secret_material);
         let key = decode_required_hex(case.inputs.key_hex.as_ref(), "key_hex")?;
         let token = decode_required_hex(case.inputs.token_hex.as_ref(), "token_hex")?;
         let mut output = vec![0x55; token.len()];
+        let error = expected_crypto_error(case.expected.error.as_deref())?;
 
         assert!(!case.expected.valid);
-        assert_eq!(
-            case.expected.error.as_deref(),
-            Some("authentication_failed")
-        );
-        assert_eq!(
-            token_decrypt(&key, &token, &mut output),
-            Err(RnsCryptoError::AuthenticationFailed)
-        );
-        assert!(output.iter().all(|byte| *byte == 0x55));
+        assert_eq!(token_decrypt(&key, &token, &mut output), Err(error));
+        match case.case_id.as_str() {
+            "token.aes128.short_token_001"
+            | "token.aes128.malformed_length_001"
+            | "token.aes128.bad_hmac_001" => {
+                assert!(output.iter().all(|byte| *byte == 0x55));
+            }
+            "token.aes128.bad_padding_001" => {
+                assert!(output[..16].iter().all(|byte| *byte == 0));
+                assert!(output[16..].iter().all(|byte| *byte == 0x55));
+            }
+            other => {
+                return Err(FixtureError::UnexpectedFixtureValue {
+                    field: "case_id".to_owned(),
+                    value: other.to_owned(),
+                });
+            }
+        }
     }
 
     Ok(())
@@ -314,6 +330,25 @@ fn identity_decrypt_vectors_decrypt_and_fail_closed() -> Result<(), FixtureError
                 );
                 assert!(plaintext.iter().all(|byte| *byte == 0x55));
             }
+            "identity_decrypt.bad_hmac_001"
+            | "identity_decrypt.bad_padding_001"
+            | "identity_decrypt.output_too_small_001" => {
+                assert!(!case.expected.valid);
+                let output_len = case.inputs.output_len.unwrap_or(ciphertext.len());
+                let mut plaintext = vec![0x55; output_len];
+                let error = expected_crypto_error(case.expected.error.as_deref())?;
+                assert_eq!(
+                    decrypt_for_identity(&recipient, &ciphertext, &[], false, &mut plaintext),
+                    Err(error)
+                );
+                match case.case_id.as_str() {
+                    "identity_decrypt.bad_padding_001" => {
+                        assert!(plaintext[..16].iter().all(|byte| *byte == 0));
+                        assert!(plaintext[16..].iter().all(|byte| *byte == 0x55));
+                    }
+                    _ => assert!(plaintext.iter().all(|byte| *byte == 0x55)),
+                }
+            }
             other => {
                 return Err(FixtureError::UnexpectedFixtureValue {
                     field: "case_id".to_owned(),
@@ -337,7 +372,8 @@ fn ifac_vectors_apply_verify_and_decode() -> Result<(), FixtureError> {
         let ifac_identity_secret =
             decode_hex_exact::<RNS_SECRET_IDENTITY_LEN>(&case.ifac_identity_secret_hex)?;
         let raw_packet = decode_required_hex(case.raw_packet_hex.as_ref(), "raw_packet_hex")?;
-        let expected_masked = decode_hex(&case.masked_packet_hex)?;
+        let expected_masked =
+            decode_required_hex(case.masked_packet_hex.as_ref(), "masked_packet_hex")?;
         let expected_unmasked =
             decode_required_hex(case.expected_unmasked_hex.as_ref(), "expected_unmasked_hex")?;
         let identity = secret_identity_from_bytes(&ifac_identity_secret)?;
@@ -380,19 +416,24 @@ fn ifac_negative_vectors_fail_closed() -> Result<(), FixtureError> {
         let ifac_key = decode_hex(&case.ifac_key_hex)?;
         let ifac_identity_secret =
             decode_hex_exact::<RNS_SECRET_IDENTITY_LEN>(&case.ifac_identity_secret_hex)?;
-        let masked_packet = decode_hex(&case.masked_packet_hex)?;
+        let masked_packet = case
+            .masked_packet_hex
+            .as_ref()
+            .map(|value| decode_hex(value))
+            .transpose()?;
         let identity = secret_identity_from_bytes(&ifac_identity_secret)?;
-        let mut output = vec![0x55; masked_packet.len()];
 
         match case.case_id.as_str() {
             "ifac.verify.bad_code_001" => {
+                let masked_packet = required_bytes(masked_packet.as_ref(), "masked_packet_hex")?;
+                let mut output = vec![0x55; masked_packet.len()];
                 assert_eq!(
                     case.expected_error.as_deref(),
                     Some("invalid_packet_access_code")
                 );
                 assert_eq!(
                     ifac_verify_inbound(
-                        &masked_packet,
+                        masked_packet,
                         &identity,
                         &ifac_key,
                         case.ifac_size,
@@ -406,20 +447,103 @@ fn ifac_negative_vectors_fail_closed() -> Result<(), FixtureError> {
                         .all(|byte| *byte == 0)
                 );
             }
+            "ifac.verify.short_packet_001" => {
+                let masked_packet = required_bytes(masked_packet.as_ref(), "masked_packet_hex")?;
+                let mut output = vec![0x55; masked_packet.len()];
+                assert_eq!(case.expected_error.as_deref(), Some("packet_too_short"));
+                assert_eq!(
+                    ifac_verify_inbound(
+                        masked_packet,
+                        &identity,
+                        &ifac_key,
+                        case.ifac_size,
+                        &mut output
+                    ),
+                    Err(RnsWireError::PacketTooShort {
+                        actual: masked_packet.len(),
+                        minimum: 11
+                    })
+                );
+                assert!(output.iter().all(|byte| *byte == 0x55));
+            }
             "ifac.verify.missing_flag_001" => {
+                let masked_packet = required_bytes(masked_packet.as_ref(), "masked_packet_hex")?;
+                let mut output = vec![0x55; masked_packet.len()];
                 assert_eq!(
                     case.expected_error.as_deref(),
                     Some("missing_packet_access_code")
                 );
                 assert_eq!(
                     ifac_verify_inbound(
-                        &masked_packet,
+                        masked_packet,
                         &identity,
                         &ifac_key,
                         case.ifac_size,
                         &mut output
                     ),
                     Err(RnsWireError::MissingPacketAccessCode)
+                );
+                assert!(output.iter().all(|byte| *byte == 0x55));
+            }
+            "ifac.apply.unexpected_flag_001" => {
+                let raw_packet =
+                    decode_required_hex(case.raw_packet_hex.as_ref(), "raw_packet_hex")?;
+                let mut output = vec![0x55; raw_packet.len() + case.ifac_size];
+                assert_eq!(
+                    case.expected_error.as_deref(),
+                    Some("unsupported_packet_access_code")
+                );
+                assert_eq!(
+                    ifac_apply_outbound(
+                        &raw_packet,
+                        &identity,
+                        &ifac_key,
+                        case.ifac_size,
+                        &mut output
+                    ),
+                    Err(RnsWireError::UnsupportedPacketAccessCode)
+                );
+                assert!(output.iter().all(|byte| *byte == 0x55));
+            }
+            "ifac.verify.invalid_size_001" => {
+                let masked_packet = required_bytes(masked_packet.as_ref(), "masked_packet_hex")?;
+                let mut output = vec![0x55; masked_packet.len()];
+                assert_eq!(case.expected_error.as_deref(), Some("invalid_ifac_size"));
+                assert_eq!(
+                    ifac_verify_inbound(
+                        masked_packet,
+                        &identity,
+                        &ifac_key,
+                        case.ifac_size,
+                        &mut output
+                    ),
+                    Err(RnsWireError::InvalidIfacSize {
+                        actual: 0,
+                        maximum: 64
+                    })
+                );
+                assert!(output.iter().all(|byte| *byte == 0x55));
+            }
+            "ifac.verify.output_too_small_001" => {
+                let masked_packet = required_bytes(masked_packet.as_ref(), "masked_packet_hex")?;
+                let output_len = required_usize(case.output_len, "output_len")?;
+                let mut output = vec![0x55; output_len];
+                assert_eq!(
+                    case.expected_error.as_deref(),
+                    Some("output_buffer_too_short")
+                );
+                assert_eq!(
+                    ifac_verify_inbound(
+                        masked_packet,
+                        &identity,
+                        &ifac_key,
+                        case.ifac_size,
+                        &mut output
+                    ),
+                    Err(RnsWireError::OutputBufferTooShort {
+                        actual: output_len,
+                        required: masked_packet.len() - case.ifac_size
+                    })
                 );
                 assert!(output.iter().all(|byte| *byte == 0x55));
             }
@@ -480,6 +604,33 @@ fn required_str<'a>(
 
 fn required_usize(value: Option<usize>, field: &'static str) -> Result<usize, FixtureError> {
     value.ok_or_else(|| missing_fixture_value(field))
+}
+
+fn required_bytes<'a>(
+    value: Option<&'a Vec<u8>>,
+    field: &'static str,
+) -> Result<&'a [u8], FixtureError> {
+    value
+        .map(Vec::as_slice)
+        .ok_or_else(|| missing_fixture_value(field))
+}
+
+fn expected_crypto_error(value: Option<&str>) -> Result<RnsCryptoError, FixtureError> {
+    match value {
+        Some("authentication_failed") => Ok(RnsCryptoError::AuthenticationFailed),
+        Some("invalid_padding") => Ok(RnsCryptoError::InvalidPadding),
+        Some("invalid_public_identity") => Ok(RnsCryptoError::InvalidPublicIdentity),
+        Some("invalid_token") => Ok(RnsCryptoError::InvalidToken),
+        Some("output_buffer_too_short") => Ok(RnsCryptoError::OutputBufferTooShort {
+            actual: 4,
+            required: 16,
+        }),
+        Some(other) => Err(FixtureError::UnexpectedFixtureValue {
+            field: "expected.error".to_owned(),
+            value: other.to_owned(),
+        }),
+        None => Err(missing_fixture_value("expected.error")),
+    }
 }
 
 fn missing_fixture_value(field: &'static str) -> FixtureError {

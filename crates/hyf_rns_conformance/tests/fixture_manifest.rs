@@ -27,6 +27,20 @@ const PROFILE_1_MANIFEST: &str =
     include_str!("../../../fixtures/rns/profile_1_kiss_rnode/manifest.json");
 const PROFILE_2_MANIFEST: &str =
     include_str!("../../../fixtures/rns/profile_2_crypto_ifac/manifest.json");
+const HKDF_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_2_crypto_ifac/hkdf_vectors.json");
+const TOKEN_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_2_crypto_ifac/token_vectors.json");
+const TOKEN_NEGATIVE_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_2_crypto_ifac/token_negative_vectors.json");
+const IDENTITY_ENCRYPT_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_2_crypto_ifac/identity_encrypt_vectors.json");
+const IDENTITY_DECRYPT_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_2_crypto_ifac/identity_decrypt_vectors.json");
+const IFAC_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_2_crypto_ifac/ifac_vectors.json");
+const IFAC_NEGATIVE_FIXTURE: &str =
+    include_str!("../../../fixtures/rns/profile_2_crypto_ifac/ifac_negative_vectors.json");
 
 #[test]
 fn fixture_manifest_tracks_exact_profile_0_fixture_set() -> Result<(), FixtureError> {
@@ -122,6 +136,51 @@ fn fixture_manifest_accepts_profile_2_shell() -> Result<(), FixtureError> {
     let manifest = parse_manifest_for_profile(PROFILE_2_MANIFEST, PROFILE_2_CRYPTO_IFAC)?;
 
     assert_eq!(manifest.profile, PROFILE_2_CRYPTO_IFAC);
-    assert_eq!(manifest.fixtures.len(), 7);
-    Ok(())
+    assert_exact_manifest_entries(
+        &manifest,
+        &[
+            ExpectedManifestEntry {
+                file: "hkdf_vectors.json",
+                category: "hkdf",
+                case_count: 1,
+                contents: HKDF_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "token_vectors.json",
+                category: "token",
+                case_count: 1,
+                contents: TOKEN_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "token_negative_vectors.json",
+                category: "token_negative",
+                case_count: 4,
+                contents: TOKEN_NEGATIVE_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "identity_encrypt_vectors.json",
+                category: "identity_encrypt",
+                case_count: 1,
+                contents: IDENTITY_ENCRYPT_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "identity_decrypt_vectors.json",
+                category: "identity_decrypt",
+                case_count: 5,
+                contents: IDENTITY_DECRYPT_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "ifac_vectors.json",
+                category: "ifac",
+                case_count: 1,
+                contents: IFAC_FIXTURE,
+            },
+            ExpectedManifestEntry {
+                file: "ifac_negative_vectors.json",
+                category: "ifac_negative",
+                case_count: 6,
+                contents: IFAC_NEGATIVE_FIXTURE,
+            },
+        ],
+    )
 }
