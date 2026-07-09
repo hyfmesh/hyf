@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac as std_hmac
 import importlib.metadata
 import json
 import os
@@ -219,8 +221,13 @@ def handle_hkdf_vector(args: argparse.Namespace, store: FixtureStore) -> dict[st
 
 def handle_token_encrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
     if has_token_generation_test_inputs(args):
-        validate_token_generation_test_inputs(args)
-        return unsupported_token_generation_oracle(args)
+        token_key_hex, plaintext_hex, iv_hex = validate_token_generation_test_inputs(args)
+        return handle_token_encrypt_test_only(
+            args,
+            token_key_hex,
+            plaintext_hex,
+            iv_hex,
+        )
     case = find_case(store.profile_2("token_vectors.json"), args.case_id)
     return case_envelope("token-encrypt", case)
 
@@ -285,8 +292,19 @@ def handle_token_decrypt_with_reticulum(
 
 def handle_identity_encrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
     if has_identity_encrypt_test_inputs(args):
-        validate_identity_encrypt_test_inputs(args)
-        return unsupported_identity_generation_oracle(args)
+        (
+            recipient_public_hex,
+            plaintext_hex,
+            ephemeral_secret_hex,
+            iv_hex,
+        ) = validate_identity_encrypt_test_inputs(args)
+        return handle_identity_encrypt_test_only(
+            args,
+            recipient_public_hex,
+            plaintext_hex,
+            ephemeral_secret_hex,
+            iv_hex,
+        )
     case = find_case(store.profile_2("identity_encrypt_vectors.json"), args.case_id)
     return case_envelope("identity-encrypt", case)
 
@@ -392,36 +410,62 @@ def unsupported_ifac_oracle(args: argparse.Namespace, command: str) -> dict[str,
     )
 
 
-def unsupported_token_generation_oracle(args: argparse.Namespace) -> dict[str, Any]:
+def handle_token_encrypt_test_only(
+    args: argparse.Namespace,
+    token_key_hex: str,
+    plaintext_hex: str,
+    iv_hex: str,
+) -> dict[str, Any]:
     load_reticulum(args)
+    plaintext = bytes.fromhex(plaintext_hex)
+    token = token_encrypt_with_iv_for_oracle(
+        bytes.fromhex(token_key_hex),
+        plaintext,
+        bytes.fromhex(iv_hex),
+    )
     return envelope(
         "token-encrypt",
         {
-            "valid": False,
-            "error": "unsupported_oracle_limitation",
-            "reason": (
-                "Reticulum Token encryption does not expose a stable test-only "
-                "IV injection API for deterministic generation without monkeypatching"
-            ),
+            "case_id": args.case_id,
+            "valid": True,
+            "plaintext_hex": plaintext.hex(),
+            "test_only_secret_material": True,
+            "token_hex": token.hex(),
         },
-        mode="unsupported_oracle_limitation",
+        mode="test_only_oracle_shim",
     )
 
 
-def unsupported_identity_generation_oracle(args: argparse.Namespace) -> dict[str, Any]:
+def handle_identity_encrypt_test_only(
+    args: argparse.Namespace,
+    recipient_public_hex: str,
+    plaintext_hex: str,
+    ephemeral_secret_hex: str,
+    iv_hex: str,
+) -> dict[str, Any]:
     load_reticulum(args)
+    recipient_public = bytes.fromhex(recipient_public_hex)
+    plaintext = bytes.fromhex(plaintext_hex)
+    ephemeral_public, token_key = derive_identity_token_key_for_oracle(
+        recipient_public,
+        bytes.fromhex(ephemeral_secret_hex),
+    )
+    token = token_encrypt_with_iv_for_oracle(
+        token_key,
+        plaintext,
+        bytes.fromhex(iv_hex),
+    )
     return envelope(
         "identity-encrypt",
         {
-            "valid": False,
-            "error": "unsupported_oracle_limitation",
-            "reason": (
-                "Reticulum identity encryption does not expose stable test-only "
-                "ephemeral secret and IV injection APIs for deterministic generation "
-                "without monkeypatching"
-            ),
+            "case_id": args.case_id,
+            "ciphertext_token_hex": (ephemeral_public + token).hex(),
+            "ephemeral_public_hex": ephemeral_public.hex(),
+            "plaintext_hex": plaintext.hex(),
+            "test_only_secret_material": True,
+            "valid": True,
         },
-        mode="unsupported_oracle_limitation",
+        mode="test_only_oracle_shim",
     )
 
 
@@ -463,6 +507,62 @@ def handle_rnode_command(args: argparse.Namespace, store: FixtureStore) -> dict[
     if encoded != case["kiss_frame_hex"]:
         raise OracleError("RNode fixture replay mismatch")
     return case_envelope("rnode-command", case)
+
+
+def token_encrypt_with_iv_for_oracle(key: bytes, plaintext: bytes, iv: bytes) -> bytes:
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    signing_key, encryption_key = split_token_key_for_oracle(key)
+    padded = pkcs7_pad_for_oracle(plaintext)
+    encryptor = Cipher(algorithms.AES(encryption_key), modes.CBC(iv)).encryptor()
+    ciphertext = encryptor.update(padded) + encryptor.finalize()
+    authenticated = iv + ciphertext
+    tag = std_hmac.new(signing_key, authenticated, hashlib.sha256).digest()
+    return authenticated + tag
+
+
+def split_token_key_for_oracle(key: bytes) -> tuple[bytes, bytes]:
+    if len(key) == 32:
+        return key[:16], key[16:]
+    if len(key) == 64:
+        return key[:32], key[32:]
+    raise OracleError("test token key hex must be 32 or 64 bytes")
+
+
+def pkcs7_pad_for_oracle(plaintext: bytes) -> bytes:
+    block_len = 16
+    padding_len = block_len - (len(plaintext) % block_len)
+    return plaintext + bytes([padding_len]) * padding_len
+
+
+def derive_identity_token_key_for_oracle(
+    recipient_public_identity: bytes,
+    ephemeral_secret: bytes,
+) -> tuple[bytes, bytes]:
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import x25519
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    recipient_x25519_public = recipient_public_identity[:32]
+    ephemeral_private = x25519.X25519PrivateKey.from_private_bytes(ephemeral_secret)
+    ephemeral_public = ephemeral_private.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    shared_key = ephemeral_private.exchange(
+        x25519.X25519PublicKey.from_public_bytes(recipient_x25519_public)
+    )
+    if not any(shared_key):
+        raise OracleError("invalid test recipient public identity")
+
+    salt = hashlib.sha256(recipient_public_identity).digest()[:16]
+    token_key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=64,
+        salt=salt,
+        info=None,
+    ).derive(shared_key)
+    return ephemeral_public, token_key
 
 
 def repo_root() -> Path:
@@ -546,14 +646,15 @@ def validate_token_test_inputs(args: argparse.Namespace) -> str | None:
     return token_key_hex
 
 
-def validate_token_generation_test_inputs(args: argparse.Namespace) -> None:
+def validate_token_generation_test_inputs(args: argparse.Namespace) -> tuple[str, str, str]:
     token_key_hex = validate_token_test_inputs(args)
-    plaintext_hex = getattr(args, "test_plaintext_hex", None)
-    iv_hex = getattr(args, "test_iv_hex", None)
+    plaintext_hex = validate_optional_hex(args, "test_plaintext_hex", "test plaintext")
+    iv_hex = validate_optional_hex(args, "test_iv_hex", "test IV", lengths={16})
     if token_key_hex is None or plaintext_hex is None or iv_hex is None:
         raise OracleError(
             "token generation test inputs require token key, plaintext, and IV"
         )
+    return token_key_hex, plaintext_hex, iv_hex
 
 
 def validate_identity_test_inputs(args: argparse.Namespace) -> str | None:
@@ -570,7 +671,9 @@ def validate_identity_test_inputs(args: argparse.Namespace) -> str | None:
     return recipient_secret_hex
 
 
-def validate_identity_encrypt_test_inputs(args: argparse.Namespace) -> None:
+def validate_identity_encrypt_test_inputs(
+    args: argparse.Namespace,
+) -> tuple[str, str, str, str]:
     recipient_public_hex = validate_optional_hex(
         args,
         "test_recipient_public_identity_hex",
@@ -595,6 +698,7 @@ def validate_identity_encrypt_test_inputs(args: argparse.Namespace) -> None:
             "identity generation test inputs require recipient public identity, "
             "plaintext, ephemeral secret, and IV"
         )
+    return recipient_public_hex, plaintext_hex, ephemeral_secret_hex, iv_hex
 
 
 def validate_ifac_test_inputs(args: argparse.Namespace) -> None:

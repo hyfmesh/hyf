@@ -347,7 +347,7 @@ fn rns_oracle_tool_reports_ifac_unsupported_limitation() -> Result<(), OracleToo
 }
 
 #[test]
-fn rns_oracle_tool_reports_generation_unsupported_limitations() -> Result<(), OracleToolError> {
+fn rns_oracle_tool_generates_vectors_for_reticulum_validation() -> Result<(), OracleToolError> {
     let Some(reticulum_path) = reticulum_path_for_tool()? else {
         return Ok(());
     };
@@ -357,15 +357,30 @@ fn rns_oracle_tool_reports_generation_unsupported_limitations() -> Result<(), Or
         return Ok(());
     };
     assert_eq!(token_response.command, "token-encrypt");
-    assert_eq!(token_response.oracle.mode, "unsupported_oracle_limitation");
-    assert_eq!(token_response.valid, Some(false));
+    assert_eq!(token_response.oracle.mode, "test_only_oracle_shim");
+    assert_eq!(token_response.valid, Some(true));
+    assert_eq!(token_response.plaintext_hex, Some(hex(TOKEN_PLAINTEXT)));
+    assert_eq!(token_response.test_only_secret_material, Some(true));
+
+    let token_hex = token_response
+        .token_hex
+        .ok_or_else(|| OracleToolError::Json("missing token_hex".to_owned()))?;
+    let mut rust_token = [0; 128];
+    let rust_token_len =
+        token_encrypt_with_iv(&TOKEN_KEY_32, TOKEN_PLAINTEXT, TOKEN_IV, &mut rust_token)?;
+    assert_eq!(token_hex, hex(&rust_token[..rust_token_len]));
+
+    let token_decrypt_args = token_oracle_hex_args(&token_hex, &TOKEN_KEY_32, &reticulum_path);
+    let Some(token_decrypt_response) = run_oracle_with_packages(&token_decrypt_args)? else {
+        return Ok(());
+    };
+    assert_eq!(token_decrypt_response.command, "token-decrypt");
+    assert_eq!(token_decrypt_response.oracle.mode, "python_reticulum");
+    assert_eq!(token_decrypt_response.valid, Some(true));
     assert_eq!(
-        token_response.error,
-        Some("unsupported_oracle_limitation".to_owned())
+        token_decrypt_response.plaintext_hex,
+        Some(hex(TOKEN_PLAINTEXT))
     );
-    assert!(token_response.reason.is_some_and(|reason| {
-        reason.contains("IV injection") && reason.contains("without monkeypatching")
-    }));
 
     let identity_args = identity_encrypt_oracle_args(
         &TEST_PUBLIC_IDENTITY_BYTES,
@@ -376,18 +391,48 @@ fn rns_oracle_tool_reports_generation_unsupported_limitations() -> Result<(), Or
         return Ok(());
     };
     assert_eq!(identity_response.command, "identity-encrypt");
+    assert_eq!(identity_response.oracle.mode, "test_only_oracle_shim");
+    assert_eq!(identity_response.valid, Some(true));
+    assert_eq!(identity_response.plaintext_hex, Some(hex(TOKEN_PLAINTEXT)));
+    assert_eq!(identity_response.test_only_secret_material, Some(true));
+
+    let ciphertext_token_hex = identity_response
+        .ciphertext_token_hex
+        .ok_or_else(|| OracleToolError::Json("missing ciphertext_token_hex".to_owned()))?;
+    let ephemeral_public_hex = identity_response
+        .ephemeral_public_hex
+        .ok_or_else(|| OracleToolError::Json("missing ephemeral_public_hex".to_owned()))?;
+    assert!(ciphertext_token_hex.starts_with(&ephemeral_public_hex));
+
+    let recipient = public_identity_from_bytes(&TEST_PUBLIC_IDENTITY_BYTES)?;
+    let mut rust_ciphertext = [0; 128];
+    let rust_ciphertext_len = encrypt_for_identity_with_ephemeral_and_iv(
+        &recipient,
+        TOKEN_PLAINTEXT,
+        EPHEMERAL_SECRET,
+        TOKEN_IV,
+        &mut rust_ciphertext,
+    )?;
     assert_eq!(
-        identity_response.oracle.mode,
-        "unsupported_oracle_limitation"
+        ciphertext_token_hex,
+        hex(&rust_ciphertext[..rust_ciphertext_len])
     );
-    assert_eq!(identity_response.valid, Some(false));
+
+    let identity_decrypt_args = identity_oracle_hex_args(
+        &ciphertext_token_hex,
+        &TEST_SECRET_IDENTITY_BYTES,
+        &reticulum_path,
+    );
+    let Some(identity_decrypt_response) = run_oracle_with_packages(&identity_decrypt_args)? else {
+        return Ok(());
+    };
+    assert_eq!(identity_decrypt_response.command, "identity-decrypt");
+    assert_eq!(identity_decrypt_response.oracle.mode, "python_reticulum");
+    assert_eq!(identity_decrypt_response.valid, Some(true));
     assert_eq!(
-        identity_response.error,
-        Some("unsupported_oracle_limitation".to_owned())
+        identity_decrypt_response.plaintext_hex,
+        Some(hex(TOKEN_PLAINTEXT))
     );
-    assert!(identity_response.reason.is_some_and(|reason| {
-        reason.contains("ephemeral secret") && reason.contains("without monkeypatching")
-    }));
 
     Ok(())
 }
@@ -457,10 +502,14 @@ fn oracle_tool_path() -> PathBuf {
 }
 
 fn token_oracle_args(token: &[u8], key: &[u8], reticulum_path: &Path) -> Vec<String> {
+    token_oracle_hex_args(&hex(token), key, reticulum_path)
+}
+
+fn token_oracle_hex_args(token_hex: &str, key: &[u8], reticulum_path: &Path) -> Vec<String> {
     vec![
         "token-decrypt".to_owned(),
         "--hex".to_owned(),
-        hex(token),
+        token_hex.to_owned(),
         "--test-token-key-hex".to_owned(),
         hex(key),
         "--reticulum-path".to_owned(),
@@ -489,10 +538,18 @@ fn identity_oracle_args(
     recipient_secret: &[u8],
     reticulum_path: &Path,
 ) -> Vec<String> {
+    identity_oracle_hex_args(&hex(ciphertext), recipient_secret, reticulum_path)
+}
+
+fn identity_oracle_hex_args(
+    ciphertext_hex: &str,
+    recipient_secret: &[u8],
+    reticulum_path: &Path,
+) -> Vec<String> {
     vec![
         "identity-decrypt".to_owned(),
         "--hex".to_owned(),
-        hex(ciphertext),
+        ciphertext_hex.to_owned(),
         "--test-recipient-secret-identity-hex".to_owned(),
         hex(recipient_secret),
         "--reticulum-path".to_owned(),
@@ -633,9 +690,12 @@ struct OracleResponse {
     case: Option<OracleCase>,
     valid: Option<bool>,
     plaintext_hex: Option<String>,
+    token_hex: Option<String>,
+    ciphertext_token_hex: Option<String>,
+    ephemeral_public_hex: Option<String>,
+    test_only_secret_material: Option<bool>,
     unmasked_hex: Option<String>,
     error: Option<String>,
-    reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
