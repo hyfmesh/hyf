@@ -198,6 +198,31 @@ fn rns_oracle_probe_rejects_invalid_environment() -> Result<(), OracleToolError>
 }
 
 #[test]
+fn rns_oracle_token_decrypt_rejects_invalid_environment() -> Result<(), OracleToolError> {
+    let Some(output) = run_oracle_raw(&[
+        "token-decrypt",
+        "--hex",
+        TOKEN_VECTOR_HEX,
+        "--test-token-key-hex",
+        &hex(&TOKEN_KEY_32),
+        "--reticulum-path",
+        "/definitely/not/a/reticulum/checkout",
+    ])?
+    else {
+        return Ok(());
+    };
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("invalid_environment: Reticulum path is not a directory")
+    );
+    assert!(output.stdout.is_empty());
+
+    Ok(())
+}
+
+#[test]
 fn rns_oracle_tool_validates_rust_generated_token_with_reticulum() -> Result<(), OracleToolError> {
     let Some(reticulum_path) = reticulum_path_for_tool()? else {
         return Ok(());

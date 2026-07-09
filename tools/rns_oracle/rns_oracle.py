@@ -268,6 +268,8 @@ def handle_token_decrypt_with_reticulum(
 ) -> dict[str, Any]:
     try:
         plaintext = decrypt_token_with_reticulum(args, token_hex, token_key_hex)
+    except OracleError:
+        raise
     except Exception as error:
         return envelope(
             "token-decrypt",
@@ -666,7 +668,10 @@ def decrypt_token_with_reticulum(
     token_key_hex: str,
 ) -> bytes:
     load_reticulum(args)
-    from RNS.Cryptography.Token import Token  # type: ignore[import-not-found]
+    try:
+        from RNS.Cryptography.Token import Token  # type: ignore[import-not-found]
+    except ImportError as error:
+        raise OracleError("invalid_environment: RNS Token import failed") from error
 
     return Token(bytes.fromhex(token_key_hex)).decrypt(bytes.fromhex(token_hex))
 
