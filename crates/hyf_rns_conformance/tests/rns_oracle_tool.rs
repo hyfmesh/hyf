@@ -53,6 +53,25 @@ fn rns_oracle_tool_replays_profile_1_and_profile_2_vectors() -> Result<(), Oracl
         Some("68656c6c6f20746f6b656e".to_owned())
     );
 
+    let Some(token_encrypt_response) =
+        run_oracle(&["token-encrypt", "--case", "token.aes128.fixed_iv.basic_001"])?
+    else {
+        return Ok(());
+    };
+    assert_eq!(token_encrypt_response.command, "token-encrypt");
+    assert_eq!(token_encrypt_response.oracle.mode, "fixture_replay");
+
+    let Some(identity_encrypt_response) = run_oracle(&[
+        "identity-encrypt",
+        "--case",
+        "identity_encrypt.fixed_ephemeral.fixed_iv.basic_001",
+    ])?
+    else {
+        return Ok(());
+    };
+    assert_eq!(identity_encrypt_response.command, "identity-encrypt");
+    assert_eq!(identity_encrypt_response.oracle.mode, "fixture_replay");
+
     let Some(ifac_response) = run_oracle(&["ifac-verify", "--hex", IFAC_VECTOR_HEX])? else {
         return Ok(());
     };
@@ -327,6 +346,52 @@ fn rns_oracle_tool_reports_ifac_unsupported_limitation() -> Result<(), OracleToo
     Ok(())
 }
 
+#[test]
+fn rns_oracle_tool_reports_generation_unsupported_limitations() -> Result<(), OracleToolError> {
+    let Some(reticulum_path) = reticulum_path_for_tool()? else {
+        return Ok(());
+    };
+
+    let token_args = token_encrypt_oracle_args(&TOKEN_KEY_32, TOKEN_PLAINTEXT, &reticulum_path);
+    let Some(token_response) = run_oracle_with_packages(&token_args)? else {
+        return Ok(());
+    };
+    assert_eq!(token_response.command, "token-encrypt");
+    assert_eq!(token_response.oracle.mode, "unsupported_oracle_limitation");
+    assert_eq!(token_response.valid, Some(false));
+    assert_eq!(
+        token_response.error,
+        Some("unsupported_oracle_limitation".to_owned())
+    );
+    assert!(token_response.reason.is_some_and(|reason| {
+        reason.contains("IV injection") && reason.contains("without monkeypatching")
+    }));
+
+    let identity_args = identity_encrypt_oracle_args(
+        &TEST_PUBLIC_IDENTITY_BYTES,
+        TOKEN_PLAINTEXT,
+        &reticulum_path,
+    );
+    let Some(identity_response) = run_oracle_with_packages(&identity_args)? else {
+        return Ok(());
+    };
+    assert_eq!(identity_response.command, "identity-encrypt");
+    assert_eq!(
+        identity_response.oracle.mode,
+        "unsupported_oracle_limitation"
+    );
+    assert_eq!(identity_response.valid, Some(false));
+    assert_eq!(
+        identity_response.error,
+        Some("unsupported_oracle_limitation".to_owned())
+    );
+    assert!(identity_response.reason.is_some_and(|reason| {
+        reason.contains("ephemeral secret") && reason.contains("without monkeypatching")
+    }));
+
+    Ok(())
+}
+
 fn run_oracle(args: &[&str]) -> Result<Option<OracleResponse>, OracleToolError> {
     let Some(output) = run_oracle_raw(args)? else {
         return Ok(None);
@@ -403,6 +468,22 @@ fn token_oracle_args(token: &[u8], key: &[u8], reticulum_path: &Path) -> Vec<Str
     ]
 }
 
+fn token_encrypt_oracle_args(key: &[u8], plaintext: &[u8], reticulum_path: &Path) -> Vec<String> {
+    vec![
+        "token-encrypt".to_owned(),
+        "--case".to_owned(),
+        "token.aes128.fixed_iv.basic_001".to_owned(),
+        "--test-token-key-hex".to_owned(),
+        hex(key),
+        "--test-plaintext-hex".to_owned(),
+        hex(plaintext),
+        "--test-iv-hex".to_owned(),
+        hex(&TOKEN_IV),
+        "--reticulum-path".to_owned(),
+        reticulum_path.to_string_lossy().into_owned(),
+    ]
+}
+
 fn identity_oracle_args(
     ciphertext: &[u8],
     recipient_secret: &[u8],
@@ -414,6 +495,28 @@ fn identity_oracle_args(
         hex(ciphertext),
         "--test-recipient-secret-identity-hex".to_owned(),
         hex(recipient_secret),
+        "--reticulum-path".to_owned(),
+        reticulum_path.to_string_lossy().into_owned(),
+    ]
+}
+
+fn identity_encrypt_oracle_args(
+    recipient_public: &[u8],
+    plaintext: &[u8],
+    reticulum_path: &Path,
+) -> Vec<String> {
+    vec![
+        "identity-encrypt".to_owned(),
+        "--case".to_owned(),
+        "identity_encrypt.fixed_ephemeral.fixed_iv.basic_001".to_owned(),
+        "--test-recipient-public-identity-hex".to_owned(),
+        hex(recipient_public),
+        "--test-plaintext-hex".to_owned(),
+        hex(plaintext),
+        "--test-ephemeral-secret-hex".to_owned(),
+        hex(&EPHEMERAL_SECRET),
+        "--test-iv-hex".to_owned(),
+        hex(&TOKEN_IV),
         "--reticulum-path".to_owned(),
         reticulum_path.to_string_lossy().into_owned(),
     ]
@@ -532,6 +635,7 @@ struct OracleResponse {
     plaintext_hex: Option<String>,
     unmasked_hex: Option<String>,
     error: Option<String>,
+    reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

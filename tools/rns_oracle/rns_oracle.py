@@ -91,10 +91,9 @@ def build_parser() -> argparse.ArgumentParser:
     with_hex(token_decrypt, handle_token_decrypt)
     add_token_test_flags(token_decrypt)
 
-    with_case(
-        subcommands.add_parser("identity-encrypt"),
-        handle_identity_encrypt,
-    )
+    identity_encrypt = subcommands.add_parser("identity-encrypt")
+    with_case(identity_encrypt, handle_identity_encrypt)
+    add_identity_encrypt_test_flags(identity_encrypt)
 
     identity_decrypt = subcommands.add_parser("identity-decrypt")
     with_hex(identity_decrypt, handle_identity_decrypt)
@@ -145,6 +144,14 @@ def add_identity_test_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--reticulum-path")
     parser.add_argument("--test-recipient-secret-identity-hex")
     parser.add_argument("--test-ratchet-secret-hex", action="append", default=[])
+
+
+def add_identity_encrypt_test_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--reticulum-path")
+    parser.add_argument("--test-recipient-public-identity-hex")
+    parser.add_argument("--test-plaintext-hex")
+    parser.add_argument("--test-ephemeral-secret-hex")
+    parser.add_argument("--test-iv-hex")
 
 
 def add_ifac_test_flags(parser: argparse.ArgumentParser) -> None:
@@ -211,7 +218,9 @@ def handle_hkdf_vector(args: argparse.Namespace, store: FixtureStore) -> dict[st
 
 
 def handle_token_encrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
-    validate_token_test_inputs(args)
+    if has_token_generation_test_inputs(args):
+        validate_token_generation_test_inputs(args)
+        return unsupported_token_generation_oracle(args)
     case = find_case(store.profile_2("token_vectors.json"), args.case_id)
     return case_envelope("token-encrypt", case)
 
@@ -275,6 +284,9 @@ def handle_token_decrypt_with_reticulum(
 
 
 def handle_identity_encrypt(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
+    if has_identity_encrypt_test_inputs(args):
+        validate_identity_encrypt_test_inputs(args)
+        return unsupported_identity_generation_oracle(args)
     case = find_case(store.profile_2("identity_encrypt_vectors.json"), args.case_id)
     return case_envelope("identity-encrypt", case)
 
@@ -374,6 +386,39 @@ def unsupported_ifac_oracle(args: argparse.Namespace, command: str) -> dict[str,
             "reason": (
                 "Reticulum IFAC apply/verify behavior is embedded in transport "
                 "interface flow and is not exposed as a standalone oracle API"
+            ),
+        },
+        mode="unsupported_oracle_limitation",
+    )
+
+
+def unsupported_token_generation_oracle(args: argparse.Namespace) -> dict[str, Any]:
+    load_reticulum(args)
+    return envelope(
+        "token-encrypt",
+        {
+            "valid": False,
+            "error": "unsupported_oracle_limitation",
+            "reason": (
+                "Reticulum Token encryption does not expose a stable test-only "
+                "IV injection API for deterministic generation without monkeypatching"
+            ),
+        },
+        mode="unsupported_oracle_limitation",
+    )
+
+
+def unsupported_identity_generation_oracle(args: argparse.Namespace) -> dict[str, Any]:
+    load_reticulum(args)
+    return envelope(
+        "identity-encrypt",
+        {
+            "valid": False,
+            "error": "unsupported_oracle_limitation",
+            "reason": (
+                "Reticulum identity encryption does not expose stable test-only "
+                "ephemeral secret and IV injection APIs for deterministic generation "
+                "without monkeypatching"
             ),
         },
         mode="unsupported_oracle_limitation",
@@ -501,6 +546,16 @@ def validate_token_test_inputs(args: argparse.Namespace) -> str | None:
     return token_key_hex
 
 
+def validate_token_generation_test_inputs(args: argparse.Namespace) -> None:
+    token_key_hex = validate_token_test_inputs(args)
+    plaintext_hex = getattr(args, "test_plaintext_hex", None)
+    iv_hex = getattr(args, "test_iv_hex", None)
+    if token_key_hex is None or plaintext_hex is None or iv_hex is None:
+        raise OracleError(
+            "token generation test inputs require token key, plaintext, and IV"
+        )
+
+
 def validate_identity_test_inputs(args: argparse.Namespace) -> str | None:
     recipient_secret_hex = validate_optional_hex(
         args,
@@ -513,6 +568,33 @@ def validate_identity_test_inputs(args: argparse.Namespace) -> str | None:
         if len(normalized) // 2 != 32:
             raise OracleError("test ratchet secret hex must be 32 bytes")
     return recipient_secret_hex
+
+
+def validate_identity_encrypt_test_inputs(args: argparse.Namespace) -> None:
+    recipient_public_hex = validate_optional_hex(
+        args,
+        "test_recipient_public_identity_hex",
+        "test recipient public identity",
+        lengths={64},
+    )
+    plaintext_hex = validate_optional_hex(args, "test_plaintext_hex", "test plaintext")
+    ephemeral_secret_hex = validate_optional_hex(
+        args,
+        "test_ephemeral_secret_hex",
+        "test ephemeral secret",
+        lengths={32},
+    )
+    iv_hex = validate_optional_hex(args, "test_iv_hex", "test IV", lengths={16})
+    if (
+        recipient_public_hex is None
+        or plaintext_hex is None
+        or ephemeral_secret_hex is None
+        or iv_hex is None
+    ):
+        raise OracleError(
+            "identity generation test inputs require recipient public identity, "
+            "plaintext, ephemeral secret, and IV"
+        )
 
 
 def validate_ifac_test_inputs(args: argparse.Namespace) -> None:
@@ -533,6 +615,23 @@ def has_ifac_test_inputs(args: argparse.Namespace) -> bool:
         getattr(args, "test_ifac_identity_secret_hex", None) is not None
         or getattr(args, "test_ifac_key_hex", None) is not None
         or getattr(args, "test_ifac_size", None) is not None
+    )
+
+
+def has_token_generation_test_inputs(args: argparse.Namespace) -> bool:
+    return (
+        getattr(args, "test_token_key_hex", None) is not None
+        or getattr(args, "test_plaintext_hex", None) is not None
+        or getattr(args, "test_iv_hex", None) is not None
+    )
+
+
+def has_identity_encrypt_test_inputs(args: argparse.Namespace) -> bool:
+    return (
+        getattr(args, "test_recipient_public_identity_hex", None) is not None
+        or getattr(args, "test_plaintext_hex", None) is not None
+        or getattr(args, "test_ephemeral_secret_hex", None) is not None
+        or getattr(args, "test_iv_hex", None) is not None
     )
 
 
