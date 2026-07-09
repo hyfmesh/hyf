@@ -1,22 +1,10 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
 use serde::Deserialize;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
-
-const WORKSPACE_PACKAGES: &[&str] = &[
-    "hyf_core",
-    "hyf_crypto",
-    "hyf_wire",
-    "hyf_link",
-    "hyf_link_kiss",
-    "hyf_link_rnode",
-    "hyf_rns_core",
-    "hyf_rns_crypto",
-    "hyf_rns_wire",
-    "hyf_rns_conformance",
-];
 
 const FUZZ_PACKAGES: &[&str] = &["hyf-fuzz"];
 const DEFAULT_FEATURE_EXCEPTIONS: &[DefaultFeatureException] = &[DefaultFeatureException {
@@ -34,10 +22,12 @@ struct DefaultFeatureException {
 #[derive(Debug, Deserialize)]
 struct Metadata {
     packages: Vec<Package>,
+    workspace_members: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Package {
+    id: String,
     name: String,
     dependencies: Vec<Dependency>,
 }
@@ -53,14 +43,16 @@ struct Dependency {
 fn workspace_direct_dependencies_disable_default_features() -> TestResult {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let metadata = metadata_for_manifest(&workspace_root.join("Cargo.toml"))?;
-    assert_direct_dependencies_disable_defaults(&metadata, WORKSPACE_PACKAGES)
+    let packages = workspace_packages(&metadata)?;
+    assert_direct_dependencies_disable_defaults(&packages)
 }
 
 #[test]
 fn fuzz_direct_dependencies_disable_default_features() -> TestResult {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let metadata = metadata_for_manifest(&workspace_root.join("fuzz/Cargo.toml"))?;
-    assert_direct_dependencies_disable_defaults(&metadata, FUZZ_PACKAGES)
+    let packages = packages_by_name(&metadata, FUZZ_PACKAGES)?;
+    assert_direct_dependencies_disable_defaults(&packages)
 }
 
 fn metadata_for_manifest(manifest_path: &Path) -> TestResult<Metadata> {
@@ -85,11 +77,57 @@ fn metadata_for_manifest(manifest_path: &Path) -> TestResult<Metadata> {
     Ok(serde_json::from_slice(&output.stdout)?)
 }
 
-fn assert_direct_dependencies_disable_defaults(
-    metadata: &Metadata,
+fn workspace_packages(metadata: &Metadata) -> TestResult<Vec<&Package>> {
+    let member_ids = metadata
+        .workspace_members
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if member_ids.is_empty() {
+        return Err(std::io::Error::other("cargo metadata returned no workspace members").into());
+    }
+
+    let mut packages = Vec::new();
+    for member_id in member_ids {
+        let Some(package) = metadata
+            .packages
+            .iter()
+            .find(|package| package.id == member_id)
+        else {
+            return Err(std::io::Error::other(format!(
+                "workspace member {member_id} was not present in cargo metadata packages"
+            ))
+            .into());
+        };
+        packages.push(package);
+    }
+    packages.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(packages)
+}
+
+fn packages_by_name<'a>(
+    metadata: &'a Metadata,
     package_names: &[&str],
-) -> TestResult {
-    let violations = default_feature_violations(metadata, package_names);
+) -> TestResult<Vec<&'a Package>> {
+    let mut packages = Vec::new();
+    for package_name in package_names {
+        let Some(package) = metadata
+            .packages
+            .iter()
+            .find(|package| package.name == *package_name)
+        else {
+            return Err(std::io::Error::other(format!(
+                "expected package {package_name} was not present in cargo metadata packages"
+            ))
+            .into());
+        };
+        packages.push(package);
+    }
+    Ok(packages)
+}
+
+fn assert_direct_dependencies_disable_defaults(packages: &[&Package]) -> TestResult {
+    let violations = default_feature_violations(packages);
 
     if !violations.is_empty() {
         return Err(std::io::Error::other(format!(
@@ -102,13 +140,9 @@ fn assert_direct_dependencies_disable_defaults(
     Ok(())
 }
 
-fn default_feature_violations(metadata: &Metadata, package_names: &[&str]) -> Vec<String> {
+fn default_feature_violations(packages: &[&Package]) -> Vec<String> {
     let mut violations = Vec::new();
-    for package in metadata
-        .packages
-        .iter()
-        .filter(|package| package_names.contains(&package.name.as_str()))
-    {
+    for package in packages {
         for dependency in package
             .dependencies
             .iter()
@@ -131,4 +165,49 @@ fn allows_default_features(package: &str, dependency: &str, kind: &str) -> bool 
     DEFAULT_FEATURE_EXCEPTIONS.iter().any(|exception| {
         exception.package == package && exception.dependency == dependency && exception.kind == kind
     })
+}
+
+#[test]
+fn workspace_package_coverage_is_derived_from_metadata_members() -> TestResult {
+    let metadata = Metadata {
+        workspace_members: vec!["path+file:///repo/member-b#0.1.0".to_owned()],
+        packages: vec![
+            Package {
+                id: "path+file:///repo/member-a#0.1.0".to_owned(),
+                name: "member_a".to_owned(),
+                dependencies: Vec::new(),
+            },
+            Package {
+                id: "path+file:///repo/member-b#0.1.0".to_owned(),
+                name: "member_b".to_owned(),
+                dependencies: Vec::new(),
+            },
+        ],
+    };
+    let packages = workspace_packages(&metadata)?;
+
+    assert_eq!(
+        packages
+            .iter()
+            .map(|package| package.name.as_str())
+            .collect::<Vec<_>>(),
+        ["member_b"]
+    );
+    Ok(())
+}
+
+#[test]
+fn explicit_package_coverage_rejects_missing_packages() {
+    let metadata = Metadata {
+        workspace_members: Vec::new(),
+        packages: vec![Package {
+            id: "path+file:///repo/present#0.1.0".to_owned(),
+            name: "present".to_owned(),
+            dependencies: Vec::new(),
+        }],
+    };
+
+    let result = packages_by_name(&metadata, &["missing"]);
+
+    assert!(result.is_err());
 }
