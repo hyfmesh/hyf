@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -235,6 +236,31 @@ fn crypto_hkdf_is_intentional_dependency_isolation_feature() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn text_hex_fuzz_corpus_targets_decode_seed_input() -> TestResult {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text_hex_targets = text_hex_corpus_targets(&workspace_root.join("fuzz/corpus"))?;
+    if text_hex_targets.is_empty() {
+        return Err(std::io::Error::other("no text-hex fuzz corpus seeds were found").into());
+    }
+
+    for target in text_hex_targets {
+        let target_path = workspace_root
+            .join("fuzz/fuzz_targets")
+            .join(format!("{target}.rs"));
+        let source = fs::read_to_string(&target_path)?;
+        if !source.contains("mod seed_input;") || !source.contains("seed_input::input_bytes(") {
+            return Err(std::io::Error::other(format!(
+                "text-hex corpus target {target} does not decode seed_input in {}",
+                target_path.display()
+            ))
+            .into());
+        }
+    }
+
+    Ok(())
+}
+
 fn metadata_for_manifest(manifest_path: &Path) -> TestResult<Metadata> {
     let output = Command::new("cargo")
         .arg("metadata")
@@ -255,6 +281,54 @@ fn metadata_for_manifest(manifest_path: &Path) -> TestResult<Metadata> {
     }
 
     Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+fn text_hex_corpus_targets(corpus_root: &Path) -> TestResult<BTreeSet<String>> {
+    let mut targets = BTreeSet::new();
+    for target_entry in fs::read_dir(corpus_root)? {
+        let target_entry = target_entry?;
+        if !target_entry.file_type()?.is_dir() {
+            continue;
+        }
+        let target_name = target_entry.file_name().into_string().map_err(|name| {
+            std::io::Error::other(format!("non-UTF-8 corpus directory: {name:?}"))
+        })?;
+
+        for seed_entry in fs::read_dir(target_entry.path())? {
+            let seed_entry = seed_entry?;
+            if !seed_entry.file_type()?.is_file() {
+                continue;
+            }
+            let seed = fs::read(seed_entry.path())?;
+            if is_lower_text_hex_seed(&seed) {
+                targets.insert(target_name.clone());
+            }
+        }
+    }
+    Ok(targets)
+}
+
+fn is_lower_text_hex_seed(seed: &[u8]) -> bool {
+    let trimmed = trim_ascii_whitespace(seed);
+    !trimmed.is_empty()
+        && trimmed.len().is_multiple_of(2)
+        && trimmed
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+fn trim_ascii_whitespace(input: &[u8]) -> &[u8] {
+    let mut start = 0;
+    let mut end = input.len();
+
+    while start < end && input[start].is_ascii_whitespace() {
+        start += 1;
+    }
+    while end > start && input[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+
+    &input[start..end]
 }
 
 fn workspace_packages(metadata: &Metadata) -> TestResult<Vec<&Package>> {

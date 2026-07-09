@@ -1,5 +1,8 @@
 #![no_main]
 
+mod seed_input;
+
+use hyf_rns_core::RNS_MTU;
 use hyf_rns_crypto::token_decrypt;
 use libfuzzer_sys::fuzz_target;
 
@@ -10,6 +13,8 @@ const KEY: [u8; 32] = [
 ];
 
 fuzz_target!(|data: &[u8]| {
+    let mut decoded = [0; RNS_MTU];
+    let input = seed_input::input_bytes(data, &mut decoded);
     let mut output = [0; 512];
-    let _ = token_decrypt(&KEY, data, &mut output);
+    let _ = token_decrypt(&KEY, input, &mut output);
 });
