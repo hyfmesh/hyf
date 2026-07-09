@@ -1,10 +1,16 @@
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use serde_json::Value;
 
+use crate::final_report::{
+    ExpectedFinalResult, ExpectedOracleDetail, FinalReportError, expect_capture, invalid_evidence,
+    load_capture, oracle_detail, required_string_field, validate_final_results,
+};
 use crate::fixtures::{
-    ExpectedManifestEntry, FixtureCasesFile, FixtureError, PROFILE_1_KISS_RNODE,
-    assert_exact_manifest_entries, parse_fixture_cases_for_profile, parse_manifest_for_profile,
+    EXPECTED_RETICULUM_COMMIT, ExpectedManifestEntry, FixtureCasesFile, FixtureError,
+    PROFILE_1_KISS_RNODE, assert_exact_manifest_entries, parse_fixture_cases_for_profile,
+    parse_manifest_for_profile,
 };
 use crate::report::{ConformanceEnvironment, ConformanceResult, ConformanceRun};
 use crate::runner::{fixture_result, invalid_environment_result};
@@ -46,6 +52,44 @@ pub const REQUIRED_PROFILE_1_RESULT_CATEGORIES: &[&str] = &[
     CATEGORY_RNODE_CONFIG_VALIDATION,
     CATEGORY_RNODE_STAT,
     CATEGORY_RNS_ORACLE_FIXTURE_REPLAY,
+];
+
+pub const PROFILE_1_FINAL_RESULTS: &[ExpectedFinalResult<'_>] = &[
+    ExpectedFinalResult {
+        id: RESULT_ID_FIXTURE_MANIFEST,
+        category: CATEGORY_FIXTURE_MANIFEST,
+        detail: None,
+    },
+    ExpectedFinalResult {
+        id: RESULT_ID_KISS,
+        category: CATEGORY_KISS,
+        detail: None,
+    },
+    ExpectedFinalResult {
+        id: RESULT_ID_RNODE_COMMAND,
+        category: CATEGORY_RNODE_COMMAND,
+        detail: None,
+    },
+    ExpectedFinalResult {
+        id: RESULT_ID_RNODE_CONFIG_VALIDATION,
+        category: CATEGORY_RNODE_CONFIG_VALIDATION,
+        detail: None,
+    },
+    ExpectedFinalResult {
+        id: RESULT_ID_RNODE_STAT,
+        category: CATEGORY_RNODE_STAT,
+        detail: None,
+    },
+    ExpectedFinalResult {
+        id: RESULT_ID_RNS_ORACLE_FIXTURE_REPLAY,
+        category: CATEGORY_RNS_ORACLE_FIXTURE_REPLAY,
+        detail: Some(ExpectedOracleDetail {
+            oracle_mode: "fixture_replay",
+            evidence_role: "fixture_replay",
+            compatibility_proof: false,
+            commands: "kiss-encode,rnode-command",
+        }),
+    },
 ];
 
 const MANIFEST: &str = include_str!("../../../fixtures/rns/profile_1_kiss_rnode/manifest.json");
@@ -100,6 +144,65 @@ pub fn profile_1_oracle_unavailable_results() -> [ConformanceResult; 1] {
     )]
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Profile1FinalEvidence {
+    fixture_replay_commands: Vec<String>,
+}
+
+impl Profile1FinalEvidence {
+    pub fn new(fixture_replay_commands: Vec<String>) -> Result<Self, FinalReportError> {
+        if fixture_replay_commands.as_slice() != ["kiss-encode", "rnode-command"] {
+            return Err(invalid_evidence(
+                "Profile 1 final evidence requires kiss-encode,rnode-command fixture replay",
+            ));
+        }
+        Ok(Self {
+            fixture_replay_commands,
+        })
+    }
+
+    pub fn from_capture_dir(capture_dir: &Path) -> Result<Self, FinalReportError> {
+        let kiss = load_capture(capture_dir, "kiss_encode.json")?;
+        let rnode = load_capture(capture_dir, "rnode_command.json")?;
+        expect_capture(
+            &kiss,
+            "kiss_encode.json",
+            "kiss-encode",
+            "fixture_replay",
+            EXPECTED_RETICULUM_COMMIT,
+        )?;
+        expect_capture(
+            &rnode,
+            "rnode_command.json",
+            "rnode-command",
+            "fixture_replay",
+            EXPECTED_RETICULUM_COMMIT,
+        )?;
+
+        Self::new(vec![
+            required_string_field(&kiss, "kiss_encode.json", "command")?.to_owned(),
+            required_string_field(&rnode, "rnode_command.json", "command")?.to_owned(),
+        ])
+    }
+}
+
+pub fn profile_1_final_results(evidence: &Profile1FinalEvidence) -> Vec<ConformanceResult> {
+    let mut results = profile_1_fixture_results();
+    results.push(ConformanceResult {
+        id: RESULT_ID_RNS_ORACLE_FIXTURE_REPLAY.to_owned(),
+        category: CATEGORY_RNS_ORACLE_FIXTURE_REPLAY.to_owned(),
+        status: crate::report::ConformanceStatus::Passed,
+        detail: Some(oracle_detail(
+            "fixture_replay",
+            "fixture_replay",
+            false,
+            &evidence.fixture_replay_commands,
+            EXPECTED_RETICULUM_COMMIT,
+        )),
+    });
+    results
+}
+
 pub fn profile_1_report(
     run_id: impl Into<String>,
     hyf_commit: impl Into<String>,
@@ -114,6 +217,47 @@ pub fn profile_1_report(
         started_at,
         environment,
         profile_1_results(),
+    )
+}
+
+pub fn profile_1_final_report(
+    run_id: impl Into<String>,
+    hyf_commit: impl Into<String>,
+    started_at: impl Into<String>,
+    environment: ConformanceEnvironment,
+    evidence: &Profile1FinalEvidence,
+) -> Result<ConformanceRun, FinalReportError> {
+    let report = ConformanceRun::new_profile(
+        PROFILE_1_KISS_RNODE,
+        run_id,
+        hyf_commit,
+        EXPECTED_RETICULUM_COMMIT,
+        started_at,
+        environment,
+        profile_1_final_results(evidence),
+    );
+    validate_profile_1_final_report(&report)?;
+    Ok(report)
+}
+
+pub fn validate_profile_1_final_report(report: &ConformanceRun) -> Result<(), FinalReportError> {
+    if report.profile != PROFILE_1_KISS_RNODE {
+        return Err(invalid_evidence("Profile 1 final report has wrong profile"));
+    }
+    if report.reticulum_commit != EXPECTED_RETICULUM_COMMIT {
+        return Err(invalid_evidence(
+            "Profile 1 final report has wrong Reticulum commit",
+        ));
+    }
+    if report.environment.oracle.is_some() {
+        return Err(invalid_evidence(
+            "Profile 1 final report must not include oracle environment metadata",
+        ));
+    }
+    validate_final_results(
+        &report.results,
+        PROFILE_1_FINAL_RESULTS,
+        EXPECTED_RETICULUM_COMMIT,
     )
 }
 

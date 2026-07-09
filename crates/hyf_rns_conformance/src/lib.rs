@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used)]
 
 pub mod benchmark_inputs;
+pub mod final_report;
 pub mod fixtures;
 pub mod profile0;
 pub mod profile1;

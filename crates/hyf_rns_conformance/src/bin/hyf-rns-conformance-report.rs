@@ -11,10 +11,20 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use hyf_rns_conformance::fixtures::{EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT};
+use hyf_rns_conformance::fixtures::{
+    EXPECTED_PROFILE, EXPECTED_RETICULUM_COMMIT, PROFILE_1_KISS_RNODE, PROFILE_2_CRYPTO_IFAC,
+};
 #[cfg(feature = "python_oracle")]
 use hyf_rns_conformance::profile0::profile_0_report_with_required_oracle;
 use hyf_rns_conformance::profile0::{REQUIRED_PROFILE_0_RESULTS, profile_0_report};
+use hyf_rns_conformance::profile1::{
+    Profile1FinalEvidence, profile_1_final_report, profile_1_report,
+    validate_profile_1_final_report,
+};
+use hyf_rns_conformance::profile2::{
+    Profile2FinalEvidence, profile_2_final_report, profile_2_report,
+    validate_profile_2_final_report,
+};
 use hyf_rns_conformance::report::{
     CONFORMANCE_RUN_SCHEMA, ConformanceEnvironment, ConformanceResult, ConformanceRun,
     ConformanceStatus, OracleEnvironment,
@@ -64,12 +74,21 @@ fn run_validate(args: &ValidateArgs) -> Result<(), CliError> {
     }
 
     let input = std::fs::read(args.input.as_path())?;
-    let require_final_profile0 = args.require_final_profile0
-        || args.require_final_provenance
-        || args.expected_oracle_module_path.is_some();
+    let require_final_profile = args
+        .require_final_profile
+        .or(args
+            .require_final_profile0
+            .then_some(ReportProfile::Profile0))
+        .or(args
+            .require_final_provenance
+            .then_some(ReportProfile::Profile0))
+        .or(args
+            .expected_oracle_module_path
+            .is_some()
+            .then_some(ReportProfile::Profile0));
     let report = validate_report_bytes(
         &input,
-        require_final_profile0,
+        require_final_profile,
         args.expected_oracle_module_path.as_deref(),
     )?;
     if args.require_final_provenance {
@@ -81,14 +100,51 @@ fn run_validate(args: &ValidateArgs) -> Result<(), CliError> {
 
 fn validate_report_bytes(
     input: &[u8],
-    require_final_profile0: bool,
+    require_final_profile: impl Into<FinalProfileRequirement>,
     expected_oracle_module_path: Option<&str>,
 ) -> Result<ConformanceRun, CliError> {
     let report: ConformanceRun = serde_json::from_slice(input)?;
-    if require_final_profile0 {
-        validate_final_profile0_report(&report, expected_oracle_module_path)?;
+    match require_final_profile.into() {
+        FinalProfileRequirement::Some(ReportProfile::Profile0) => {
+            validate_final_profile0_report(&report, expected_oracle_module_path)?
+        }
+        FinalProfileRequirement::Some(ReportProfile::Profile1) => {
+            validate_profile_1_final_report(&report)?
+        }
+        FinalProfileRequirement::Some(ReportProfile::Profile2) => {
+            validate_profile_2_final_report(&report)?;
+            if let Some(expected_oracle_module_path) = expected_oracle_module_path {
+                validate_profile2_oracle_path(&report, expected_oracle_module_path)?;
+            }
+        }
+        FinalProfileRequirement::None => {}
     }
     Ok(report)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FinalProfileRequirement {
+    None,
+    Some(ReportProfile),
+}
+
+impl From<Option<ReportProfile>> for FinalProfileRequirement {
+    fn from(value: Option<ReportProfile>) -> Self {
+        match value {
+            Some(profile) => Self::Some(profile),
+            None => Self::None,
+        }
+    }
+}
+
+impl From<bool> for FinalProfileRequirement {
+    fn from(value: bool) -> Self {
+        if value {
+            Self::Some(ReportProfile::Profile0)
+        } else {
+            Self::None
+        }
+    }
 }
 
 fn validate_final_profile0_report(
@@ -186,11 +242,81 @@ fn validate_final_report_provenance(
     Ok(())
 }
 
+fn validate_profile2_oracle_path(
+    report: &ConformanceRun,
+    expected_oracle_module_path: &str,
+) -> Result<(), CliError> {
+    let Some(oracle) = report.environment.oracle.as_ref() else {
+        return Err(CliError::FinalReportInvalid("missing oracle metadata"));
+    };
+    if oracle.reticulum_module_path != expected_oracle_module_path {
+        return Err(CliError::FinalReportInvalid(
+            "oracle Reticulum module path mismatch",
+        ));
+    }
+    Ok(())
+}
+
 fn build_report(
     args: &Args,
     environment: ConformanceEnvironment,
     hyf_commit: String,
 ) -> Result<ConformanceRun, CliError> {
+    match args.profile {
+        ReportProfile::Profile0 => build_profile0_report(args, environment, hyf_commit),
+        ReportProfile::Profile1 => {
+            if args.require_oracle || args.reticulum_path.is_some() {
+                return Err(CliError::OracleNotSupportedForProfile(args.profile));
+            }
+            let Some(capture_dir) = args.capture_dir.as_ref() else {
+                return Ok(profile_1_report(
+                    args.run_id.clone(),
+                    hyf_commit,
+                    args.started_at.clone(),
+                    environment,
+                ));
+            };
+            let evidence = Profile1FinalEvidence::from_capture_dir(capture_dir.as_path())?;
+            Ok(profile_1_final_report(
+                args.run_id.clone(),
+                hyf_commit,
+                args.started_at.clone(),
+                environment,
+                &evidence,
+            )?)
+        }
+        ReportProfile::Profile2 => {
+            if args.require_oracle || args.reticulum_path.is_some() {
+                return Err(CliError::OracleNotSupportedForProfile(args.profile));
+            }
+            let Some(capture_dir) = args.capture_dir.as_ref() else {
+                return Ok(profile_2_report(
+                    args.run_id.clone(),
+                    hyf_commit,
+                    args.started_at.clone(),
+                    environment,
+                ));
+            };
+            let evidence = Profile2FinalEvidence::from_capture_dir(capture_dir.as_path())?;
+            Ok(profile_2_final_report(
+                args.run_id.clone(),
+                hyf_commit,
+                args.started_at.clone(),
+                environment,
+                &evidence,
+            )?)
+        }
+    }
+}
+
+fn build_profile0_report(
+    args: &Args,
+    environment: ConformanceEnvironment,
+    hyf_commit: String,
+) -> Result<ConformanceRun, CliError> {
+    if args.capture_dir.is_some() {
+        return Err(CliError::CaptureDirUnsupportedForProfile(args.profile));
+    }
     #[cfg(feature = "python_oracle")]
     {
         if args.require_oracle {
@@ -539,7 +665,10 @@ impl CliCommand {
 }
 
 fn apply_report_overrides(report: &mut ConformanceRun, args: &Args) -> Result<(), CliError> {
-    if args.require_oracle && args.report_path_root.is_none() {
+    if (args.require_oracle
+        || args.profile == ReportProfile::Profile2 && args.capture_dir.is_some())
+        && args.report_path_root.is_none()
+    {
         return Err(CliError::MissingRequired("--report-path-root"));
     }
 
@@ -599,6 +728,7 @@ fn write_output(output: &str, json: &[u8]) -> Result<(), CliError> {
 
 #[derive(Debug, Eq, PartialEq)]
 struct Args {
+    profile: ReportProfile,
     run_id: String,
     hyf_repo_path: PathBuf,
     expected_hyf_commit: Option<String>,
@@ -608,6 +738,7 @@ struct Args {
     arch: String,
     output: String,
     reticulum_path: Option<PathBuf>,
+    capture_dir: Option<PathBuf>,
     report_path_root: Option<PathBuf>,
     require_oracle: bool,
 }
@@ -616,6 +747,7 @@ struct Args {
 struct ValidateArgs {
     input: PathBuf,
     require_final_profile0: bool,
+    require_final_profile: Option<ReportProfile>,
     require_final_provenance: bool,
     hyf_repo_path: Option<PathBuf>,
     reticulum_path: Option<PathBuf>,
@@ -629,6 +761,7 @@ impl ValidateArgs {
     {
         let mut input = None;
         let mut require_final_profile0 = false;
+        let mut require_final_profile = None;
         let mut require_final_provenance = false;
         let mut hyf_repo_path = None;
         let mut reticulum_path = None;
@@ -638,6 +771,12 @@ impl ValidateArgs {
             match arg.as_str() {
                 "--input" => input = Some(PathBuf::from(next_value(&mut args, "--input")?)),
                 "--require-final-profile0" => require_final_profile0 = true,
+                "--require-final-profile" => {
+                    require_final_profile = Some(ReportProfile::parse(&next_value(
+                        &mut args,
+                        "--require-final-profile",
+                    )?)?)
+                }
                 "--require-final-provenance" => require_final_provenance = true,
                 "--hyf-repo-path" => {
                     hyf_repo_path = Some(PathBuf::from(next_value(&mut args, "--hyf-repo-path")?))
@@ -657,6 +796,7 @@ impl ValidateArgs {
         Ok(Self {
             input: required_path(input, "--input")?,
             require_final_profile0,
+            require_final_profile,
             require_final_provenance,
             hyf_repo_path,
             reticulum_path,
@@ -671,6 +811,7 @@ impl Args {
         I: Iterator<Item = String>,
     {
         let mut run_id = None;
+        let mut profile = ReportProfile::Profile0;
         let mut hyf_repo_path = None;
         let mut expected_hyf_commit = None;
         let mut started_at = None;
@@ -679,11 +820,15 @@ impl Args {
         let mut arch = std::env::consts::ARCH.to_owned();
         let mut output = None;
         let mut reticulum_path = None;
+        let mut capture_dir = None;
         let mut report_path_root = None;
         let mut require_oracle = false;
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--profile" => {
+                    profile = ReportProfile::parse(&next_value(&mut args, "--profile")?)?
+                }
                 "--run-id" => run_id = Some(next_value(&mut args, "--run-id")?),
                 "--hyf-repo-path" => {
                     hyf_repo_path = Some(PathBuf::from(next_value(&mut args, "--hyf-repo-path")?))
@@ -701,6 +846,9 @@ impl Args {
                 "--reticulum-path" => {
                     reticulum_path = Some(PathBuf::from(next_value(&mut args, "--reticulum-path")?))
                 }
+                "--capture-dir" => {
+                    capture_dir = Some(PathBuf::from(next_value(&mut args, "--capture-dir")?))
+                }
                 "--report-path-root" => {
                     report_path_root =
                         Some(PathBuf::from(next_value(&mut args, "--report-path-root")?))
@@ -712,6 +860,7 @@ impl Args {
         }
 
         Ok(Self {
+            profile,
             run_id: required(run_id, "--run-id")?,
             hyf_repo_path: required_path(hyf_repo_path, "--hyf-repo-path")?,
             expected_hyf_commit,
@@ -721,9 +870,36 @@ impl Args {
             arch,
             output: required(output, "--output")?,
             reticulum_path,
+            capture_dir,
             report_path_root,
             require_oracle,
         })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReportProfile {
+    Profile0,
+    Profile1,
+    Profile2,
+}
+
+impl ReportProfile {
+    fn parse(value: &str) -> Result<Self, CliError> {
+        match value {
+            EXPECTED_PROFILE => Ok(Self::Profile0),
+            PROFILE_1_KISS_RNODE => Ok(Self::Profile1),
+            PROFILE_2_CRYPTO_IFAC => Ok(Self::Profile2),
+            _ => Err(CliError::UnknownProfile(value.to_owned())),
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Profile0 => EXPECTED_PROFILE,
+            Self::Profile1 => PROFILE_1_KISS_RNODE,
+            Self::Profile2 => PROFILE_2_CRYPTO_IFAC,
+        }
     }
 }
 
@@ -762,6 +938,7 @@ fn required_path(value: Option<PathBuf>, flag: &'static str) -> Result<PathBuf, 
 enum CliError {
     Usage,
     UnknownArgument(String),
+    UnknownProfile(String),
     MissingValue(&'static str),
     MissingRequired(&'static str),
     GitCommandUnavailable(io::Error),
@@ -783,7 +960,10 @@ enum CliError {
         actual: String,
     },
     RepoPathRequiresFinalProvenance,
+    CaptureDirUnsupportedForProfile(ReportProfile),
+    OracleNotSupportedForProfile(ReportProfile),
     FinalReportInvalid(&'static str),
+    FinalReport(hyf_rns_conformance::final_report::FinalReportError),
     #[cfg(feature = "python_oracle")]
     OraclePathRequiresOracle,
     ReportPathRootRequiresOracle,
@@ -813,6 +993,12 @@ impl From<serde_json::Error> for CliError {
     }
 }
 
+impl From<hyf_rns_conformance::final_report::FinalReportError> for CliError {
+    fn from(error: hyf_rns_conformance::final_report::FinalReportError) -> Self {
+        Self::FinalReport(error)
+    }
+}
+
 #[cfg(feature = "python_oracle")]
 impl From<hyf_rns_conformance::profile0::Profile0OracleError> for CliError {
     fn from(error: hyf_rns_conformance::profile0::Profile0OracleError) -> Self {
@@ -825,6 +1011,12 @@ impl std::fmt::Display for CliError {
         match self {
             Self::Usage => formatter.write_str(USAGE),
             Self::UnknownArgument(arg) => write!(formatter, "unknown argument: {arg}\n\n{USAGE}"),
+            Self::UnknownProfile(profile) => {
+                write!(
+                    formatter,
+                    "unknown conformance profile: {profile}\n\n{USAGE}"
+                )
+            }
             Self::MissingValue(flag) => write!(formatter, "missing value for {flag}\n\n{USAGE}"),
             Self::MissingRequired(flag) => {
                 write!(formatter, "missing required argument {flag}\n\n{USAGE}")
@@ -873,7 +1065,22 @@ impl std::fmt::Display for CliError {
                     "--hyf-repo-path and --reticulum-path are validate-only provenance inputs and require --require-final-provenance\n\n{USAGE}"
                 )
             }
+            Self::CaptureDirUnsupportedForProfile(profile) => {
+                write!(
+                    formatter,
+                    "--capture-dir is not supported for {}\n\n{USAGE}",
+                    profile.as_str()
+                )
+            }
+            Self::OracleNotSupportedForProfile(profile) => {
+                write!(
+                    formatter,
+                    "--require-oracle and --reticulum-path are only supported for Profile 0 generation, not {}\n\n{USAGE}",
+                    profile.as_str()
+                )
+            }
             Self::FinalReportInvalid(reason) => write!(formatter, "final report invalid: {reason}"),
+            Self::FinalReport(error) => write!(formatter, "final report error: {error}"),
             #[cfg(feature = "python_oracle")]
             Self::OraclePathRequiresOracle => {
                 write!(
@@ -921,12 +1128,14 @@ impl std::error::Error for CliError {}
 const USAGE: &str = "\
 usage:
   hyf-rns-conformance-report \\
+  [--profile <profile_0_packet_announce|profile_1_kiss_rnode|profile_2_crypto_ifac>] \\
   --run-id <id> \\
   --hyf-repo-path <path> \\
   --started-at <date-time> \\
   --rust-toolchain <toolchain> \\
   --output <path|-> \\
   [--expected-hyf-commit <commit>] \\
+  [--capture-dir <path>] \\
   [--reticulum-path <path> --require-oracle] \\
   [--report-path-root <path>] \\
   [--os <os>] \\
@@ -935,6 +1144,7 @@ usage:
   hyf-rns-conformance-report validate \\
   --input <path> \\
   [--require-final-profile0] \\
+  [--require-final-profile <profile>] \\
   [--expected-oracle-module-path <path>] \\
   [--require-final-provenance \\
    --hyf-repo-path <path> \\
@@ -954,8 +1164,8 @@ mod tests {
     };
 
     use super::{
-        Args, CliError, ValidateArgs, apply_report_overrides, derive_hyf_commit, git_stdout,
-        report_relative_path, run_validate, validate_final_report_provenance,
+        Args, CliError, ReportProfile, ValidateArgs, apply_report_overrides, derive_hyf_commit,
+        git_stdout, report_relative_path, run_validate, validate_final_report_provenance,
         validate_report_bytes,
     };
     use serde_json::json;
@@ -996,6 +1206,7 @@ mod tests {
         )?;
 
         assert_eq!(args.run_id, "profile0-local-0001");
+        assert_eq!(args.profile, ReportProfile::Profile0);
         assert_eq!(args.hyf_repo_path, PathBuf::from("."));
         assert_eq!(
             args.expected_hyf_commit.as_deref(),
@@ -1007,9 +1218,40 @@ mod tests {
             args.reticulum_path,
             Some(PathBuf::from("../refs/Reticulum"))
         );
+        assert_eq!(args.capture_dir, None);
         assert_eq!(args.report_path_root, Some(PathBuf::from("..")));
         assert!(!args.os.is_empty());
         assert!(!args.arch.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn parser_accepts_profile_and_capture_dir() -> Result<(), CliError> {
+        let args = Args::parse(
+            [
+                "--profile",
+                "profile_2_crypto_ifac",
+                "--run-id",
+                "profile2-final-0001",
+                "--hyf-repo-path",
+                ".",
+                "--started-at",
+                "2026-07-09T00:00:00Z",
+                "--rust-toolchain",
+                "rustc 1.92.0",
+                "--output",
+                "report.json",
+                "--capture-dir",
+                "captures/profile2",
+                "--report-path-root",
+                "..",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )?;
+
+        assert_eq!(args.profile, ReportProfile::Profile2);
+        assert_eq!(args.capture_dir, Some(PathBuf::from("captures/profile2")));
         Ok(())
     }
 
@@ -1023,10 +1265,34 @@ mod tests {
 
         assert_eq!(args.input, PathBuf::from("report.json"));
         assert!(args.require_final_profile0);
+        assert_eq!(args.require_final_profile, None);
         assert!(!args.require_final_provenance);
         assert!(args.hyf_repo_path.is_none());
         assert!(args.reticulum_path.is_none());
         assert!(args.expected_oracle_module_path.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn validate_parser_accepts_named_final_profile() -> Result<(), CliError> {
+        let args = ValidateArgs::parse(
+            [
+                "--input",
+                "report.json",
+                "--require-final-profile",
+                "profile_2_crypto_ifac",
+                "--expected-oracle-module-path",
+                "refs/Reticulum/RNS/__init__.py",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )?;
+
+        assert_eq!(args.require_final_profile, Some(ReportProfile::Profile2));
+        assert_eq!(
+            args.expected_oracle_module_path.as_deref(),
+            Some("refs/Reticulum/RNS/__init__.py")
+        );
         Ok(())
     }
 
@@ -1050,6 +1316,7 @@ mod tests {
 
         assert_eq!(args.input, PathBuf::from("report.json"));
         assert!(!args.require_final_profile0);
+        assert_eq!(args.require_final_profile, None);
         assert!(args.require_final_provenance);
         assert_eq!(args.hyf_repo_path, Some(PathBuf::from(".")));
         assert_eq!(
@@ -1369,6 +1636,7 @@ mod tests {
         let args = ValidateArgs {
             input,
             require_final_profile0: true,
+            require_final_profile: None,
             require_final_provenance: false,
             hyf_repo_path: Some(PathBuf::from(".")),
             reticulum_path: None,
@@ -1554,6 +1822,7 @@ mod tests {
 
     fn test_args_with_report_path_root(report_path_root: PathBuf) -> Args {
         Args {
+            profile: ReportProfile::Profile0,
             run_id: "profile0-local-0001".to_owned(),
             hyf_repo_path: PathBuf::from("."),
             expected_hyf_commit: None,
@@ -1563,6 +1832,7 @@ mod tests {
             arch: "aarch64".to_owned(),
             output: "-".to_owned(),
             reticulum_path: None,
+            capture_dir: None,
             report_path_root: Some(report_path_root),
             require_oracle: false,
         }
@@ -1620,6 +1890,7 @@ mod tests {
         ValidateArgs {
             input: PathBuf::from("report.json"),
             require_final_profile0: true,
+            require_final_profile: None,
             require_final_provenance: true,
             hyf_repo_path: Some(hyf_repo.path().to_path_buf()),
             reticulum_path: Some(reticulum_repo.path().to_path_buf()),
