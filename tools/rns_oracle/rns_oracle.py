@@ -462,6 +462,7 @@ def verify_ifac_with_reticulum(
     ifac_key_hex: str,
     ifac_size: int,
 ) -> dict[str, Any]:
+    rns, _packages, _module_path = load_reticulum(args)
     if len(masked_packet_hex) // 2 <= 2 + ifac_size:
         return envelope(
             "ifac-verify",
@@ -483,7 +484,6 @@ def verify_ifac_with_reticulum(
             mode="python_reticulum",
         )
 
-    rns, _packages, _module_path = load_reticulum(args)
     captured: dict[str, bytes] = {}
 
     class CaptureInterface:

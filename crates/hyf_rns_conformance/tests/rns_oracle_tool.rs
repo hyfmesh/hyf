@@ -223,6 +223,39 @@ fn rns_oracle_token_decrypt_rejects_invalid_environment() -> Result<(), OracleTo
 }
 
 #[test]
+fn rns_oracle_ifac_verify_rejects_invalid_environment() -> Result<(), OracleToolError> {
+    for packet_hex in ["00", IFAC_MISSING_PACKET_ACCESS_CODE_HEX] {
+        let secret_hex = hex(&IFAC_SECRET_IDENTITY);
+        let key_hex = hex(&IFAC_KEY);
+        let Some(output) = run_oracle_raw(&[
+            "ifac-verify",
+            "--hex",
+            packet_hex,
+            "--test-ifac-identity-secret-hex",
+            &secret_hex,
+            "--test-ifac-key-hex",
+            &key_hex,
+            "--test-ifac-size",
+            "8",
+            "--reticulum-path",
+            "/definitely/not/a/reticulum/checkout",
+        ])?
+        else {
+            return Ok(());
+        };
+
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("invalid_environment: Reticulum path is not a directory")
+        );
+        assert!(output.stdout.is_empty());
+    }
+
+    Ok(())
+}
+
+#[test]
 fn rns_oracle_tool_validates_rust_generated_token_with_reticulum() -> Result<(), OracleToolError> {
     let Some(reticulum_path) = reticulum_path_for_tool()? else {
         return Ok(());
@@ -407,6 +440,42 @@ fn rns_oracle_tool_validates_ifac_with_reticulum() -> Result<(), OracleToolError
     assert_eq!(
         verify_response.unmasked_hex,
         Some(IFAC_RAW_PACKET_HEX.to_owned())
+    );
+
+    Ok(())
+}
+
+#[test]
+fn rns_oracle_tool_reports_ifac_protocol_negatives_with_reticulum() -> Result<(), OracleToolError> {
+    let Some(reticulum_path) = reticulum_path_for_tool()? else {
+        return Ok(());
+    };
+
+    let short_args = ifac_oracle_hex_args("00", &reticulum_path);
+    let Some(short_response) = run_oracle_with_packages(&short_args)? else {
+        return Ok(());
+    };
+    assert_eq!(short_response.command, "ifac-verify");
+    assert_eq!(short_response.oracle.mode, "python_reticulum");
+    assert_eq!(short_response.valid, Some(false));
+    assert_eq!(short_response.masked_hex, Some("00".to_owned()));
+    assert_eq!(short_response.error, Some("packet_too_short".to_owned()));
+
+    let missing_flag_args =
+        ifac_oracle_hex_args(IFAC_MISSING_PACKET_ACCESS_CODE_HEX, &reticulum_path);
+    let Some(missing_flag_response) = run_oracle_with_packages(&missing_flag_args)? else {
+        return Ok(());
+    };
+    assert_eq!(missing_flag_response.command, "ifac-verify");
+    assert_eq!(missing_flag_response.oracle.mode, "python_reticulum");
+    assert_eq!(missing_flag_response.valid, Some(false));
+    assert_eq!(
+        missing_flag_response.masked_hex,
+        Some(IFAC_MISSING_PACKET_ACCESS_CODE_HEX.to_owned())
+    );
+    assert_eq!(
+        missing_flag_response.error,
+        Some("missing_packet_access_code".to_owned())
     );
 
     Ok(())
@@ -661,10 +730,14 @@ fn identity_encrypt_oracle_args(
 }
 
 fn ifac_oracle_args(reticulum_path: &Path) -> Vec<String> {
+    ifac_oracle_hex_args(IFAC_VECTOR_HEX, reticulum_path)
+}
+
+fn ifac_oracle_hex_args(masked_hex: &str, reticulum_path: &Path) -> Vec<String> {
     vec![
         "ifac-verify".to_owned(),
         "--hex".to_owned(),
-        IFAC_VECTOR_HEX.to_owned(),
+        masked_hex.to_owned(),
         "--test-ifac-identity-secret-hex".to_owned(),
         hex(&IFAC_SECRET_IDENTITY),
         "--test-ifac-key-hex".to_owned(),
@@ -862,6 +935,8 @@ const TOKEN_VECTOR_HEX: &str = concat!(
 );
 
 const IFAC_VECTOR_HEX: &str = "dd38fc4c4749c011f90f9628d201d3afb2ff08c0741fd11d98a37c1b54ad";
+const IFAC_MISSING_PACKET_ACCESS_CODE_HEX: &str =
+    "0038fc4c4749c011f90f9628d201d3afb2ff08c0741fd11d98a37c1b54ad";
 const IFAC_RAW_PACKET_HEX: &str = "00031111111111111111111111111111111100aabbcc";
 
 const TOKEN_PLAINTEXT: &[u8] = b"hello token";
