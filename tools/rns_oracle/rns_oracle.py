@@ -273,6 +273,7 @@ def handle_token_decrypt_with_reticulum(
             "token-decrypt",
             {
                 "valid": False,
+                "token_hex": token_hex,
                 "error": classify_token_decrypt_error(error),
             },
             mode="python_reticulum",
@@ -282,6 +283,7 @@ def handle_token_decrypt_with_reticulum(
         "token-decrypt",
         {
             "valid": True,
+            "token_hex": token_hex,
             "plaintext_hex": plaintext.hex(),
         },
         mode="python_reticulum",
@@ -340,6 +342,7 @@ def handle_identity_decrypt_with_reticulum(
             "identity-decrypt",
             {
                 "valid": False,
+                "ciphertext_token_hex": ciphertext_hex,
                 "error": "decrypt_failed",
             },
             mode="python_reticulum",
@@ -349,6 +352,7 @@ def handle_identity_decrypt_with_reticulum(
         "identity-decrypt",
         {
             "valid": True,
+            "ciphertext_token_hex": ciphertext_hex,
             "plaintext_hex": plaintext.hex(),
         },
         mode="python_reticulum",

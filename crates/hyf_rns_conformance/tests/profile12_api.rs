@@ -9,7 +9,7 @@ use hyf_rns_conformance::profile1::{
 };
 use hyf_rns_conformance::profile2::{
     Profile2FinalEvidence, REQUIRED_PROFILE_2_RESULTS, profile_2_final_report, profile_2_report,
-    profile_2_results, validate_profile_2_final_report,
+    profile_2_results, profile_2_rust_proof_inputs, validate_profile_2_final_report,
 };
 use hyf_rns_conformance::report::{ConformanceEnvironment, ConformanceStatus, OracleEnvironment};
 
@@ -152,6 +152,32 @@ fn profile_2_report_serializes_with_profile_identity() -> Result<(), serde_json:
 }
 
 #[test]
+fn profile_2_rust_proof_inputs_match_deterministic_vectors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let proof = profile_2_rust_proof_inputs()?;
+
+    assert_eq!(proof.command, "profile2-rust-proof-inputs");
+    assert_eq!(proof.mode, "rust_implementation");
+    assert!(proof.valid);
+    assert!(proof.test_only_secret_material);
+    assert_eq!(proof.plaintext_hex, "68656c6c6f20746f6b656e");
+    assert_eq!(
+        proof.token_hex,
+        "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf111c0579413c7cd45de041e1e99e50a79a67288e721b62e303e18a6d4afcc34c75ff00a0919f0a0e67686886ede87f67"
+    );
+    assert_eq!(
+        proof.identity_ciphertext_token_hex,
+        "79a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51aa0a1a2a3a4a5a6a7a8a9aaabacadaeaf6cc9462adb376ef1d7fcbdcff3343d21c9b01f1777868e6926e4029bbd957182a1feeecebbc4f16256886bfff3e27de8"
+    );
+    assert!(
+        proof
+            .identity_ciphertext_token_hex
+            .starts_with(&proof.ephemeral_public_hex)
+    );
+    Ok(())
+}
+
+#[test]
 fn profile_1_final_report_uses_strict_oracle_rows() -> Result<(), Box<dyn std::error::Error>> {
     let evidence =
         Profile1FinalEvidence::new(vec!["kiss-encode".to_owned(), "rnode-command".to_owned()])?;
@@ -233,6 +259,22 @@ fn profile_2_final_report_uses_strict_oracle_rows() -> Result<(), Box<dyn std::e
             .results
             .iter()
             .all(|result| result.status == ConformanceStatus::Passed)
+    );
+    assert_eq!(
+        report.results[8].detail.as_deref(),
+        Some(
+            "oracle_mode=python_reticulum; evidence_role=rust_output_reticulum_validation; \
+             compatibility_proof=true; commands=token-decrypt; \
+             reticulum_commit=422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+        )
+    );
+    assert_eq!(
+        report.results[10].detail.as_deref(),
+        Some(
+            "oracle_mode=python_reticulum; evidence_role=rust_output_reticulum_validation; \
+             compatibility_proof=true; commands=identity-decrypt; \
+             reticulum_commit=422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
+        )
     );
     assert_eq!(
         report.results[11].detail.as_deref(),

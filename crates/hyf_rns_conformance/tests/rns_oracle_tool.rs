@@ -212,6 +212,7 @@ fn rns_oracle_tool_validates_rust_generated_token_with_reticulum() -> Result<(),
     assert_eq!(response.command, "token-decrypt");
     assert_eq!(response.oracle.mode, "python_reticulum");
     assert_eq!(response.valid, Some(true));
+    assert_eq!(response.token_hex, Some(hex(&token[..token_len])));
     assert_eq!(response.plaintext_hex, Some(hex(TOKEN_PLAINTEXT)));
 
     Ok(())
@@ -297,6 +298,10 @@ fn rns_oracle_tool_validates_rust_generated_identity_with_reticulum() -> Result<
     assert_eq!(response.command, "identity-decrypt");
     assert_eq!(response.oracle.mode, "python_reticulum");
     assert_eq!(response.valid, Some(true));
+    assert_eq!(
+        response.ciphertext_token_hex,
+        Some(hex(&ciphertext[..ciphertext_len]))
+    );
     assert_eq!(response.plaintext_hex, Some(hex(TOKEN_PLAINTEXT)));
 
     Ok(())
@@ -417,6 +422,7 @@ fn rns_oracle_tool_generates_vectors_for_reticulum_validation() -> Result<(), Or
     assert_eq!(token_decrypt_response.command, "token-decrypt");
     assert_eq!(token_decrypt_response.oracle.mode, "python_reticulum");
     assert_eq!(token_decrypt_response.valid, Some(true));
+    assert_eq!(token_decrypt_response.token_hex, Some(token_hex));
     assert_eq!(
         token_decrypt_response.plaintext_hex,
         Some(hex(TOKEN_PLAINTEXT))
@@ -473,6 +479,10 @@ fn rns_oracle_tool_generates_vectors_for_reticulum_validation() -> Result<(), Or
     assert_eq!(identity_decrypt_response.command, "identity-decrypt");
     assert_eq!(identity_decrypt_response.oracle.mode, "python_reticulum");
     assert_eq!(identity_decrypt_response.valid, Some(true));
+    assert_eq!(
+        identity_decrypt_response.ciphertext_token_hex,
+        Some(ciphertext_token_hex)
+    );
     assert_eq!(
         identity_decrypt_response.plaintext_hex,
         Some(hex(TOKEN_PLAINTEXT))

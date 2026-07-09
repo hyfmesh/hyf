@@ -22,7 +22,7 @@ use hyf_rns_conformance::profile1::{
     validate_profile_1_final_report,
 };
 use hyf_rns_conformance::profile2::{
-    Profile2FinalEvidence, profile_2_final_report, profile_2_report,
+    Profile2FinalEvidence, profile_2_final_report, profile_2_report, profile_2_rust_proof_inputs,
     validate_profile_2_final_report,
 };
 use hyf_rns_conformance::report::{
@@ -44,6 +44,7 @@ const EXPECTED_ORACLE_PYSERIAL_VERSION: &str = "3.5";
 fn run() -> Result<(), CliError> {
     match CliCommand::parse(std::env::args().skip(1))? {
         CliCommand::Generate(args) => run_generate(*args),
+        CliCommand::Profile2ProofInputs(args) => run_profile2_proof_inputs(&args),
         CliCommand::Validate(args) => run_validate(&args),
     }
 }
@@ -95,6 +96,13 @@ fn run_validate(args: &ValidateArgs) -> Result<(), CliError> {
         validate_final_report_provenance(&report, args)?;
     }
 
+    Ok(())
+}
+
+fn run_profile2_proof_inputs(args: &ProofInputArgs) -> Result<(), CliError> {
+    let proof_inputs = profile_2_rust_proof_inputs()?;
+    let json = serde_json::to_vec_pretty(&proof_inputs)?;
+    write_output(&args.output, &json)?;
     Ok(())
 }
 
@@ -644,6 +652,7 @@ fn validate_final_oracle_metadata(
 #[derive(Debug, Eq, PartialEq)]
 enum CliCommand {
     Generate(Box<Args>),
+    Profile2ProofInputs(ProofInputArgs),
     Validate(ValidateArgs),
 }
 
@@ -653,6 +662,11 @@ impl CliCommand {
         I: Iterator<Item = String>,
     {
         let args: Vec<String> = args.collect();
+        if args.first().map(String::as_str) == Some("profile2-proof-inputs") {
+            return Ok(Self::Profile2ProofInputs(ProofInputArgs::parse(
+                args.into_iter().skip(1),
+            )?));
+        }
         if args.first().map(String::as_str) == Some("validate") {
             return Ok(Self::Validate(ValidateArgs::parse(
                 args.into_iter().skip(1),
@@ -751,6 +765,32 @@ struct ValidateArgs {
     hyf_repo_path: Option<PathBuf>,
     reticulum_path: Option<PathBuf>,
     expected_oracle_module_path: Option<String>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ProofInputArgs {
+    output: String,
+}
+
+impl ProofInputArgs {
+    fn parse<I>(mut args: I) -> Result<Self, CliError>
+    where
+        I: Iterator<Item = String>,
+    {
+        let mut output = None;
+
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--output" => output = Some(next_value(&mut args, "--output")?),
+                "--help" | "-h" => return Err(CliError::Usage),
+                _ => return Err(CliError::UnknownArgument(arg)),
+            }
+        }
+
+        Ok(Self {
+            output: required(output, "--output")?,
+        })
+    }
 }
 
 impl ValidateArgs {
@@ -1140,6 +1180,9 @@ usage:
   [--os <os>] \\
   [--arch <arch>]
 
+  hyf-rns-conformance-report profile2-proof-inputs \\
+  --output <path|->
+
   hyf-rns-conformance-report validate \\
   --input <path> \\
   [--require-final-profile0] \\
@@ -1164,9 +1207,9 @@ mod tests {
     };
 
     use super::{
-        Args, CliError, ReportProfile, ValidateArgs, apply_report_overrides, derive_hyf_commit,
-        git_stdout, report_relative_path, run_validate, validate_final_report_provenance,
-        validate_report_bytes,
+        Args, CliError, ProofInputArgs, ReportProfile, ValidateArgs, apply_report_overrides,
+        derive_hyf_commit, git_stdout, report_relative_path, run_validate,
+        validate_final_report_provenance, validate_report_bytes,
     };
     use serde_json::json;
 
@@ -1252,6 +1295,14 @@ mod tests {
 
         assert_eq!(args.profile, ReportProfile::Profile2);
         assert_eq!(args.capture_dir, Some(PathBuf::from("captures/profile2")));
+        Ok(())
+    }
+
+    #[test]
+    fn profile2_proof_inputs_parser_accepts_output() -> Result<(), CliError> {
+        let args = ProofInputArgs::parse(["--output", "-"].into_iter().map(str::to_owned))?;
+
+        assert_eq!(args.output, "-");
         Ok(())
     }
 

@@ -1,6 +1,11 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use hyf_rns_crypto::{
+    RNS_SINGLE_PACKET_EPHEMERAL_PUBLIC_LEN, encrypt_for_identity_with_ephemeral_and_iv,
+    public_identity_from_bytes, token_encrypt_with_iv,
+};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::final_report::{
@@ -148,7 +153,7 @@ pub const PROFILE_2_FINAL_RESULTS: &[ExpectedFinalResult<'_>] = &[
         category: CATEGORY_RNS_ORACLE_PYTHON_RETICULUM,
         detail: Some(ExpectedOracleDetail {
             oracle_mode: "python_reticulum",
-            evidence_role: "reticulum_validation",
+            evidence_role: "rust_output_reticulum_validation",
             compatibility_proof: true,
             commands: "token-decrypt",
         }),
@@ -168,7 +173,7 @@ pub const PROFILE_2_FINAL_RESULTS: &[ExpectedFinalResult<'_>] = &[
         category: CATEGORY_RNS_ORACLE_PYTHON_RETICULUM,
         detail: Some(ExpectedOracleDetail {
             oracle_mode: "python_reticulum",
-            evidence_role: "reticulum_validation",
+            evidence_role: "rust_output_reticulum_validation",
             compatibility_proof: true,
             commands: "identity-decrypt",
         }),
@@ -200,6 +205,97 @@ const IFAC_FIXTURE: &str =
     include_str!("../../../fixtures/rns/profile_2_crypto_ifac/ifac_vectors.json");
 const IFAC_NEGATIVE_FIXTURE: &str =
     include_str!("../../../fixtures/rns/profile_2_crypto_ifac/ifac_negative_vectors.json");
+
+pub const PROFILE_2_RUST_PROOF_COMMAND: &str = "profile2-rust-proof-inputs";
+pub const PROFILE_2_RUST_PROOF_MODE: &str = "rust_implementation";
+
+const PROFILE_2_RUST_PROOF_PLAINTEXT: &[u8] = b"hello token";
+const PROFILE_2_RUST_PROOF_TOKEN_KEY: [u8; 32] = [
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+];
+const PROFILE_2_RUST_PROOF_IV: [u8; 16] = [
+    0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,
+];
+const PROFILE_2_RUST_PROOF_RECIPIENT_SECRET: [u8; 64] = [
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
+];
+const PROFILE_2_RUST_PROOF_RECIPIENT_PUBLIC: [u8; 64] = [
+    0x8f, 0x40, 0xc5, 0xad, 0xb6, 0x8f, 0x25, 0x62, 0x4a, 0xe5, 0xb2, 0x14, 0xea, 0x76, 0x7a, 0x6e,
+    0xc9, 0x4d, 0x82, 0x9d, 0x3d, 0x7b, 0x5e, 0x1a, 0xd1, 0xba, 0x6f, 0x3e, 0x21, 0x38, 0x28, 0x5f,
+    0x29, 0xac, 0xba, 0xe1, 0x41, 0xbc, 0xca, 0xf0, 0xb2, 0x2e, 0x1a, 0x94, 0xd3, 0x4d, 0x0b, 0xc7,
+    0x36, 0x1e, 0x52, 0x6d, 0x0b, 0xfe, 0x12, 0xc8, 0x97, 0x94, 0xbc, 0x93, 0x22, 0x96, 0x6d, 0xd7,
+];
+const PROFILE_2_RUST_PROOF_EPHEMERAL_SECRET: [u8; 32] = [
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
+];
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Profile2RustProofInputs {
+    pub command: &'static str,
+    pub mode: &'static str,
+    pub valid: bool,
+    pub test_only_secret_material: bool,
+    pub plaintext_hex: String,
+    pub token_key_hex: String,
+    pub token_hex: String,
+    pub recipient_public_identity_hex: String,
+    pub recipient_secret_identity_hex: String,
+    pub ephemeral_secret_hex: String,
+    pub iv_hex: String,
+    pub identity_ciphertext_token_hex: String,
+    pub ephemeral_public_hex: String,
+}
+
+pub fn profile_2_rust_proof_inputs() -> Result<Profile2RustProofInputs, FinalReportError> {
+    let mut token = [0; 128];
+    let token_len = token_encrypt_with_iv(
+        &PROFILE_2_RUST_PROOF_TOKEN_KEY,
+        PROFILE_2_RUST_PROOF_PLAINTEXT,
+        PROFILE_2_RUST_PROOF_IV,
+        &mut token,
+    )
+    .map_err(|error| invalid_evidence(format!("Profile 2 Rust token proof failed: {error}")))?;
+
+    let recipient =
+        public_identity_from_bytes(&PROFILE_2_RUST_PROOF_RECIPIENT_PUBLIC).map_err(|error| {
+            invalid_evidence(format!(
+                "Profile 2 Rust public identity proof failed: {error}"
+            ))
+        })?;
+    let mut identity_ciphertext = [0; 128];
+    let identity_ciphertext_len = encrypt_for_identity_with_ephemeral_and_iv(
+        &recipient,
+        PROFILE_2_RUST_PROOF_PLAINTEXT,
+        PROFILE_2_RUST_PROOF_EPHEMERAL_SECRET,
+        PROFILE_2_RUST_PROOF_IV,
+        &mut identity_ciphertext,
+    )
+    .map_err(|error| invalid_evidence(format!("Profile 2 Rust identity proof failed: {error}")))?;
+
+    let identity_ciphertext = &identity_ciphertext[..identity_ciphertext_len];
+    Ok(Profile2RustProofInputs {
+        command: PROFILE_2_RUST_PROOF_COMMAND,
+        mode: PROFILE_2_RUST_PROOF_MODE,
+        valid: true,
+        test_only_secret_material: true,
+        plaintext_hex: hex_lower(PROFILE_2_RUST_PROOF_PLAINTEXT),
+        token_key_hex: hex_lower(&PROFILE_2_RUST_PROOF_TOKEN_KEY),
+        token_hex: hex_lower(&token[..token_len]),
+        recipient_public_identity_hex: hex_lower(&PROFILE_2_RUST_PROOF_RECIPIENT_PUBLIC),
+        recipient_secret_identity_hex: hex_lower(&PROFILE_2_RUST_PROOF_RECIPIENT_SECRET),
+        ephemeral_secret_hex: hex_lower(&PROFILE_2_RUST_PROOF_EPHEMERAL_SECRET),
+        iv_hex: hex_lower(&PROFILE_2_RUST_PROOF_IV),
+        identity_ciphertext_token_hex: hex_lower(identity_ciphertext),
+        ephemeral_public_hex: hex_lower(
+            &identity_ciphertext[..RNS_SINGLE_PACKET_EPHEMERAL_PUBLIC_LEN],
+        ),
+    })
+}
 
 pub fn profile_2_results() -> Vec<ConformanceResult> {
     let mut results = profile_2_fixture_results();
@@ -326,6 +422,7 @@ impl Profile2FinalEvidence {
         let identity_fixture = load_capture(capture_dir, "identity_fixture_decrypt.json")?;
         let ifac_fixture = load_capture(capture_dir, "ifac_fixture_verify.json")?;
         let probe = load_capture(capture_dir, "probe.json")?;
+        let rust_proof_inputs = load_capture(capture_dir, "rust_proof_inputs.json")?;
         let token_generation = load_capture(capture_dir, "token_generation.json")?;
         let token_python = load_capture(capture_dir, "token_python_decrypt.json")?;
         let identity_generation = load_capture(capture_dir, "identity_generation.json")?;
@@ -369,6 +466,42 @@ impl Profile2FinalEvidence {
             EXPECTED_RETICULUM_COMMIT,
         )?;
         expect_string_field(&probe, "probe.json", "status", "passed")?;
+        expect_string_field(
+            &rust_proof_inputs,
+            "rust_proof_inputs.json",
+            "command",
+            PROFILE_2_RUST_PROOF_COMMAND,
+        )?;
+        expect_string_field(
+            &rust_proof_inputs,
+            "rust_proof_inputs.json",
+            "mode",
+            PROFILE_2_RUST_PROOF_MODE,
+        )?;
+        expect_bool_field(&rust_proof_inputs, "rust_proof_inputs.json", "valid", true)?;
+        expect_bool_field(
+            &rust_proof_inputs,
+            "rust_proof_inputs.json",
+            "test_only_secret_material",
+            true,
+        )?;
+        let rust_plaintext_hex = required_string_field(
+            &rust_proof_inputs,
+            "rust_proof_inputs.json",
+            "plaintext_hex",
+        )?;
+        let rust_token_hex =
+            required_string_field(&rust_proof_inputs, "rust_proof_inputs.json", "token_hex")?;
+        let rust_identity_ciphertext_token_hex = required_string_field(
+            &rust_proof_inputs,
+            "rust_proof_inputs.json",
+            "identity_ciphertext_token_hex",
+        )?;
+        let rust_ephemeral_public_hex = required_string_field(
+            &rust_proof_inputs,
+            "rust_proof_inputs.json",
+            "ephemeral_public_hex",
+        )?;
         expect_capture(
             &token_generation,
             "token_generation.json",
@@ -389,6 +522,16 @@ impl Profile2FinalEvidence {
             "reticulum_self_validation",
             "passed",
         )?;
+        require_equal(
+            required_string_field(&token_generation, "token_generation.json", "plaintext_hex")?,
+            rust_plaintext_hex,
+            "token shim plaintext does not match Rust proof input",
+        )?;
+        require_equal(
+            required_string_field(&token_generation, "token_generation.json", "token_hex")?,
+            rust_token_hex,
+            "token shim output does not match Rust proof input",
+        )?;
         expect_capture(
             &token_python,
             "token_python_decrypt.json",
@@ -398,9 +541,14 @@ impl Profile2FinalEvidence {
         )?;
         expect_bool_field(&token_python, "token_python_decrypt.json", "valid", true)?;
         require_equal(
+            required_string_field(&token_python, "token_python_decrypt.json", "token_hex")?,
+            rust_token_hex,
+            "Reticulum token decrypt input does not match Rust proof input",
+        )?;
+        require_equal(
             required_string_field(&token_python, "token_python_decrypt.json", "plaintext_hex")?,
-            required_string_field(&token_generation, "token_generation.json", "plaintext_hex")?,
-            "token generation Reticulum decrypt plaintext mismatch",
+            rust_plaintext_hex,
+            "Reticulum token decrypt plaintext does not match Rust proof input",
         )?;
         expect_capture(
             &identity_generation,
@@ -427,15 +575,34 @@ impl Profile2FinalEvidence {
             "reticulum_self_validation",
             "passed",
         )?;
+        require_equal(
+            required_string_field(
+                &identity_generation,
+                "identity_generation.json",
+                "plaintext_hex",
+            )?,
+            rust_plaintext_hex,
+            "identity shim plaintext does not match Rust proof input",
+        )?;
         let ciphertext_token_hex = required_string_field(
             &identity_generation,
             "identity_generation.json",
             "ciphertext_token_hex",
         )?;
+        require_equal(
+            ciphertext_token_hex,
+            rust_identity_ciphertext_token_hex,
+            "identity shim output does not match Rust proof input",
+        )?;
         let ephemeral_public_hex = required_string_field(
             &identity_generation,
             "identity_generation.json",
             "ephemeral_public_hex",
+        )?;
+        require_equal(
+            ephemeral_public_hex,
+            rust_ephemeral_public_hex,
+            "identity shim ephemeral public key does not match Rust proof input",
         )?;
         if !ciphertext_token_hex.starts_with(ephemeral_public_hex) {
             return Err(invalid_evidence(
@@ -459,14 +626,19 @@ impl Profile2FinalEvidence {
             required_string_field(
                 &identity_python,
                 "identity_python_decrypt.json",
-                "plaintext_hex",
+                "ciphertext_token_hex",
             )?,
+            rust_identity_ciphertext_token_hex,
+            "Reticulum identity decrypt input does not match Rust proof input",
+        )?;
+        require_equal(
             required_string_field(
-                &identity_generation,
-                "identity_generation.json",
+                &identity_python,
+                "identity_python_decrypt.json",
                 "plaintext_hex",
             )?,
-            "identity generation Reticulum decrypt plaintext mismatch",
+            rust_plaintext_hex,
+            "Reticulum identity decrypt plaintext does not match Rust proof input",
         )?;
         expect_capture(
             &ifac_python_apply,
@@ -589,7 +761,7 @@ pub fn profile_2_final_results(evidence: &Profile2FinalEvidence) -> Vec<Conforma
             RESULT_ID_RNS_ORACLE_PYTHON_RETICULUM_TOKEN,
             CATEGORY_RNS_ORACLE_PYTHON_RETICULUM,
             "python_reticulum",
-            "reticulum_validation",
+            "rust_output_reticulum_validation",
             true,
             std::slice::from_ref(&evidence.token_python_command),
         ),
@@ -605,7 +777,7 @@ pub fn profile_2_final_results(evidence: &Profile2FinalEvidence) -> Vec<Conforma
             RESULT_ID_RNS_ORACLE_PYTHON_RETICULUM_IDENTITY,
             CATEGORY_RNS_ORACLE_PYTHON_RETICULUM,
             "python_reticulum",
-            "reticulum_validation",
+            "rust_output_reticulum_validation",
             true,
             std::slice::from_ref(&evidence.identity_python_command),
         ),
@@ -641,6 +813,16 @@ fn passed_oracle_result(
             EXPECTED_RETICULUM_COMMIT,
         )),
     }
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 pub fn profile_2_report(
