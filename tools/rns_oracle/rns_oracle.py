@@ -151,6 +151,7 @@ def add_identity_test_flags(parser: argparse.ArgumentParser) -> None:
 def add_identity_encrypt_test_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--reticulum-path")
     parser.add_argument("--test-recipient-public-identity-hex")
+    parser.add_argument("--test-recipient-secret-identity-hex")
     parser.add_argument("--test-plaintext-hex")
     parser.add_argument("--test-ephemeral-secret-hex")
     parser.add_argument("--test-iv-hex")
@@ -265,11 +266,8 @@ def handle_token_decrypt_with_reticulum(
     token_hex: str,
     token_key_hex: str,
 ) -> dict[str, Any]:
-    load_reticulum(args)
-    from RNS.Cryptography.Token import Token  # type: ignore[import-not-found]
-
     try:
-        plaintext = Token(bytes.fromhex(token_key_hex)).decrypt(bytes.fromhex(token_hex))
+        plaintext = decrypt_token_with_reticulum(args, token_hex, token_key_hex)
     except Exception as error:
         return envelope(
             "token-decrypt",
@@ -294,6 +292,7 @@ def handle_identity_encrypt(args: argparse.Namespace, store: FixtureStore) -> di
     if has_identity_encrypt_test_inputs(args):
         (
             recipient_public_hex,
+            recipient_secret_hex,
             plaintext_hex,
             ephemeral_secret_hex,
             iv_hex,
@@ -301,6 +300,7 @@ def handle_identity_encrypt(args: argparse.Namespace, store: FixtureStore) -> di
         return handle_identity_encrypt_test_only(
             args,
             recipient_public_hex,
+            recipient_secret_hex,
             plaintext_hex,
             ephemeral_secret_hex,
             iv_hex,
@@ -334,9 +334,7 @@ def handle_identity_decrypt_with_reticulum(
     ciphertext_hex: str,
     recipient_secret_hex: str,
 ) -> dict[str, Any]:
-    rns, _packages, _module_path = load_reticulum(args)
-    identity = rns.Identity.from_bytes(bytes.fromhex(recipient_secret_hex))
-    plaintext = identity.decrypt(bytes.fromhex(ciphertext_hex))
+    plaintext = decrypt_identity_with_reticulum(args, ciphertext_hex, recipient_secret_hex)
     if plaintext is None:
         return envelope(
             "identity-decrypt",
@@ -416,19 +414,22 @@ def handle_token_encrypt_test_only(
     plaintext_hex: str,
     iv_hex: str,
 ) -> dict[str, Any]:
-    load_reticulum(args)
     plaintext = bytes.fromhex(plaintext_hex)
     token = token_encrypt_with_iv_for_oracle(
         bytes.fromhex(token_key_hex),
         plaintext,
         bytes.fromhex(iv_hex),
     )
+    validated_plaintext = decrypt_token_with_reticulum(args, token.hex(), token_key_hex)
+    if validated_plaintext != plaintext:
+        raise OracleError("token generation Reticulum self-validation mismatch")
     return envelope(
         "token-encrypt",
         {
             "case_id": args.case_id,
             "valid": True,
             "plaintext_hex": plaintext.hex(),
+            "reticulum_self_validation": "passed",
             "test_only_secret_material": True,
             "token_hex": token.hex(),
         },
@@ -439,11 +440,11 @@ def handle_token_encrypt_test_only(
 def handle_identity_encrypt_test_only(
     args: argparse.Namespace,
     recipient_public_hex: str,
+    recipient_secret_hex: str,
     plaintext_hex: str,
     ephemeral_secret_hex: str,
     iv_hex: str,
 ) -> dict[str, Any]:
-    load_reticulum(args)
     recipient_public = bytes.fromhex(recipient_public_hex)
     plaintext = bytes.fromhex(plaintext_hex)
     ephemeral_public, token_key = derive_identity_token_key_for_oracle(
@@ -455,13 +456,22 @@ def handle_identity_encrypt_test_only(
         plaintext,
         bytes.fromhex(iv_hex),
     )
+    ciphertext_token = ephemeral_public + token
+    validated_plaintext = decrypt_identity_with_reticulum(
+        args,
+        ciphertext_token.hex(),
+        recipient_secret_hex,
+    )
+    if validated_plaintext != plaintext:
+        raise OracleError("identity generation Reticulum self-validation mismatch")
     return envelope(
         "identity-encrypt",
         {
             "case_id": args.case_id,
-            "ciphertext_token_hex": (ephemeral_public + token).hex(),
+            "ciphertext_token_hex": ciphertext_token.hex(),
             "ephemeral_public_hex": ephemeral_public.hex(),
             "plaintext_hex": plaintext.hex(),
+            "reticulum_self_validation": "passed",
             "test_only_secret_material": True,
             "valid": True,
         },
@@ -519,6 +529,27 @@ def token_encrypt_with_iv_for_oracle(key: bytes, plaintext: bytes, iv: bytes) ->
     authenticated = iv + ciphertext
     tag = std_hmac.new(signing_key, authenticated, hashlib.sha256).digest()
     return authenticated + tag
+
+
+def decrypt_token_with_reticulum(
+    args: argparse.Namespace,
+    token_hex: str,
+    token_key_hex: str,
+) -> bytes:
+    load_reticulum(args)
+    from RNS.Cryptography.Token import Token  # type: ignore[import-not-found]
+
+    return Token(bytes.fromhex(token_key_hex)).decrypt(bytes.fromhex(token_hex))
+
+
+def decrypt_identity_with_reticulum(
+    args: argparse.Namespace,
+    ciphertext_hex: str,
+    recipient_secret_hex: str,
+) -> bytes | None:
+    rns, _packages, _module_path = load_reticulum(args)
+    identity = rns.Identity.from_bytes(bytes.fromhex(recipient_secret_hex))
+    return identity.decrypt(bytes.fromhex(ciphertext_hex))
 
 
 def split_token_key_for_oracle(key: bytes) -> tuple[bytes, bytes]:
@@ -673,11 +704,17 @@ def validate_identity_test_inputs(args: argparse.Namespace) -> str | None:
 
 def validate_identity_encrypt_test_inputs(
     args: argparse.Namespace,
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str, str, str, str]:
     recipient_public_hex = validate_optional_hex(
         args,
         "test_recipient_public_identity_hex",
         "test recipient public identity",
+        lengths={64},
+    )
+    recipient_secret_hex = validate_optional_hex(
+        args,
+        "test_recipient_secret_identity_hex",
+        "test recipient secret identity",
         lengths={64},
     )
     plaintext_hex = validate_optional_hex(args, "test_plaintext_hex", "test plaintext")
@@ -690,15 +727,22 @@ def validate_identity_encrypt_test_inputs(
     iv_hex = validate_optional_hex(args, "test_iv_hex", "test IV", lengths={16})
     if (
         recipient_public_hex is None
+        or recipient_secret_hex is None
         or plaintext_hex is None
         or ephemeral_secret_hex is None
         or iv_hex is None
     ):
         raise OracleError(
             "identity generation test inputs require recipient public identity, "
-            "plaintext, ephemeral secret, and IV"
+            "recipient secret identity, plaintext, ephemeral secret, and IV"
         )
-    return recipient_public_hex, plaintext_hex, ephemeral_secret_hex, iv_hex
+    return (
+        recipient_public_hex,
+        recipient_secret_hex,
+        plaintext_hex,
+        ephemeral_secret_hex,
+        iv_hex,
+    )
 
 
 def validate_ifac_test_inputs(args: argparse.Namespace) -> None:
@@ -733,6 +777,7 @@ def has_token_generation_test_inputs(args: argparse.Namespace) -> bool:
 def has_identity_encrypt_test_inputs(args: argparse.Namespace) -> bool:
     return (
         getattr(args, "test_recipient_public_identity_hex", None) is not None
+        or getattr(args, "test_recipient_secret_identity_hex", None) is not None
         or getattr(args, "test_plaintext_hex", None) is not None
         or getattr(args, "test_ephemeral_secret_hex", None) is not None
         or getattr(args, "test_iv_hex", None) is not None

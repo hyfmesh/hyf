@@ -149,6 +149,29 @@ fn rns_oracle_tool_rejects_bad_test_only_inputs() -> Result<(), OracleToolError>
     );
     assert!(output.stdout.is_empty());
 
+    let Some(output) = run_oracle_raw(&[
+        "identity-encrypt",
+        "--case",
+        "identity_encrypt.fixed_ephemeral.fixed_iv.basic_001",
+        "--test-recipient-public-identity-hex",
+        &hex(&TEST_PUBLIC_IDENTITY_BYTES),
+        "--test-plaintext-hex",
+        &hex(TOKEN_PLAINTEXT),
+        "--test-ephemeral-secret-hex",
+        &hex(&EPHEMERAL_SECRET),
+        "--test-iv-hex",
+        &hex(&TOKEN_IV),
+    ])?
+    else {
+        return Ok(());
+    };
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains(
+        "identity generation test inputs require recipient public identity, recipient secret identity"
+    ));
+    assert!(output.stdout.is_empty());
+
     Ok(())
 }
 
@@ -360,6 +383,10 @@ fn rns_oracle_tool_generates_vectors_for_reticulum_validation() -> Result<(), Or
     assert_eq!(token_response.oracle.mode, "test_only_oracle_shim");
     assert_eq!(token_response.valid, Some(true));
     assert_eq!(token_response.plaintext_hex, Some(hex(TOKEN_PLAINTEXT)));
+    assert_eq!(
+        token_response.reticulum_self_validation,
+        Some("passed".to_owned())
+    );
     assert_eq!(token_response.test_only_secret_material, Some(true));
 
     let token_hex = token_response
@@ -394,6 +421,10 @@ fn rns_oracle_tool_generates_vectors_for_reticulum_validation() -> Result<(), Or
     assert_eq!(identity_response.oracle.mode, "test_only_oracle_shim");
     assert_eq!(identity_response.valid, Some(true));
     assert_eq!(identity_response.plaintext_hex, Some(hex(TOKEN_PLAINTEXT)));
+    assert_eq!(
+        identity_response.reticulum_self_validation,
+        Some("passed".to_owned())
+    );
     assert_eq!(identity_response.test_only_secret_material, Some(true));
 
     let ciphertext_token_hex = identity_response
@@ -568,6 +599,8 @@ fn identity_encrypt_oracle_args(
         "identity_encrypt.fixed_ephemeral.fixed_iv.basic_001".to_owned(),
         "--test-recipient-public-identity-hex".to_owned(),
         hex(recipient_public),
+        "--test-recipient-secret-identity-hex".to_owned(),
+        hex(&TEST_SECRET_IDENTITY_BYTES),
         "--test-plaintext-hex".to_owned(),
         hex(plaintext),
         "--test-ephemeral-secret-hex".to_owned(),
@@ -693,6 +726,7 @@ struct OracleResponse {
     token_hex: Option<String>,
     ciphertext_token_hex: Option<String>,
     ephemeral_public_hex: Option<String>,
+    reticulum_self_validation: Option<String>,
     test_only_secret_material: Option<bool>,
     unmasked_hex: Option<String>,
     error: Option<String>,
