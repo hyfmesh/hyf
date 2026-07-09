@@ -1,9 +1,8 @@
 #![cfg(feature = "hil_std")]
 
-use std::path::PathBuf;
-
 use hyf_link_rnode::{
-    RNODE_HIL_DEFAULT_BAUD, RNODE_HIL_MANIFEST_SCHEMA, RNodeHilManifest, write_hil_manifest_json,
+    RNODE_HIL_ARTIFACT_ROOT, RNODE_HIL_DEFAULT_BAUD, RNODE_HIL_MANIFEST_SCHEMA, RNodeHilManifest,
+    hil_manifest_artifact_path, write_hil_manifest_json,
 };
 
 #[test]
@@ -39,11 +38,18 @@ fn hil_rnode_environment_gate_is_non_transmitting_by_default()
     assert_eq!(RNODE_HIL_MANIFEST_SCHEMA, "hyf.rnode.hil.v1");
     assert!(!manifest_json.is_empty());
 
-    if let Ok(output_dir) = std::env::var("HYF_HIL_ARTIFACT_DIR") {
-        let path = PathBuf::from(output_dir);
-        std::fs::create_dir_all(&path)?;
-        std::fs::write(path.join("manifest.json"), manifest_json)?;
+    let artifact_path = match std::env::var("HYF_HIL_ARTIFACT_DIR") {
+        Ok(output_dir) => hil_manifest_artifact_path(output_dir, &generated_at)?,
+        Err(std::env::VarError::NotPresent) => {
+            let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            hil_manifest_artifact_path(workspace_root.join(RNODE_HIL_ARTIFACT_ROOT), &generated_at)?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if let Some(parent) = artifact_path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
+    std::fs::write(artifact_path, manifest_json)?;
 
     Ok(())
 }

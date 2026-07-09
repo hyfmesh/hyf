@@ -38,7 +38,9 @@ pub use constants::{
 pub use error::RNodeError;
 #[cfg(feature = "hil_std")]
 pub use hil::{
-    RNodeHilManifest, RNodeHilManifestError, validate_hil_manifest, write_hil_manifest_json,
+    RNODE_HIL_ARTIFACT_ROOT, RNODE_HIL_MANIFEST_FILE_NAME, RNodeHilManifest, RNodeHilManifestError,
+    default_hil_manifest_artifact_path, hil_manifest_artifact_path, validate_hil_manifest,
+    write_hil_manifest_json,
 };
 pub use state::RNodeState;
 

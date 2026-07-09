@@ -1,7 +1,13 @@
 use core::fmt;
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    path::{Path, PathBuf},
+};
 
 use crate::{RNODE_HIL_DEFAULT_BAUD, RNODE_HIL_MANIFEST_SCHEMA};
+
+pub const RNODE_HIL_ARTIFACT_ROOT: &str = "target/hyf_hil/rnode";
+pub const RNODE_HIL_MANIFEST_FILE_NAME: &str = "manifest.json";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RNodeHilManifest<'a> {
@@ -61,6 +67,41 @@ pub fn validate_hil_manifest(manifest: &RNodeHilManifest<'_>) -> Result<(), RNod
         return Err(RNodeHilManifestError::RfTransmissionRecorded);
     }
     Ok(())
+}
+
+pub fn default_hil_manifest_artifact_path(
+    generated_at: &str,
+) -> Result<PathBuf, RNodeHilManifestError> {
+    hil_manifest_artifact_path(RNODE_HIL_ARTIFACT_ROOT, generated_at)
+}
+
+pub fn hil_manifest_artifact_path<P: AsRef<Path>>(
+    root: P,
+    generated_at: &str,
+) -> Result<PathBuf, RNodeHilManifestError> {
+    if generated_at.is_empty() {
+        return Err(RNodeHilManifestError::EmptyGeneratedAt);
+    }
+    if !is_utc_rfc3339_timestamp(generated_at) {
+        return Err(RNodeHilManifestError::InvalidGeneratedAt);
+    }
+
+    Ok(root
+        .as_ref()
+        .join(artifact_timestamp_segment(generated_at))
+        .join(RNODE_HIL_MANIFEST_FILE_NAME))
+}
+
+fn artifact_timestamp_segment(generated_at: &str) -> String {
+    let mut segment = String::with_capacity(generated_at.len());
+    for character in generated_at.chars() {
+        match character {
+            ':' => {}
+            '.' => segment.push('-'),
+            character => segment.push(character),
+        }
+    }
+    segment
 }
 
 fn is_utc_rfc3339_timestamp(value: &str) -> bool {
@@ -240,9 +281,11 @@ impl From<io::Error> for RNodeHilManifestError {
 #[cfg(test)]
 mod tests {
     use super::{
-        RNodeHilManifest, RNodeHilManifestError, validate_hil_manifest, write_hil_manifest_json,
+        RNodeHilManifest, RNodeHilManifestError, default_hil_manifest_artifact_path,
+        hil_manifest_artifact_path, validate_hil_manifest, write_hil_manifest_json,
     };
     use serde_json::Value;
+    use std::path::PathBuf;
 
     const HIL_SCHEMA: &str = include_str!("../../../schemas/rnode_hil_manifest.schema.json");
 
@@ -288,6 +331,44 @@ mod tests {
         assert_eq!(output["rf"]["transmission_performed"], false);
         assert_eq!(output["checks"].as_array().map(Vec::len), Some(0));
         Ok(())
+    }
+
+    #[test]
+    fn default_artifact_path_uses_timestamped_target_manifest() -> Result<(), RNodeHilManifestError>
+    {
+        let path = default_hil_manifest_artifact_path("2026-07-09T00:00:00Z")?;
+
+        assert_eq!(
+            path,
+            PathBuf::from("target")
+                .join("hyf_hil")
+                .join("rnode")
+                .join("2026-07-09T000000Z")
+                .join("manifest.json")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn artifact_path_override_still_uses_timestamped_manifest() -> Result<(), RNodeHilManifestError>
+    {
+        let path = hil_manifest_artifact_path("custom-root", "2026-07-09T00:00:00.123Z")?;
+
+        assert_eq!(
+            path,
+            PathBuf::from("custom-root")
+                .join("2026-07-09T000000-123Z")
+                .join("manifest.json")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn artifact_path_rejects_invalid_timestamp() {
+        assert!(matches!(
+            default_hil_manifest_artifact_path("not-a-date"),
+            Err(RNodeHilManifestError::InvalidGeneratedAt)
+        ));
     }
 
     #[test]
