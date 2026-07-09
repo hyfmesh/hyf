@@ -13,8 +13,6 @@ rust-version.workspace = true
 default = []
 alloc = []
 std = ["alloc"]
-serde = []
-defmt = []
 
 [lints]
 workspace = true

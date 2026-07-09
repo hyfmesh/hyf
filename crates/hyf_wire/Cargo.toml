@@ -15,8 +15,6 @@ hyf_crypto.workspace = true
 default = []
 alloc = []
 std = ["alloc"]
-serde = []
-defmt = []
 
 [lints]
 workspace = true

@@ -19,8 +19,6 @@ allocation-counter.workspace = true
 default = []
 alloc = []
 std = ["alloc"]
-serde = []
-defmt = []
 ifac = ["hyf_rns_crypto/crypto_hkdf"]
 
 [lints]

@@ -17,8 +17,6 @@ serde_json.workspace = true
 default = []
 alloc = []
 std = ["alloc"]
-serde = []
-defmt = []
 hil_std = ["std"]
 
 [lints]
