@@ -476,11 +476,7 @@ fn ifac_negative_vectors_fail_closed() -> Result<(), FixtureError> {
                     ),
                     Err(RnsWireError::InvalidPacketAccessCode)
                 );
-                assert!(
-                    output[..masked_packet.len() - case.ifac_size]
-                        .iter()
-                        .all(|byte| *byte == 0)
-                );
+                assert!(output.iter().all(|byte| *byte == 0x55));
             }
             "ifac.verify.short_packet_001" => {
                 let masked_packet = required_bytes(masked_packet.as_ref(), "masked_packet_hex")?;

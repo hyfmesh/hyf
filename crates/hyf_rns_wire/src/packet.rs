@@ -1,3 +1,5 @@
+use core::fmt;
+
 use hyf_rns_core::{
     RNS_HEADER_1_LEN, RNS_HEADER_2_LEN, RNS_MTU, RNS_TRUNCATED_HASH_LEN, RnsDestinationHash,
 };
@@ -17,7 +19,7 @@ const HEADER_2_DESTINATION_END: usize = HEADER_2_DESTINATION_START + RNS_TRUNCAT
 const HEADER_2_CONTEXT_INDEX: usize = HEADER_2_DESTINATION_END;
 const HEADER_2_DATA_START: usize = HEADER_2_CONTEXT_INDEX + 1;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct RnsPacketRef<'a> {
     pub flags: RnsPacketFlags,
     pub hops: u8,
@@ -25,6 +27,21 @@ pub struct RnsPacketRef<'a> {
     pub destination_hash: RnsDestinationHash,
     pub context: u8,
     pub data: &'a [u8],
+}
+
+impl fmt::Debug for RnsPacketRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RnsPacketRef")
+            .field("flags", &self.flags)
+            .field("hops", &self.hops)
+            .field("transport_id", &self.transport_id)
+            .field("destination_hash", &self.destination_hash)
+            .field("context", &self.context)
+            .field("data", &"<redacted>")
+            .field("data_len", &self.data.len())
+            .finish()
+    }
 }
 
 pub fn decode_packet(input: &[u8]) -> Result<RnsPacketRef<'_>, RnsWireError> {
@@ -312,6 +329,20 @@ mod tests {
         assert_eq!(&output[..len], raw.as_slice());
         assert_eq!(decode_packet(&output[..len])?, packet);
 
+        Ok(())
+    }
+
+    #[test]
+    fn packet_debug_redacts_data_bytes() -> Result<(), RnsWireError> {
+        let raw = header_1_packet(b"secret packet");
+        let packet = decode_packet(&raw)?;
+        let debug = format!("{packet:?}");
+
+        assert!(debug.contains("RnsPacketRef"));
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("data_len"));
+        assert!(!debug.contains("secret packet"));
+        assert!(!debug.contains("115, 101, 99"));
         Ok(())
     }
 

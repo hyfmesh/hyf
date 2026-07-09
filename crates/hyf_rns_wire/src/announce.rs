@@ -1,3 +1,5 @@
+use core::fmt;
+
 use hyf_rns_core::{RNS_MTU, RNS_NAME_HASH_LEN, RnsDestinationHash, RnsNameHash, destination_hash};
 use hyf_rns_crypto::{
     RNS_PUBLIC_IDENTITY_LEN, RnsCryptoError, RnsPublicIdentity, RnsSecretIdentity, identity_hash,
@@ -37,7 +39,7 @@ const RETICULUM_RANDOM_HASH_RNG_LEN: usize = 5;
 const RETICULUM_RANDOM_HASH_TIME_LEN: usize = 5;
 const RETICULUM_RANDOM_HASH_TIME_OFFSET: usize = 8 - RETICULUM_RANDOM_HASH_TIME_LEN;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct RnsAnnounceRef<'a> {
     pub destination_hash: RnsDestinationHash,
     pub public_identity: [u8; RNS_PUBLIC_IDENTITY_LEN],
@@ -46,6 +48,22 @@ pub struct RnsAnnounceRef<'a> {
     pub ratchet: Option<[u8; RNS_ANNOUNCE_RATCHET_LEN]>,
     pub signature: [u8; RNS_ANNOUNCE_SIGNATURE_LEN],
     pub app_data: &'a [u8],
+}
+
+impl fmt::Debug for RnsAnnounceRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RnsAnnounceRef")
+            .field("destination_hash", &self.destination_hash)
+            .field("public_identity", &self.public_identity)
+            .field("name_hash", &self.name_hash)
+            .field("random_hash", &self.random_hash)
+            .field("ratchet", &self.ratchet)
+            .field("signature", &self.signature)
+            .field("app_data", &"<redacted>")
+            .field("app_data_len", &self.app_data.len())
+            .finish()
+    }
 }
 
 pub struct RnsAnnounceEncodeParams<'a> {
@@ -378,6 +396,21 @@ mod tests {
         assert_eq!(announce.signature, [0x44; RNS_ANNOUNCE_SIGNATURE_LEN]);
         assert_eq!(announce.app_data, b"app-data");
 
+        Ok(())
+    }
+
+    #[test]
+    fn announce_debug_redacts_app_data_bytes() -> Result<(), RnsWireError> {
+        let data = announce_data(None, b"app-data");
+        let packet = announce_packet(false, &data);
+        let announce = decode_announce_packet(packet)?;
+        let debug = format!("{announce:?}");
+
+        assert!(debug.contains("RnsAnnounceRef"));
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("app_data_len"));
+        assert!(!debug.contains("app-data"));
+        assert!(!debug.contains("97, 112, 112"));
         Ok(())
     }
 

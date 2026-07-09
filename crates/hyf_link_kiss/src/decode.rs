@@ -1,9 +1,22 @@
+use core::fmt;
+
 use crate::{KISS_FEND, KISS_FESC, KISS_TFEND, KISS_TFESC, KissError};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct KissFrameRef<'a> {
     command: u8,
     payload: &'a [u8],
+}
+
+impl fmt::Debug for KissFrameRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("KissFrameRef")
+            .field("command", &self.command)
+            .field("payload", &"<redacted>")
+            .field("payload_len", &self.payload.len())
+            .finish()
+    }
 }
 
 impl<'a> KissFrameRef<'a> {
@@ -20,12 +33,25 @@ impl<'a> KissFrameRef<'a> {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct KissDecoder<const N: usize> {
     buffer: [u8; N],
     len: usize,
     in_frame: bool,
     escape_pending: bool,
+}
+
+impl<const N: usize> fmt::Debug for KissDecoder<N> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("KissDecoder")
+            .field("buffer", &"<redacted>")
+            .field("buffer_len", &self.len)
+            .field("capacity", &N)
+            .field("in_frame", &self.in_frame)
+            .field("escape_pending", &self.escape_pending)
+            .finish()
+    }
 }
 
 impl<const N: usize> KissDecoder<N> {
@@ -151,6 +177,31 @@ mod tests {
         let frames = collect_frames::<16>(&[&[0xc0, 0x00, 0x01, 0x02, 0xc0]])?;
 
         assert_eq!(frames, vec![(0x00, vec![0x01, 0x02])]);
+        Ok(())
+    }
+
+    #[test]
+    fn frame_debug_redacts_payload_bytes() {
+        let frame = super::KissFrameRef::new(0x00, b"secret");
+        let debug = format!("{frame:?}");
+
+        assert!(debug.contains("KissFrameRef"));
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("payload_len"));
+        assert!(!debug.contains("secret"));
+        assert!(!debug.contains("115, 101, 99"));
+    }
+
+    #[test]
+    fn decoder_debug_redacts_partial_buffer_bytes() -> Result<(), KissError> {
+        let mut decoder = KissDecoder::<16>::new();
+        decoder.push_bytes(&[0xc0, 0x00, b's', b'e', b'c'], |_| Ok(()))?;
+        let debug = format!("{decoder:?}");
+
+        assert!(debug.contains("KissDecoder"));
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("buffer_len"));
+        assert!(!debug.contains("115, 101, 99"));
         Ok(())
     }
 

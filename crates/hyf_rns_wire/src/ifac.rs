@@ -86,19 +86,25 @@ pub fn ifac_verify_inbound(
     rns_hkdf_sha256(&mut mask[..masked_packet.len()], ifac, Some(ifac_key), None)
         .map_err(map_crypto_error)?;
 
-    out[0] = (masked_packet[0] ^ mask[0]) & !IFAC_FLAG;
-    out[1] = masked_packet[1] ^ mask[1];
-    for (output_index, output_byte) in out.iter_mut().enumerate().take(required).skip(HEADER_LEN) {
+    let mut unmasked = [0; RNS_MTU];
+    unmasked[0] = (masked_packet[0] ^ mask[0]) & !IFAC_FLAG;
+    unmasked[1] = masked_packet[1] ^ mask[1];
+    for (output_index, output_byte) in unmasked
+        .iter_mut()
+        .enumerate()
+        .take(required)
+        .skip(HEADER_LEN)
+    {
         let masked_index = output_index + ifac_size;
         *output_byte = masked_packet[masked_index] ^ mask[masked_index];
     }
 
-    let signature = sign(ifac_identity, &out[..required]).map_err(map_crypto_error)?;
+    let signature = sign(ifac_identity, &unmasked[..required]).map_err(map_crypto_error)?;
     let expected_ifac = &signature[signature.len() - ifac_size..];
     if constant_time_eq(ifac, expected_ifac) {
+        out[..required].copy_from_slice(&unmasked[..required]);
         Ok(required)
     } else {
-        out[..required].fill(0);
         Err(RnsWireError::InvalidPacketAccessCode)
     }
 }
@@ -225,7 +231,8 @@ mod tests {
     }
 
     #[test]
-    fn ifac_verify_rejects_bad_code_and_zeros_output() -> Result<(), RnsWireError> {
+    fn ifac_verify_rejects_bad_code_without_writing_unverified_plaintext()
+    -> Result<(), RnsWireError> {
         let identity = secret_identity_from_bytes(&IFAC_SECRET_IDENTITY)
             .map_err(|_| RnsWireError::InvalidSignature)?;
         let raw = raw_packet()?;
@@ -244,7 +251,7 @@ mod tests {
             ),
             Err(RnsWireError::InvalidPacketAccessCode)
         );
-        assert!(verified[..raw.len()].iter().all(|byte| *byte == 0));
+        assert!(verified.iter().all(|byte| *byte == 0x55));
         Ok(())
     }
 

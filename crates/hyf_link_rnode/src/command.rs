@@ -1,3 +1,5 @@
+use core::fmt;
+
 use hyf_link_kiss::{KissFrameRef, encode_command_frame};
 
 use crate::{
@@ -80,7 +82,7 @@ pub enum RNodeStat {
     SnrQuarterDb(i8),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum RNodeEvent<'a> {
     Data(&'a [u8]),
     Ready,
@@ -89,6 +91,34 @@ pub enum RNodeEvent<'a> {
     ConfigReport(RNodeConfigReport),
     Stat(RNodeStat),
     Unknown { command: u8, payload: &'a [u8] },
+}
+
+impl fmt::Debug for RNodeEvent<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Data(payload) => formatter
+                .debug_struct("Data")
+                .field("payload", &"<redacted>")
+                .field("payload_len", &payload.len())
+                .finish(),
+            Self::Ready => formatter.write_str("Ready"),
+            Self::Error(error) => formatter.debug_tuple("Error").field(error).finish(),
+            Self::FirmwareVersion(version) => formatter
+                .debug_tuple("FirmwareVersion")
+                .field(version)
+                .finish(),
+            Self::ConfigReport(report) => {
+                formatter.debug_tuple("ConfigReport").field(report).finish()
+            }
+            Self::Stat(stat) => formatter.debug_tuple("Stat").field(stat).finish(),
+            Self::Unknown { command, payload } => formatter
+                .debug_struct("Unknown")
+                .field("command", command)
+                .field("payload", &"<redacted>")
+                .field("payload_len", &payload.len())
+                .finish(),
+        }
+    }
 }
 
 pub fn encode_command(command: RNodeCommand, out: &mut [u8]) -> Result<usize, RNodeError> {
@@ -378,5 +408,33 @@ mod tests {
             RNodeEvent::ConfigReport(RNodeConfigReport::FrequencyHz(915_000_000))
         );
         Ok(())
+    }
+
+    #[test]
+    fn event_debug_redacts_data_payload_bytes() {
+        let event = RNodeEvent::Data(b"secret");
+        let debug = format!("{event:?}");
+
+        assert!(debug.contains("Data"));
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("payload_len"));
+        assert!(!debug.contains("secret"));
+        assert!(!debug.contains("115, 101, 99"));
+    }
+
+    #[test]
+    fn event_debug_redacts_unknown_payload_bytes() {
+        let event = RNodeEvent::Unknown {
+            command: 0xee,
+            payload: b"secret",
+        };
+        let debug = format!("{event:?}");
+
+        assert!(debug.contains("Unknown"));
+        assert!(debug.contains("command"));
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("payload_len"));
+        assert!(!debug.contains("secret"));
+        assert!(!debug.contains("115, 101, 99"));
     }
 }
