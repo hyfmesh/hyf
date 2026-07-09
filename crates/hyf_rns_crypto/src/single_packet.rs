@@ -213,14 +213,15 @@ fn single_packet_len_for_plaintext(plaintext_len: usize) -> Result<usize, RnsCry
 mod tests {
     use super::{
         RNS_SINGLE_PACKET_DERIVED_KEY_LEN, RNS_SINGLE_PACKET_EPHEMERAL_PUBLIC_LEN,
-        RnsRatchetSecretRef, decrypt_for_identity, encrypt_for_identity,
+        RnsRatchetSecretRef, decrypt_for_identity, derive_token_key, encrypt_for_identity,
         encrypt_for_identity_with_ephemeral_and_iv,
     };
     use crate::{
-        RNS_SECRET_IDENTITY_LEN, RNS_TOKEN_HMAC_LEN, RnsCryptoError, public_identity_from_bytes,
-        secret_identity_from_bytes,
+        RNS_SECRET_IDENTITY_LEN, RNS_TOKEN_HMAC_LEN, RNS_TOKEN_IV_LEN, RnsCryptoError,
+        public_identity_from_bytes, secret_identity_from_bytes, token::retag_token_for_test,
     };
     use rand_core::{Infallible, TryCryptoRng, TryRng};
+    use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
     const TEST_SECRET_IDENTITY_BYTES: [u8; RNS_SECRET_IDENTITY_LEN] = [
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
@@ -450,6 +451,44 @@ mod tests {
             Err(RnsCryptoError::AuthenticationFailed)
         );
         assert_eq!(plaintext, [0x55; 64]);
+        Ok(())
+    }
+
+    #[test]
+    fn decrypt_rejects_bad_token_padding_without_leaving_plaintext() -> Result<(), RnsCryptoError> {
+        let public = public_identity_from_bytes(&TEST_PUBLIC_IDENTITY_BYTES)?;
+        let secret = secret_identity_from_bytes(&TEST_SECRET_IDENTITY_BYTES)?;
+        let mut ciphertext = [0; 128];
+        let ciphertext_len = encrypt_for_identity_with_ephemeral_and_iv(
+            &public,
+            PLAINTEXT,
+            EPHEMERAL_SECRET,
+            IV,
+            &mut ciphertext,
+        )?;
+
+        let ephemeral_secret = StaticSecret::from(EPHEMERAL_SECRET);
+        let recipient_public = X25519PublicKey::from(public.x25519_public);
+        let shared = ephemeral_secret.diffie_hellman(&recipient_public);
+        let token_key = derive_token_key(&shared, &public)?;
+        let token_start = RNS_SINGLE_PACKET_EPHEMERAL_PUBLIC_LEN;
+        let iv_last = token_start + RNS_TOKEN_IV_LEN - 1;
+        ciphertext[iv_last] ^= 0x01;
+        retag_token_for_test(&token_key[..], &mut ciphertext[token_start..ciphertext_len])?;
+        let mut plaintext = [0x55; 64];
+
+        assert_eq!(
+            decrypt_for_identity(
+                &secret,
+                &ciphertext[..ciphertext_len],
+                &[],
+                false,
+                &mut plaintext,
+            ),
+            Err(RnsCryptoError::InvalidPadding)
+        );
+        assert_eq!(&plaintext[..16], &[0; 16]);
+        assert_eq!(&plaintext[16..], &[0x55; 48]);
         Ok(())
     }
 

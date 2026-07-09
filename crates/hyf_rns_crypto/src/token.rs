@@ -3,7 +3,7 @@ use cbc::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit, block_padding::
 use hmac::{Hmac, KeyInit, Mac};
 use rand_core::TryCryptoRng;
 use sha2::Sha256;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
     RnsCryptoError,
@@ -117,8 +117,21 @@ pub fn token_decrypt(key: &[u8], token: &[u8], out: &mut [u8]) -> Result<usize, 
     let iv = &token[..RNS_TOKEN_IV_LEN];
     let ciphertext = &token[RNS_TOKEN_IV_LEN..tag_start];
     out[..ciphertext_len].copy_from_slice(ciphertext);
-    decrypt_cbc(&keys, iv, &mut out[..ciphertext_len])?;
-    let plaintext_len = pkcs7_unpad(&out[..ciphertext_len])?.len();
+
+    if let Err(error) = decrypt_cbc(&keys, iv, &mut out[..ciphertext_len]) {
+        out[..ciphertext_len].zeroize();
+        return Err(error);
+    }
+
+    let plaintext_len = match pkcs7_unpad(&out[..ciphertext_len]) {
+        Ok(plaintext) => plaintext.len(),
+        Err(error) => {
+            out[..ciphertext_len].zeroize();
+            return Err(error);
+        }
+    };
+
+    out[plaintext_len..ciphertext_len].zeroize();
     Ok(plaintext_len)
 }
 
@@ -187,6 +200,19 @@ fn verify_hmac_sha256(key: &[u8], message: &[u8], tag: &[u8]) -> Result<(), RnsC
         .map_err(|_| RnsCryptoError::AuthenticationFailed)
 }
 
+#[cfg(test)]
+pub(crate) fn retag_token_for_test(key: &[u8], token: &mut [u8]) -> Result<(), RnsCryptoError> {
+    let keys = TokenKeys::split(key)?;
+    if token.len() <= RNS_TOKEN_HMAC_LEN {
+        return Err(RnsCryptoError::InvalidToken);
+    }
+
+    let tag_start = token.len() - RNS_TOKEN_HMAC_LEN;
+    let tag = hmac_sha256(keys.signing_key(), &token[..tag_start])?;
+    token[tag_start..].copy_from_slice(&tag);
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TokenKeyKind {
     Aes128,
@@ -243,8 +269,8 @@ impl TokenKeys {
 #[cfg(test)]
 mod tests {
     use super::{
-        RNS_TOKEN_HMAC_LEN, RNS_TOKEN_IV_LEN, RNS_TOKEN_OVERHEAD, token_decrypt, token_encrypt,
-        token_encrypt_with_iv,
+        RNS_TOKEN_HMAC_LEN, RNS_TOKEN_IV_LEN, RNS_TOKEN_OVERHEAD, retag_token_for_test,
+        token_decrypt, token_encrypt, token_encrypt_with_iv,
     };
     use crate::RnsCryptoError;
     use rand_core::{Infallible, TryCryptoRng, TryRng};
@@ -332,19 +358,29 @@ mod tests {
     fn token_decrypt_rejects_invalid_padding_after_valid_hmac() -> Result<(), RnsCryptoError> {
         let mut token = [0; 128];
         let len = token_encrypt_with_iv(&KEY_32, b"hello token", IV, &mut token)?;
-        let mut decrypted = [0; 64];
-        let plaintext_len = token_decrypt(&KEY_32, &token[..len], &mut decrypted)?;
-        decrypted[plaintext_len] = 0;
-        let mut invalid = [0; 128];
-        let invalid_len = token_encrypt_with_iv(&KEY_32, &decrypted[..16], IV, &mut invalid)?;
-        invalid[31] = 0;
-        let tag = super::hmac_sha256(&KEY_32[..16], &invalid[..invalid_len - RNS_TOKEN_HMAC_LEN])?;
-        invalid[invalid_len - RNS_TOKEN_HMAC_LEN..invalid_len].copy_from_slice(&tag);
+        token[RNS_TOKEN_IV_LEN - 1] ^= 0x01;
+        retag_token_for_test(&KEY_32, &mut token[..len])?;
+        let mut decrypted = [0x55; 64];
 
         assert_eq!(
-            token_decrypt(&KEY_32, &invalid[..invalid_len], &mut decrypted),
+            token_decrypt(&KEY_32, &token[..len], &mut decrypted),
             Err(RnsCryptoError::InvalidPadding)
         );
+        assert_eq!(&decrypted[..16], &[0; 16]);
+        assert_eq!(&decrypted[16..], &[0x55; 48]);
+        Ok(())
+    }
+
+    #[test]
+    fn token_decrypt_zeroes_padding_bytes_after_success() -> Result<(), RnsCryptoError> {
+        let mut token = [0; 128];
+        let len = token_encrypt_with_iv(&KEY_32, b"hello token", IV, &mut token)?;
+        let mut decrypted = [0x55; 64];
+        let plaintext_len = token_decrypt(&KEY_32, &token[..len], &mut decrypted)?;
+
+        assert_eq!(&decrypted[..plaintext_len], b"hello token");
+        assert_eq!(&decrypted[plaintext_len..16], &[0; 5]);
+        assert_eq!(&decrypted[16..], &[0x55; 48]);
         Ok(())
     }
 
