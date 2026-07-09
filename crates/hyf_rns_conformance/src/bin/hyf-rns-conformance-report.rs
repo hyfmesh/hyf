@@ -226,17 +226,16 @@ fn validate_final_report_provenance(
         GitSource::Reticulum,
     )?;
 
-    let Some(expected_oracle_module_path) = args.expected_oracle_module_path.as_deref() else {
-        return Err(CliError::MissingRequired("--expected-oracle-module-path"));
-    };
-    let Some(oracle) = report.environment.oracle.as_ref() else {
-        return Err(CliError::FinalReportInvalid("missing oracle metadata"));
-    };
-    if oracle.reticulum_module_path != expected_oracle_module_path {
-        return Err(CliError::ExpectedOracleModulePathMismatch {
-            expected: expected_oracle_module_path.to_owned(),
-            actual: oracle.reticulum_module_path.clone(),
-        });
+    if let Some(expected_oracle_module_path) = args.expected_oracle_module_path.as_deref() {
+        let Some(oracle) = report.environment.oracle.as_ref() else {
+            return Err(CliError::FinalReportInvalid("missing oracle metadata"));
+        };
+        if oracle.reticulum_module_path != expected_oracle_module_path {
+            return Err(CliError::ExpectedOracleModulePathMismatch {
+                expected: expected_oracle_module_path.to_owned(),
+                actual: oracle.reticulum_module_path.clone(),
+            });
+        }
     }
 
     Ok(())
@@ -1149,7 +1148,7 @@ usage:
   [--require-final-provenance \\
    --hyf-repo-path <path> \\
    --reticulum-path <path> \\
-   --expected-oracle-module-path <path>]";
+   [--expected-oracle-module-path <path>]]";
 
 #[cfg(test)]
 mod tests {
@@ -1158,6 +1157,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use hyf_rns_conformance::fixtures::PROFILE_1_KISS_RNODE;
     use hyf_rns_conformance::profile0::{REQUIRED_PROFILE_0_RESULTS, profile_0_report};
     use hyf_rns_conformance::report::{
         ConformanceEnvironment, ConformanceResult, ConformanceRun, OracleEnvironment,
@@ -1745,17 +1745,30 @@ mod tests {
     }
 
     #[test]
-    fn final_provenance_requires_explicit_oracle_path_policy()
+    fn final_provenance_allows_profile1_without_oracle_path_policy()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let hyf_repo = TestGitRepo::create()?;
+        let reticulum_repo = TestGitRepo::create()?;
+        let report = valid_profile1_report_for_repos(&hyf_repo, &reticulum_repo)?;
+        let mut args = provenance_args(&hyf_repo, &reticulum_repo);
+        args.expected_oracle_module_path = None;
+
+        validate_final_report_provenance(&report, &args)?;
+        Ok(())
+    }
+
+    #[test]
+    fn final_provenance_rejects_explicit_oracle_path_mismatch()
     -> Result<(), Box<dyn std::error::Error>> {
         let hyf_repo = TestGitRepo::create()?;
         let reticulum_repo = TestGitRepo::create()?;
         let report = valid_final_report_for_repos(&hyf_repo, &reticulum_repo)?;
         let mut args = provenance_args(&hyf_repo, &reticulum_repo);
-        args.expected_oracle_module_path = None;
+        args.expected_oracle_module_path = Some("wrong/RNS/__init__.py".to_owned());
 
         assert!(matches!(
             validate_final_report_provenance(&report, &args),
-            Err(CliError::MissingRequired("--expected-oracle-module-path"))
+            Err(CliError::ExpectedOracleModulePathMismatch { .. })
         ));
         Ok(())
     }
@@ -1884,6 +1897,21 @@ mod tests {
             oracle.reticulum_module_path = "RNS/__init__.py".to_owned();
         }
         Ok(report)
+    }
+
+    fn valid_profile1_report_for_repos(
+        hyf_repo: &TestGitRepo,
+        reticulum_repo: &TestGitRepo,
+    ) -> Result<ConformanceRun, CliError> {
+        Ok(ConformanceRun::new_profile(
+            PROFILE_1_KISS_RNODE,
+            "profile1-local-0001",
+            hyf_repo.commit()?,
+            reticulum_repo.commit()?,
+            "2026-07-08T00:00:00Z",
+            ConformanceEnvironment::new("macos", "aarch64", "rustc 1.92.0"),
+            Vec::new(),
+        ))
     }
 
     fn provenance_args(hyf_repo: &TestGitRepo, reticulum_repo: &TestGitRepo) -> ValidateArgs {
