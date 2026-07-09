@@ -393,6 +393,7 @@ name = "hyf_link_rnode"
 version = "0.1.0"
 dependencies = [
  "hyf_link_kiss",
+ "serde_json",
 ]
 
 [[package]]

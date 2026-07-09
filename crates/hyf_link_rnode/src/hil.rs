@@ -34,6 +34,7 @@ impl<'a> RNodeHilManifest<'a> {
 pub enum RNodeHilManifestError {
     EmptyRunId,
     EmptyGeneratedAt,
+    InvalidGeneratedAt,
     EmptyPort,
     InvalidBaud,
     RfTransmissionRecorded,
@@ -47,6 +48,9 @@ pub fn validate_hil_manifest(manifest: &RNodeHilManifest<'_>) -> Result<(), RNod
     if manifest.generated_at.is_empty() {
         return Err(RNodeHilManifestError::EmptyGeneratedAt);
     }
+    if !is_utc_rfc3339_timestamp(manifest.generated_at) {
+        return Err(RNodeHilManifestError::InvalidGeneratedAt);
+    }
     if manifest.port.is_empty() {
         return Err(RNodeHilManifestError::EmptyPort);
     }
@@ -57,6 +61,89 @@ pub fn validate_hil_manifest(manifest: &RNodeHilManifest<'_>) -> Result<(), RNod
         return Err(RNodeHilManifestError::RfTransmissionRecorded);
     }
     Ok(())
+}
+
+fn is_utc_rfc3339_timestamp(value: &str) -> bool {
+    let Some((date, time_with_zone)) = value.split_once('T') else {
+        return false;
+    };
+    let Some(time) = time_with_zone.strip_suffix('Z') else {
+        return false;
+    };
+
+    valid_rfc3339_date(date) && valid_rfc3339_time(time)
+}
+
+fn valid_rfc3339_date(date: &str) -> bool {
+    let bytes = date.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+
+    let Some(year) = parse_digits(&bytes[0..4]) else {
+        return false;
+    };
+    let Some(month) = parse_digits(&bytes[5..7]) else {
+        return false;
+    };
+    let Some(day) = parse_digits(&bytes[8..10]) else {
+        return false;
+    };
+    if year == 0 || !(1..=12).contains(&month) {
+        return false;
+    }
+
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=max_day).contains(&day)
+}
+
+fn valid_rfc3339_time(time: &str) -> bool {
+    let (whole_time, fractional) = match time.split_once('.') {
+        Some((whole_time, fractional)) => (whole_time, Some(fractional)),
+        None => (time, None),
+    };
+    let bytes = whole_time.as_bytes();
+    if bytes.len() != 8 || bytes[2] != b':' || bytes[5] != b':' {
+        return false;
+    }
+
+    let Some(hour) = parse_digits(&bytes[0..2]) else {
+        return false;
+    };
+    let Some(minute) = parse_digits(&bytes[3..5]) else {
+        return false;
+    };
+    let Some(second) = parse_digits(&bytes[6..8]) else {
+        return false;
+    };
+
+    hour <= 23
+        && minute <= 59
+        && second <= 59
+        && fractional.is_none_or(|value| {
+            !value.is_empty() && value.as_bytes().iter().all(u8::is_ascii_digit)
+        })
+}
+
+fn parse_digits(bytes: &[u8]) -> Option<u32> {
+    let mut value = 0_u32;
+    for byte in bytes {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value = value * 10 + u32::from(byte - b'0');
+    }
+    Some(value)
+}
+
+fn is_leap_year(year: u32) -> bool {
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 pub fn write_hil_manifest_json<W: Write>(
@@ -122,6 +209,9 @@ impl fmt::Display for RNodeHilManifestError {
         match self {
             Self::EmptyRunId => formatter.write_str("empty rnode hil manifest run id"),
             Self::EmptyGeneratedAt => formatter.write_str("empty rnode hil manifest generated_at"),
+            Self::InvalidGeneratedAt => {
+                formatter.write_str("invalid rnode hil manifest generated_at")
+            }
             Self::EmptyPort => formatter.write_str("empty rnode hil manifest port"),
             Self::InvalidBaud => formatter.write_str("invalid rnode hil manifest baud"),
             Self::RfTransmissionRecorded => {
@@ -152,6 +242,9 @@ mod tests {
     use super::{
         RNodeHilManifest, RNodeHilManifestError, validate_hil_manifest, write_hil_manifest_json,
     };
+    use serde_json::Value;
+
+    const HIL_SCHEMA: &str = include_str!("../../../schemas/rnode_hil_manifest.schema.json");
 
     #[test]
     fn manifest_writer_emits_non_transmitting_contract() -> Result<(), RNodeHilManifestError> {
@@ -168,6 +261,67 @@ mod tests {
         assert!(output.contains("\"baud\": 115200"));
         assert!(output.contains("\"transmission_performed\": false"));
         Ok(())
+    }
+
+    #[test]
+    fn manifest_writer_output_matches_schema_contract() -> Result<(), Box<dyn std::error::Error>> {
+        let mut manifest =
+            RNodeHilManifest::new("rnode-hil-test", "2026-07-09T00:00:00Z", "loop://rnode0");
+        manifest.hardware_model = Some("RNode Test");
+        manifest.firmware_version = Some("0.0.0-test");
+        let mut json = Vec::new();
+
+        write_hil_manifest_json(&manifest, &mut json)?;
+
+        let schema: Value = serde_json::from_str(HIL_SCHEMA)?;
+        let output: Value = serde_json::from_slice(&json)?;
+        assert_eq!(schema["properties"]["schema"]["const"], "hyf.rnode.hil.v1");
+        assert_eq!(schema["properties"]["generated_at"]["format"], "date-time");
+        assert_eq!(schema["properties"]["generated_at"]["pattern"], "Z$");
+        assert_eq!(output["schema"], "hyf.rnode.hil.v1");
+        assert_eq!(output["generated_at"], "2026-07-09T00:00:00Z");
+        assert_eq!(output["rnode"]["port"], "loop://rnode0");
+        assert_eq!(output["rnode"]["baud"], 115200);
+        assert_eq!(output["rnode"]["hardware_model"], "RNode Test");
+        assert_eq!(output["rnode"]["firmware_version"], "0.0.0-test");
+        assert_eq!(output["rf"]["allow_rf_tx"], false);
+        assert_eq!(output["rf"]["transmission_performed"], false);
+        assert_eq!(output["checks"].as_array().map(Vec::len), Some(0));
+        Ok(())
+    }
+
+    #[test]
+    fn validation_accepts_utc_generated_at_with_fractional_seconds() {
+        let manifest = RNodeHilManifest::new(
+            "rnode-hil-test",
+            "2026-07-09T00:00:00.123Z",
+            "loop://rnode0",
+        );
+
+        assert!(validate_hil_manifest(&manifest).is_ok());
+    }
+
+    #[test]
+    fn validation_rejects_schema_invalid_generated_at_values() {
+        for generated_at in [
+            "2026-07-09T00:00:00",
+            "2026-07-09T00:00:00+00:00",
+            "2026-13-09T00:00:00Z",
+            "2026-02-29T00:00:00Z",
+            "2024-02-30T00:00:00Z",
+            "2026-07-09T24:00:00Z",
+            "2026-07-09T00:60:00Z",
+            "2026-07-09T00:00:60Z",
+            "2026-07-09T00:00:00.Z",
+            "not-a-date",
+        ] {
+            let manifest = RNodeHilManifest::new("rnode-hil-test", generated_at, "loop://rnode0");
+
+            assert!(matches!(
+                validate_hil_manifest(&manifest),
+                Err(RNodeHilManifestError::InvalidGeneratedAt)
+            ));
+        }
     }
 
     #[test]
