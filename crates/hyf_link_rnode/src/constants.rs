@@ -43,6 +43,7 @@ pub const RNODE_RSSI_OFFSET: i16 = 157;
 pub const RNODE_REQUIRED_FW_MAJOR: u8 = 1;
 pub const RNODE_REQUIRED_FW_MINOR: u8 = 52;
 pub const RNODE_HIL_MANIFEST_SCHEMA: &str = "hyf.rnode.hil.v1";
+pub const RNODE_HIL_DEFAULT_BAUD: u32 = 115_200;
 
 #[cfg(test)]
 mod tests {

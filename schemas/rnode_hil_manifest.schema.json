@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyfmesh.org/schemas/rnode_hil_manifest.schema.json",
+  "title": "HYF RNode HIL Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "generated_at",
+    "rnode",
+    "rf",
+    "checks"
+  ],
+  "properties": {
+    "schema": {
+      "const": "hyf.rnode.hil.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "rnode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "port",
+        "baud",
+        "hardware_model",
+        "firmware_version"
+      ],
+      "properties": {
+        "port": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baud": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "hardware_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firmware_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "rf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allow_rf_tx",
+        "transmission_performed"
+      ],
+      "properties": {
+        "allow_rf_tx": {
+          "type": "boolean"
+        },
+        "transmission_performed": {
+          "const": false
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "status"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "skipped"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
