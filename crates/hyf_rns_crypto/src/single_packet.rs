@@ -1,3 +1,5 @@
+use core::fmt;
+
 use rand_core::TryCryptoRng;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 use zeroize::Zeroizing;
@@ -12,7 +14,7 @@ use crate::{
 pub const RNS_SINGLE_PACKET_EPHEMERAL_PUBLIC_LEN: usize = RNS_IDENTITY_KEY_LEN;
 pub const RNS_SINGLE_PACKET_DERIVED_KEY_LEN: usize = 64;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct RnsRatchetSecretRef<'a> {
     secret: &'a [u8; RNS_IDENTITY_KEY_LEN],
 }
@@ -27,7 +29,16 @@ impl<'a> RnsRatchetSecretRef<'a> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+impl fmt::Debug for RnsRatchetSecretRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RnsRatchetSecretRef")
+            .field("secret", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Eq, PartialEq)]
 pub struct RnsDecryptOutcome<'a> {
     pub plaintext: &'a [u8],
     pub ratchet_index: Option<usize>,
@@ -40,6 +51,17 @@ impl<'a> RnsDecryptOutcome<'a> {
 
     pub const fn ratchet_index(&self) -> Option<usize> {
         self.ratchet_index
+    }
+}
+
+impl fmt::Debug for RnsDecryptOutcome<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RnsDecryptOutcome")
+            .field("plaintext", &"<redacted>")
+            .field("plaintext_len", &self.plaintext.len())
+            .field("ratchet_index", &self.ratchet_index)
+            .finish()
     }
 }
 
@@ -260,6 +282,33 @@ mod tests {
         0xaf,
     ];
     const PLAINTEXT: &[u8] = b"hello identity";
+
+    #[test]
+    fn ratchet_secret_debug_redacts_secret_bytes() {
+        let secret = [171; 32];
+        let debug = format!("{:?}", RnsRatchetSecretRef::new(&secret));
+
+        assert!(debug.contains("RnsRatchetSecretRef"));
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("171"));
+        assert!(!debug.contains("ab"));
+    }
+
+    #[test]
+    fn decrypt_outcome_debug_redacts_plaintext_bytes() {
+        let outcome = super::RnsDecryptOutcome {
+            plaintext: b"sensitive plaintext",
+            ratchet_index: Some(3),
+        };
+        let debug = format!("{outcome:?}");
+
+        assert!(debug.contains("RnsDecryptOutcome"));
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("plaintext_len"));
+        assert!(debug.contains("ratchet_index"));
+        assert!(!debug.contains("sensitive plaintext"));
+        assert!(!debug.contains("115, 101, 110"));
+    }
 
     #[test]
     fn deterministic_identity_encryption_roundtrips() -> Result<(), RnsCryptoError> {
