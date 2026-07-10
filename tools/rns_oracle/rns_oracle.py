@@ -28,6 +28,7 @@ FEND = 0xC0
 FESC = 0xDB
 TFEND = 0xDC
 TFESC = 0xDD
+HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 
 
 class OracleError(Exception):
@@ -612,7 +613,7 @@ def handle_identity_encrypt_test_only(
 def handle_kiss_encode(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
     case = find_case(store.profile_1("kiss_vectors.json"), args.case_id)
     command = int(validate_hex(case["command_hex"], "command"), 16)
-    payload = bytes.fromhex(validate_hex(case["payload_hex"], "payload"))
+    payload = bytes.fromhex(validate_hex(case["payload_hex"], "payload", allow_empty=True))
     encoded = encode_kiss(command, payload).hex()
     if encoded != case["encoded_hex"]:
         raise OracleError("KISS fixture replay mismatch")
@@ -621,12 +622,13 @@ def handle_kiss_encode(args: argparse.Namespace, store: FixtureStore) -> dict[st
 
 def handle_kiss_decode(args: argparse.Namespace, store: FixtureStore) -> dict[str, Any]:
     del store
-    frame = bytes.fromhex(validate_hex(args.hex_value, "KISS frame"))
+    frame_hex = validate_hex(args.hex_value, "KISS frame")
+    frame = bytes.fromhex(frame_hex)
     frames = decode_kiss(frame)
     return envelope(
         "kiss-decode",
         {
-            "encoded_hex": args.hex_value.lower(),
+            "encoded_hex": frame_hex,
             "frames": [
                 {
                     "kind": "data" if command == 0 else "command",
@@ -769,15 +771,16 @@ def envelope(
     return result
 
 
-def validate_hex(value: str, label: str) -> str:
-    normalized = value.lower()
-    if len(normalized) % 2 != 0:
+def validate_hex(value: str, label: str, *, allow_empty: bool = False) -> str:
+    if value == "":
+        if allow_empty:
+            return ""
+        raise OracleError(f"{label} hex must not be empty")
+    if len(value) % 2 != 0:
         raise OracleError(f"{label} hex must have an even length")
-    try:
-        bytes.fromhex(normalized)
-    except ValueError as error:
-        raise OracleError(f"{label} is not valid hex") from error
-    return normalized
+    if any(character not in HEX_DIGITS for character in value):
+        raise OracleError(f"{label} is not valid canonical hex")
+    return value.lower()
 
 
 def validate_optional_hex(
@@ -786,11 +789,12 @@ def validate_optional_hex(
     label: str,
     *,
     lengths: set[int] | None = None,
+    allow_empty: bool = False,
 ) -> str | None:
     value = getattr(args, attr, None)
     if value is None:
         return None
-    normalized = validate_hex(value, label)
+    normalized = validate_hex(value, label, allow_empty=allow_empty)
     byte_len = len(normalized) // 2
     if lengths is not None and byte_len not in lengths:
         allowed = " or ".join(str(length) for length in sorted(lengths))
@@ -805,14 +809,19 @@ def validate_token_test_inputs(args: argparse.Namespace) -> str | None:
         "test token key",
         lengths={32, 64},
     )
-    validate_optional_hex(args, "test_plaintext_hex", "test plaintext")
+    validate_optional_hex(args, "test_plaintext_hex", "test plaintext", allow_empty=True)
     validate_optional_hex(args, "test_iv_hex", "test IV", lengths={16})
     return token_key_hex
 
 
 def validate_token_generation_test_inputs(args: argparse.Namespace) -> tuple[str, str, str]:
     token_key_hex = validate_token_test_inputs(args)
-    plaintext_hex = validate_optional_hex(args, "test_plaintext_hex", "test plaintext")
+    plaintext_hex = validate_optional_hex(
+        args,
+        "test_plaintext_hex",
+        "test plaintext",
+        allow_empty=True,
+    )
     iv_hex = validate_optional_hex(args, "test_iv_hex", "test IV", lengths={16})
     if token_key_hex is None or plaintext_hex is None or iv_hex is None:
         raise OracleError(
@@ -845,7 +854,12 @@ def validate_identity_encrypt_test_inputs(
         "test recipient secret identity",
         lengths={64},
     )
-    plaintext_hex = validate_optional_hex(args, "test_plaintext_hex", "test plaintext")
+    plaintext_hex = validate_optional_hex(
+        args,
+        "test_plaintext_hex",
+        "test plaintext",
+        allow_empty=True,
+    )
     ephemeral_secret_hex = validate_optional_hex(
         args,
         "test_ephemeral_secret_hex",

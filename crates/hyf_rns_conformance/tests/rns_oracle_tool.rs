@@ -54,6 +54,17 @@ fn rns_oracle_tool_replays_profile_1_and_profile_2_vectors() -> Result<(), Oracl
         }])
     );
 
+    let Some(kiss_decode_upper_response) =
+        run_oracle(&["kiss-decode", "--hex", "C000DBDCDBDD01C0"])?
+    else {
+        return Ok(());
+    };
+    assert_eq!(kiss_decode_upper_response.command, "kiss-decode");
+    assert_eq!(
+        kiss_decode_upper_response.encoded_hex,
+        Some("c000dbdcdbdd01c0".to_owned())
+    );
+
     let Some(rnode_response) =
         run_oracle(&["rnode-command", "--case", "rnode.command.frequency_915mhz"])?
     else {
@@ -130,6 +141,16 @@ fn rns_oracle_tool_rejects_bad_hex_inputs() -> Result<(), OracleToolError> {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("token hex must have an even length"));
+    assert!(output.stdout.is_empty());
+
+    let Some(output) = run_oracle_raw(&["kiss-decode", "--hex", "c0 0"])? else {
+        return Ok(());
+    };
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("KISS frame is not valid canonical hex")
+    );
     assert!(output.stdout.is_empty());
 
     Ok(())
