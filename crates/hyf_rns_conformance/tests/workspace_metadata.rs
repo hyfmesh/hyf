@@ -249,9 +249,9 @@ fn text_hex_fuzz_corpus_targets_decode_seed_input() -> TestResult {
             .join("fuzz/fuzz_targets")
             .join(format!("{target}.rs"));
         let source = fs::read_to_string(&target_path)?;
-        if !source.contains("mod seed_input;") || !source.contains("seed_input::input_bytes(") {
+        if !source.contains("hyf_fuzz::seed_input::input_bytes(") {
             return Err(std::io::Error::other(format!(
-                "text-hex corpus target {target} does not decode seed_input in {}",
+                "text-hex corpus target {target} does not use shared seed_input in {}",
                 target_path.display()
             ))
             .into());

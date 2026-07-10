@@ -1,7 +1,5 @@
 #![no_main]
 
-mod seed_input;
-
 use hyf_rns_core::RNS_MTU;
 use hyf_rns_crypto::secret_identity_from_bytes;
 use hyf_rns_wire::ifac_verify_inbound;
@@ -23,7 +21,7 @@ const IFAC_SECRET_IDENTITY: [u8; 64] = [
 
 fuzz_target!(|data: &[u8]| {
     let mut decoded = [0; RNS_MTU];
-    let input = seed_input::input_bytes(data, &mut decoded);
+    let input = hyf_fuzz::seed_input::input_bytes(data, &mut decoded);
 
     if let Ok(identity) = secret_identity_from_bytes(&IFAC_SECRET_IDENTITY) {
         let mut output = [0; 512];
