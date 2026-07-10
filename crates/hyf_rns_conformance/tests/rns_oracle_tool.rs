@@ -31,6 +31,29 @@ fn rns_oracle_tool_replays_profile_1_and_profile_2_vectors() -> Result<(), Oracl
         Some("c000dbdcdbdd01c0".to_owned())
     );
 
+    let Some(kiss_decode_response) = run_oracle(&["kiss-decode", "--hex", "c000dbdcdbdd01c0"])?
+    else {
+        return Ok(());
+    };
+    assert_eq!(kiss_decode_response.command, "kiss-decode");
+    assert_eq!(kiss_decode_response.oracle.mode, "fixture_replay");
+    assert_eq!(
+        kiss_decode_response.oracle.reticulum.commit,
+        EXPECTED_RETICULUM_COMMIT
+    );
+    assert_eq!(
+        kiss_decode_response.encoded_hex,
+        Some("c000dbdcdbdd01c0".to_owned())
+    );
+    assert_eq!(
+        kiss_decode_response.frames,
+        Some(vec![OracleFrame {
+            kind: "data".to_owned(),
+            command_hex: "00".to_owned(),
+            payload_hex: "c0db01".to_owned(),
+        }])
+    );
+
     let Some(rnode_response) =
         run_oracle(&["rnode-command", "--case", "rnode.command.frequency_915mhz"])?
     else {
@@ -867,6 +890,8 @@ struct OracleResponse {
     reticulum_self_validation: Option<String>,
     test_only_secret_material: Option<bool>,
     unmasked_hex: Option<String>,
+    encoded_hex: Option<String>,
+    frames: Option<Vec<OracleFrame>>,
     error: Option<String>,
 }
 
@@ -885,6 +910,13 @@ struct ReticulumMetadata {
 struct OracleCase {
     encoded_hex: Option<String>,
     kiss_frame_hex: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+struct OracleFrame {
+    kind: String,
+    command_hex: String,
+    payload_hex: String,
 }
 
 #[derive(Debug)]

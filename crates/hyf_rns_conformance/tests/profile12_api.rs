@@ -200,8 +200,11 @@ fn profile_2_rust_proof_inputs_debug_redacts_hex_material() -> Result<(), Box<dy
 
 #[test]
 fn profile_1_final_report_uses_strict_oracle_rows() -> Result<(), Box<dyn std::error::Error>> {
-    let evidence =
-        Profile1FinalEvidence::new(vec!["kiss-encode".to_owned(), "rnode-command".to_owned()])?;
+    let evidence = Profile1FinalEvidence::new(vec![
+        "kiss-encode".to_owned(),
+        "kiss-decode".to_owned(),
+        "rnode-command".to_owned(),
+    ])?;
     let report = profile_1_final_report(
         "profile1-final-0001",
         "1111111111111111111111111111111111111111",
@@ -223,7 +226,7 @@ fn profile_1_final_report_uses_strict_oracle_rows() -> Result<(), Box<dyn std::e
         report.results[5].detail.as_deref(),
         Some(
             "oracle_mode=fixture_replay; evidence_role=fixture_replay; \
-             compatibility_proof=false; commands=kiss-encode,rnode-command; \
+             compatibility_proof=false; commands=kiss-encode,kiss-decode,rnode-command; \
              reticulum_commit=422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
         )
     );
@@ -232,8 +235,11 @@ fn profile_1_final_report_uses_strict_oracle_rows() -> Result<(), Box<dyn std::e
 
 #[test]
 fn profile_1_final_report_rejects_wrong_oracle_detail() -> Result<(), Box<dyn std::error::Error>> {
-    let evidence =
-        Profile1FinalEvidence::new(vec!["kiss-encode".to_owned(), "rnode-command".to_owned()])?;
+    let evidence = Profile1FinalEvidence::new(vec![
+        "kiss-encode".to_owned(),
+        "kiss-decode".to_owned(),
+        "rnode-command".to_owned(),
+    ])?;
     let mut report = profile_1_final_report(
         "profile1-final-0001",
         "1111111111111111111111111111111111111111",
@@ -243,13 +249,16 @@ fn profile_1_final_report_rejects_wrong_oracle_detail() -> Result<(), Box<dyn st
     )?;
     report.results[5].detail = Some(
         "oracle_mode=fixture_replay; evidence_role=fixture_replay; \
-         compatibility_proof=true; commands=kiss-encode,rnode-command; \
+         compatibility_proof=true; commands=kiss-encode,kiss-decode,rnode-command; \
          reticulum_commit=422dc05549bf28f45e9b9c5172336a1ba4df0ec0"
             .to_owned(),
     );
 
     assert!(validate_profile_1_final_report(&report).is_err());
-    assert!(Profile1FinalEvidence::new(vec!["kiss-encode".to_owned()]).is_err());
+    assert!(
+        Profile1FinalEvidence::new(vec!["kiss-encode".to_owned(), "rnode-command".to_owned()])
+            .is_err()
+    );
     Ok(())
 }
 

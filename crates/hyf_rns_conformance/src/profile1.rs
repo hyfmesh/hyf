@@ -21,6 +21,10 @@ pub const CATEGORY_RNODE_COMMAND: &str = "rnode_command";
 pub const CATEGORY_RNODE_CONFIG_VALIDATION: &str = "rnode_config_validation";
 pub const CATEGORY_RNODE_STAT: &str = "rnode_stat";
 pub const CATEGORY_RNS_ORACLE_FIXTURE_REPLAY: &str = "rns_oracle_fixture_replay";
+const PROFILE_1_KISS_DECODE_CAPTURE_HEX: &str = "c000dbdcdbdd01c0";
+const PROFILE_1_KISS_DECODE_KIND: &str = "data";
+const PROFILE_1_KISS_DECODE_COMMAND_HEX: &str = "00";
+const PROFILE_1_KISS_DECODE_PAYLOAD_HEX: &str = "c0db01";
 
 pub const RESULT_ID_FIXTURE_MANIFEST: &str = "profile_1_kiss_rnode.fixture_manifest";
 pub const RESULT_ID_KISS: &str = "profile_1_kiss_rnode.kiss";
@@ -87,7 +91,7 @@ pub const PROFILE_1_FINAL_RESULTS: &[ExpectedFinalResult<'_>] = &[
             oracle_mode: "fixture_replay",
             evidence_role: "fixture_replay",
             compatibility_proof: false,
-            commands: "kiss-encode,rnode-command",
+            commands: "kiss-encode,kiss-decode,rnode-command",
         }),
     },
 ];
@@ -151,9 +155,9 @@ pub struct Profile1FinalEvidence {
 
 impl Profile1FinalEvidence {
     pub fn new(fixture_replay_commands: Vec<String>) -> Result<Self, FinalReportError> {
-        if fixture_replay_commands.as_slice() != ["kiss-encode", "rnode-command"] {
+        if fixture_replay_commands.as_slice() != ["kiss-encode", "kiss-decode", "rnode-command"] {
             return Err(invalid_evidence(
-                "Profile 1 final evidence requires kiss-encode,rnode-command fixture replay",
+                "Profile 1 final evidence requires kiss-encode,kiss-decode,rnode-command fixture replay",
             ));
         }
         Ok(Self {
@@ -163,6 +167,7 @@ impl Profile1FinalEvidence {
 
     pub fn from_capture_dir(capture_dir: &Path) -> Result<Self, FinalReportError> {
         let kiss = load_capture(capture_dir, "kiss_encode.json")?;
+        let kiss_decode = load_capture(capture_dir, "kiss_decode.json")?;
         let rnode = load_capture(capture_dir, "rnode_command.json")?;
         expect_capture(
             &kiss,
@@ -171,6 +176,14 @@ impl Profile1FinalEvidence {
             "fixture_replay",
             EXPECTED_RETICULUM_COMMIT,
         )?;
+        expect_capture(
+            &kiss_decode,
+            "kiss_decode.json",
+            "kiss-decode",
+            "fixture_replay",
+            EXPECTED_RETICULUM_COMMIT,
+        )?;
+        expect_kiss_decode_capture(&kiss_decode)?;
         expect_capture(
             &rnode,
             "rnode_command.json",
@@ -181,9 +194,61 @@ impl Profile1FinalEvidence {
 
         Self::new(vec![
             required_string_field(&kiss, "kiss_encode.json", "command")?.to_owned(),
+            required_string_field(&kiss_decode, "kiss_decode.json", "command")?.to_owned(),
             required_string_field(&rnode, "rnode_command.json", "command")?.to_owned(),
         ])
     }
+}
+
+fn expect_kiss_decode_capture(document: &Value) -> Result<(), FinalReportError> {
+    expect_string_value(
+        document.get("encoded_hex"),
+        "kiss_decode.json encoded_hex",
+        PROFILE_1_KISS_DECODE_CAPTURE_HEX,
+    )?;
+    let Some(frames) = document.get("frames").and_then(Value::as_array) else {
+        return Err(invalid_evidence("kiss_decode.json is missing frames array"));
+    };
+    if frames.len() != 1 {
+        return Err(invalid_evidence(format!(
+            "kiss_decode.json expected 1 decoded frame, got {}",
+            frames.len()
+        )));
+    }
+    let frame = &frames[0];
+    expect_string_value(
+        frame.get("kind"),
+        "kiss_decode.json frames[0].kind",
+        PROFILE_1_KISS_DECODE_KIND,
+    )?;
+    expect_string_value(
+        frame.get("command_hex"),
+        "kiss_decode.json frames[0].command_hex",
+        PROFILE_1_KISS_DECODE_COMMAND_HEX,
+    )?;
+    expect_string_value(
+        frame.get("payload_hex"),
+        "kiss_decode.json frames[0].payload_hex",
+        PROFILE_1_KISS_DECODE_PAYLOAD_HEX,
+    )
+}
+
+fn expect_string_value(
+    value: Option<&Value>,
+    label: &str,
+    expected: &str,
+) -> Result<(), FinalReportError> {
+    let Some(actual) = value.and_then(Value::as_str) else {
+        return Err(invalid_evidence(format!(
+            "{label} is missing or not a string"
+        )));
+    };
+    if actual != expected {
+        return Err(invalid_evidence(format!(
+            "{label} mismatch: expected {expected}, got {actual}"
+        )));
+    }
+    Ok(())
 }
 
 pub fn profile_1_final_results(evidence: &Profile1FinalEvidence) -> Vec<ConformanceResult> {
