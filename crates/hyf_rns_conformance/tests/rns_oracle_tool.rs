@@ -196,6 +196,24 @@ fn rns_oracle_tool_rejects_bad_test_only_inputs() -> Result<(), OracleToolError>
     ));
     assert!(output.stdout.is_empty());
 
+    let Some(output) = run_oracle_raw(&[
+        "identity-decrypt",
+        "--hex",
+        "00",
+        "--test-ratchet-secret-hex",
+        &hex(&EPHEMERAL_SECRET),
+    ])?
+    else {
+        return Ok(());
+    };
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("unrecognized arguments: --test-ratchet-secret-hex")
+    );
+    assert!(output.stdout.is_empty());
+
     Ok(())
 }
 

@@ -145,7 +145,6 @@ def add_token_test_flags(parser: argparse.ArgumentParser) -> None:
 def add_identity_test_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--reticulum-path")
     parser.add_argument("--test-recipient-secret-identity-hex")
-    parser.add_argument("--test-ratchet-secret-hex", action="append", default=[])
 
 
 def add_identity_encrypt_test_flags(parser: argparse.ArgumentParser) -> None:
@@ -823,17 +822,12 @@ def validate_token_generation_test_inputs(args: argparse.Namespace) -> tuple[str
 
 
 def validate_identity_test_inputs(args: argparse.Namespace) -> str | None:
-    recipient_secret_hex = validate_optional_hex(
+    return validate_optional_hex(
         args,
         "test_recipient_secret_identity_hex",
         "test recipient secret identity",
         lengths={64},
     )
-    for ratchet_hex in getattr(args, "test_ratchet_secret_hex", []):
-        normalized = validate_hex(ratchet_hex, "test ratchet secret")
-        if len(normalized) // 2 != 32:
-            raise OracleError("test ratchet secret hex must be 32 bytes")
-    return recipient_secret_hex
 
 
 def validate_identity_encrypt_test_inputs(
