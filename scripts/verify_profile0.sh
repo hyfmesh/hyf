@@ -16,12 +16,12 @@ run() {
 
 require_clean_workflow_boundary() {
     if [ -e .act ]; then
-        echo "public hyf/.act must not exist; use the private root .act directory instead" >&2
+        echo "public workflow-like files are not allowed under .act" >&2
         exit 1
     fi
 
     if [ -e .github/workflows ]; then
-        echo "public hyf/.github/workflows must not exist; use the private root .act directory instead" >&2
+        echo "public workflow files are not allowed under .github/workflows" >&2
         exit 1
     fi
 
