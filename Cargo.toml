@@ -5,6 +5,7 @@ members = [
     "crates/hyf_crypto",
     "crates/hyf_wire",
     "crates/hyf_link",
+    "crates/hyf_store",
     "crates/hyf_link_kiss",
     "crates/hyf_link_rnode",
     "crates/hyf_rns_core",
@@ -27,6 +28,7 @@ hyf_core = { path = "crates/hyf_core", default-features = false }
 hyf_crypto = { path = "crates/hyf_crypto", default-features = false }
 hyf_wire = { path = "crates/hyf_wire", default-features = false }
 hyf_link = { path = "crates/hyf_link", default-features = false }
+hyf_store = { path = "crates/hyf_store", default-features = false }
 hyf_link_kiss = { path = "crates/hyf_link_kiss", default-features = false }
 hyf_link_rnode = { path = "crates/hyf_link_rnode", default-features = false }
 hyf_rns_core = { path = "crates/hyf_rns_core", default-features = false }
