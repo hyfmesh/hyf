@@ -37,7 +37,27 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
     common_features("hyf_link_loopback"),
     common_features("hyf_config"),
     common_features("hyf_link_rns"),
-    common_features("hyf_link_rnode_serial"),
+    FeatureSurface {
+        package: "hyf_link_rnode_serial",
+        features: &[
+            FeatureSpec {
+                name: "alloc",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "serialport_runtime",
+                enables: &["dep:serialport", "std"],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &["alloc"],
+            },
+        ],
+    },
     FeatureSurface {
         package: "hyf_gateway",
         features: &[

@@ -14,10 +14,12 @@ hyf_link_kiss.workspace = true
 hyf_link_rnode.workspace = true
 hyf_link_rns.workspace = true
 hyf_wire.workspace = true
+serialport = { workspace = true, optional = true }
 
 [features]
 default = []
 alloc = []
+serialport_runtime = ["dep:serialport", "std"]
 std = ["alloc"]
 
 [lints]

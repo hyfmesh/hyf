@@ -15,6 +15,8 @@ mod link;
 pub use config::{RNodeDataMode, RNodeSerialConfig};
 pub use error::RNodeSerialError;
 pub use event::RNodeSerialEvent;
+#[cfg(feature = "serialport_runtime")]
+pub use io::SerialPortIo;
 pub use io::{FakeSerial, SerialIo};
 pub use link::RNodeSerialLink;
 

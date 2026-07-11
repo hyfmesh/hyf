@@ -469,6 +469,7 @@ dependencies = [
  "hyf_link_rnode",
  "hyf_link_rns",
  "hyf_wire",
+ "serialport",
 ]
 
 [[package]]

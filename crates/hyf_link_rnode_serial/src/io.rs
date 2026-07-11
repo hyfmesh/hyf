@@ -1,6 +1,9 @@
 use core::cmp::min;
 use core::fmt;
 
+#[cfg(feature = "serialport_runtime")]
+use std::io::{Read, Write};
+
 use crate::RNodeSerialError;
 
 pub trait SerialIo {
@@ -137,6 +140,60 @@ impl<const RX_MAX: usize, const TX_MAX: usize> SerialIo for FakeSerial<RX_MAX, T
         self.written[self.written_len..required].copy_from_slice(input);
         self.written_len = required;
         Ok(())
+    }
+}
+
+#[cfg(feature = "serialport_runtime")]
+pub struct SerialPortIo {
+    port: std::boxed::Box<dyn serialport::SerialPort>,
+}
+
+#[cfg(feature = "serialport_runtime")]
+impl fmt::Debug for SerialPortIo {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SerialPortIo")
+            .field("port", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "serialport_runtime")]
+impl SerialPortIo {
+    pub fn open(path: &str, baud_rate: u32, timeout_ms: u64) -> Result<Self, RNodeSerialError> {
+        let port = serialport::new(path, baud_rate)
+            .timeout(std::time::Duration::from_millis(timeout_ms))
+            .open()
+            .map_err(|_| RNodeSerialError::SerialOpenFailure)?;
+        Ok(Self { port })
+    }
+
+    pub fn from_port(port: std::boxed::Box<dyn serialport::SerialPort>) -> Self {
+        Self { port }
+    }
+}
+
+#[cfg(feature = "serialport_runtime")]
+impl SerialIo for SerialPortIo {
+    fn read(&mut self, output: &mut [u8]) -> Result<usize, RNodeSerialError> {
+        match self.port.read(output) {
+            Ok(read) => Ok(read),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                Ok(0)
+            }
+            Err(_) => Err(RNodeSerialError::SerialReadFailure),
+        }
+    }
+
+    fn write_all(&mut self, input: &[u8]) -> Result<(), RNodeSerialError> {
+        self.port
+            .write_all(input)
+            .map_err(|_| RNodeSerialError::SerialWriteFailure)
     }
 }
 

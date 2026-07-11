@@ -15,6 +15,9 @@ pub enum RNodeSerialError {
     WriteBufferFull { required: usize, capacity: usize },
     InjectedReadFailure,
     InjectedWriteFailure,
+    SerialOpenFailure,
+    SerialReadFailure,
+    SerialWriteFailure,
     FlowControlBlocked,
     RnsWrapParamsRequired,
     RnsWrapParamsUnexpected,
@@ -48,6 +51,9 @@ impl fmt::Display for RNodeSerialError {
             Self::InjectedWriteFailure => {
                 formatter.write_str("injected rnode serial write failure")
             }
+            Self::SerialOpenFailure => formatter.write_str("rnode serial port open failure"),
+            Self::SerialReadFailure => formatter.write_str("rnode serial port read failure"),
+            Self::SerialWriteFailure => formatter.write_str("rnode serial port write failure"),
             Self::FlowControlBlocked => formatter.write_str("rnode serial flow control blocked"),
             Self::RnsWrapParamsRequired => {
                 formatter.write_str("rnode serial raw rns mode requires wrap params")
@@ -75,6 +81,9 @@ impl LinkDriverError for RNodeSerialError {
             }
             Self::InjectedReadFailure => LinkDriverErrorKind::TransientReceive,
             Self::InjectedWriteFailure => LinkDriverErrorKind::TransientSend,
+            Self::SerialOpenFailure => LinkDriverErrorKind::Fatal,
+            Self::SerialReadFailure => LinkDriverErrorKind::TransientReceive,
+            Self::SerialWriteFailure => LinkDriverErrorKind::TransientSend,
             Self::RnsWrapParamsRequired | Self::RnsWrapParamsUnexpected => {
                 LinkDriverErrorKind::Unsupported
             }
@@ -146,6 +155,10 @@ mod tests {
             "rnode serial raw rns mode requires wrap params"
         );
         assert_eq!(
+            RNodeSerialError::SerialOpenFailure.to_string(),
+            "rnode serial port open failure"
+        );
+        assert_eq!(
             RNodeSerialError::FrameTooLarge { actual: 5, mtu: 4 }.to_string(),
             "rnode serial frame too large: actual 5, mtu 4"
         );
@@ -160,6 +173,10 @@ mod tests {
         assert_eq!(
             RNodeSerialError::InjectedReadFailure.driver_error_kind(),
             hyf_link::LinkDriverErrorKind::TransientReceive
+        );
+        assert_eq!(
+            RNodeSerialError::SerialWriteFailure.driver_error_kind(),
+            hyf_link::LinkDriverErrorKind::TransientSend
         );
         assert_eq!(
             RNodeSerialError::Kiss(hyf_link_kiss::KissError::MalformedEscape { byte: 0 })
