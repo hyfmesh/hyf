@@ -2,7 +2,7 @@ use core::fmt;
 
 use hyf_config::GatewayConfig;
 use hyf_core::{MessageId, TimestampMs};
-use hyf_link::LinkId;
+use hyf_link::{LinkFrameRef, LinkId};
 use hyf_link_loopback::{
     LOOPBACK_LEFT_ID, LOOPBACK_MAX_FRAME_LEN, LOOPBACK_RIGHT_ID, LoopbackEndpoint, LoopbackPair,
 };
@@ -87,6 +87,20 @@ impl<
 
     pub fn stored_len(&self) -> usize {
         self.store.len()
+    }
+
+    pub fn loopback_queued_len(&mut self, link_id: LinkId) -> Result<usize, GatewayError> {
+        let (left, right) = self.loopback.split();
+        Ok(endpoint_for_link(left, right, link_id)?.queued_len())
+    }
+
+    pub fn receive_loopback_frame<'b>(
+        &mut self,
+        link_id: LinkId,
+        output: &'b mut [u8],
+    ) -> Result<Option<LinkFrameRef<'b>>, GatewayError> {
+        let (left, right) = self.loopback.split();
+        Ok(endpoint_for_link(left, right, link_id)?.receive_into(output)?)
     }
 
     pub fn submit(&mut self, envelope: HyfEnvelopeRef<'a>) -> Result<(), GatewayError> {
