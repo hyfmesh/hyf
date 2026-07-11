@@ -72,6 +72,24 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         }
     }
 
+    pub fn forward_stored<'a>(
+        &mut self,
+        envelope: HyfEnvelopeRef<'a>,
+        out: &mut [RouterCommand<'a>],
+    ) -> Result<usize, RouterError> {
+        if let Some(count) = self.reject_terminal_envelope(envelope, out)? {
+            return Ok(count);
+        }
+        if self.is_local_destination(envelope.destination) {
+            return emit(out, RouterCommand::DeliverLocal(envelope));
+        }
+        if let Some(link_id) = self.first_up_link_except(None) {
+            return emit(out, RouterCommand::Send { link_id, envelope });
+        }
+
+        Ok(0)
+    }
+
     fn handle_frame<'a>(
         &mut self,
         frame: LinkFrameRef<'a>,
@@ -95,36 +113,8 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         ingress: Option<LinkId>,
         out: &mut [RouterCommand<'a>],
     ) -> Result<usize, RouterError> {
-        if let Err(error) = validate_envelope(envelope) {
-            return match invalid_envelope_drop_reason(error) {
-                Some(reason) => emit(
-                    out,
-                    RouterCommand::Drop {
-                        message_id: envelope.message_id,
-                        reason,
-                    },
-                ),
-                None => Err(RouterError::InvalidEnvelope(error)),
-            };
-        }
-
-        if envelope.expires_at_ms.0 <= self.now_ms.0 {
-            return emit(
-                out,
-                RouterCommand::Drop {
-                    message_id: envelope.message_id,
-                    reason: DropReason::Expired,
-                },
-            );
-        }
-        if envelope.hop_limit == 0 {
-            return emit(
-                out,
-                RouterCommand::Drop {
-                    message_id: envelope.message_id,
-                    reason: DropReason::HopLimitExhausted,
-                },
-            );
+        if let Some(count) = self.reject_terminal_envelope(envelope, out)? {
+            return Ok(count);
         }
         if self.has_seen(envelope.message_id) {
             return emit(
@@ -144,6 +134,49 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         }
 
         emit(out, RouterCommand::Store(RouterStoreCommand::Put(envelope)))
+    }
+
+    fn reject_terminal_envelope<'a>(
+        &self,
+        envelope: HyfEnvelopeRef<'a>,
+        out: &mut [RouterCommand<'a>],
+    ) -> Result<Option<usize>, RouterError> {
+        if let Err(error) = validate_envelope(envelope) {
+            return match invalid_envelope_drop_reason(error) {
+                Some(reason) => emit(
+                    out,
+                    RouterCommand::Drop {
+                        message_id: envelope.message_id,
+                        reason,
+                    },
+                )
+                .map(Some),
+                None => Err(RouterError::InvalidEnvelope(error)),
+            };
+        }
+
+        if envelope.expires_at_ms.0 <= self.now_ms.0 {
+            return emit(
+                out,
+                RouterCommand::Drop {
+                    message_id: envelope.message_id,
+                    reason: DropReason::Expired,
+                },
+            )
+            .map(Some);
+        }
+        if envelope.hop_limit == 0 {
+            return emit(
+                out,
+                RouterCommand::Drop {
+                    message_id: envelope.message_id,
+                    reason: DropReason::HopLimitExhausted,
+                },
+            )
+            .map(Some);
+        }
+
+        Ok(None)
     }
 
     fn set_link_state(&mut self, link_id: LinkId, up: bool) -> Result<(), RouterError> {
@@ -366,6 +399,72 @@ pub(crate) mod tests {
             RouterCommand::Drop {
                 message_id: envelope.message_id,
                 reason: DropReason::Duplicate,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stored_forwarding_uses_router_link_state() -> Result<(), RouterError> {
+        let mut router = router();
+        let envelope = sample_envelope(MessageId([5; 32]), 100, 300, 1, b"stored");
+        let mut out = [drop_command(); 1];
+
+        assert_eq!(router.forward_stored(envelope, &mut out)?, 0);
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_A }),
+            &mut out,
+        )?;
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_B }),
+            &mut out,
+        )?;
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Down { link_id: LINK_A }),
+            &mut out,
+        )?;
+
+        assert_eq!(router.forward_stored(envelope, &mut out)?, 1);
+        assert_eq!(
+            out[0],
+            RouterCommand::Send {
+                link_id: LINK_B,
+                envelope,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stored_forwarding_drops_expired_and_hop_zero() -> Result<(), RouterError> {
+        let mut router = router();
+        let expired = sample_envelope(MessageId([6; 32]), 100, 200, 1, b"expired");
+        let hop_zero = sample_envelope(MessageId([7; 32]), 100, 400, 0, b"hop");
+        let mut out = [drop_command(); 1];
+
+        router.handle_event(
+            RouterEvent::Tick {
+                now_ms: TimestampMs(300),
+            },
+            &mut out,
+        )?;
+
+        router.forward_stored(expired, &mut out)?;
+        assert_eq!(
+            out[0],
+            RouterCommand::Drop {
+                message_id: expired.message_id,
+                reason: DropReason::Expired,
+            }
+        );
+
+        router.forward_stored(hop_zero, &mut out)?;
+        assert_eq!(
+            out[0],
+            RouterCommand::Drop {
+                message_id: hop_zero.message_id,
+                reason: DropReason::HopLimitExhausted,
             }
         );
         Ok(())

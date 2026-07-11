@@ -235,24 +235,22 @@ impl<
     fn flush_store(&mut self, now: TimestampMs) -> Result<(), GatewayError> {
         let expired = self.store.expire_before(now);
         self.metrics.expired = self.metrics.expired.saturating_add(expired as u64);
+        let mut commands = [dummy_command(); ROUTER_COMMAND_CAPACITY];
         while let Some(stored) = self.store.first_pending() {
-            let Some(link_id) = self.first_up_link_id() else {
-                break;
-            };
             let message_id = stored.envelope.message_id;
-            self.send_envelope(link_id, stored.envelope)?;
+            let count = self.router.forward_stored(stored.envelope, &mut commands)?;
+            if count == 0 {
+                break;
+            }
+            if let Err(error) = self.execute_commands(&commands[..count]) {
+                if matches!(error, GatewayError::Loopback(_)) {
+                    break;
+                }
+                return Err(error);
+            }
             self.store.remove(message_id)?;
         }
         Ok(())
-    }
-
-    fn first_up_link_id(&mut self) -> Option<LinkId> {
-        let (left, right) = self.loopback.split();
-        if left.is_up() && right.is_up() {
-            Some(left.link_id())
-        } else {
-            None
-        }
     }
 
     fn activate_configured_links(&mut self) -> Result<(), GatewayError> {

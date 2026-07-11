@@ -241,6 +241,40 @@ fn smoke_failed_store_does_not_poison_retry() -> Result<(), GatewayError> {
 }
 
 #[test]
+fn smoke_store_forward_uses_router_selected_configured_link() -> Result<(), GatewayError> {
+    let mut runtime = SmokeRuntime::new(right_only_config(local(), 512))?;
+    let mut left_frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+    let mut right_frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+
+    runtime.set_link_up(LOOPBACK_RIGHT_ID, false)?;
+    runtime.submit(sample_envelope(
+        MessageId([14; 32]),
+        remote(),
+        100,
+        300,
+        4,
+        b"right selected",
+    ))?;
+
+    assert_eq!(runtime.stored_len(), 1);
+    assert_eq!(runtime.metrics().sent, 0);
+
+    runtime.set_link_up(LOOPBACK_RIGHT_ID, true)?;
+
+    assert_eq!(runtime.stored_len(), 0);
+    assert_eq!(runtime.metrics().sent, 1);
+    assert_eq!(
+        receive_message_id_from(&mut runtime, LOOPBACK_LEFT_ID, &mut left_frame)?,
+        Some(MessageId([14; 32]))
+    );
+    assert_eq!(
+        receive_message_id_from(&mut runtime, LOOPBACK_RIGHT_ID, &mut right_frame)?,
+        None
+    );
+    Ok(())
+}
+
+#[test]
 fn smoke_store_forward_order_is_deterministic() -> Result<(), GatewayError> {
     let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
     let mut first_frame = [0; GATEWAY_FRAME_BUFFER_LEN];
@@ -285,7 +319,15 @@ fn receive_message_id<const STORE_CAPACITY: usize, const LOOPBACK_QUEUE: usize>(
     runtime: &mut GatewayRuntime<'_, 2, 8, STORE_CAPACITY, LOOPBACK_QUEUE>,
     output: &mut [u8],
 ) -> Result<Option<MessageId>, GatewayError> {
-    let Some(frame) = runtime.receive_loopback_frame(LOOPBACK_RIGHT_ID, output)? else {
+    receive_message_id_from(runtime, LOOPBACK_RIGHT_ID, output)
+}
+
+fn receive_message_id_from<const STORE_CAPACITY: usize, const LOOPBACK_QUEUE: usize>(
+    runtime: &mut GatewayRuntime<'_, 2, 8, STORE_CAPACITY, LOOPBACK_QUEUE>,
+    link_id: hyf_link::LinkId,
+    output: &mut [u8],
+) -> Result<Option<MessageId>, GatewayError> {
+    let Some(frame) = runtime.receive_loopback_frame(link_id, output)? else {
         return Ok(None);
     };
     Ok(Some(decode_envelope(frame.bytes)?.message_id))
@@ -298,6 +340,19 @@ fn config_for(node_id: NodeId, mtu: usize) -> GatewayConfig<2> {
         store: StoreConfig::new(4, StorePolicy::new()),
         links: LinkConfigSet::new([
             Some(LinkConfig::new(LOOPBACK_LEFT_ID, mtu)),
+            Some(LinkConfig::new(LOOPBACK_RIGHT_ID, mtu)),
+        ]),
+        policy: GatewayPolicyConfig::new(),
+    }
+}
+
+fn right_only_config(node_id: NodeId, mtu: usize) -> GatewayConfig<2> {
+    GatewayConfig {
+        node_id,
+        router: RouterConfig::new(2, 8),
+        store: StoreConfig::new(4, StorePolicy::new()),
+        links: LinkConfigSet::new([
+            Some(LinkConfig::disabled(LOOPBACK_LEFT_ID, 0)),
             Some(LinkConfig::new(LOOPBACK_RIGHT_ID, mtu)),
         ]),
         policy: GatewayPolicyConfig::new(),
