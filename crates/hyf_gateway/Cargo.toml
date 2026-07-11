@@ -16,6 +16,12 @@ hyf_router.workspace = true
 hyf_store.workspace = true
 hyf_wire.workspace = true
 
+[dev-dependencies]
+hyf_link_kiss = { workspace = true, features = ["std"] }
+hyf_link_rnode_serial = { workspace = true, features = ["std"] }
+hyf_link_rns = { workspace = true, features = ["std"] }
+hyf_wire = { workspace = true, features = ["std"] }
+
 [features]
 default = []
 std = []

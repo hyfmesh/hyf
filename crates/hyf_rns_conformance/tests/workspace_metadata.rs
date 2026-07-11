@@ -156,7 +156,7 @@ const HANDOFF_3_GATEWAY_PACKAGES: &[&str] = &[
     "hyf_config",
     "hyf_gateway",
 ];
-const FUTURE_ADAPTER_DEPENDENCY_MARKERS: &[&str] = &[
+const FUTURE_PRODUCTION_DEPENDENCY_MARKERS: &[&str] = &[
     "bitchat",
     "fips",
     "lxmf",
@@ -278,7 +278,7 @@ fn crypto_hkdf_is_intentional_dependency_isolation_feature() -> TestResult {
 }
 
 #[test]
-fn handoff_3_gateway_dependencies_preserve_clean_boundaries() -> TestResult {
+fn handoff_4_gateway_dependencies_preserve_clean_boundaries() -> TestResult {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let metadata = metadata_for_manifest(&workspace_root.join("Cargo.toml"))?;
     let packages = workspace_packages(&metadata)?;
@@ -311,10 +311,20 @@ fn handoff_3_gateway_dependencies_preserve_clean_boundaries() -> TestResult {
             "hyf_wire",
         ],
     )?;
+    assert_direct_dependency_names_by_kind(
+        package_by_name(&packages, "hyf_gateway")?,
+        "dev",
+        &[
+            "hyf_link_kiss",
+            "hyf_link_rnode_serial",
+            "hyf_link_rns",
+            "hyf_wire",
+        ],
+    )?;
     assert_packages_omit_dependency_markers(
         &packages,
         HANDOFF_3_GATEWAY_PACKAGES,
-        FUTURE_ADAPTER_DEPENDENCY_MARKERS,
+        FUTURE_PRODUCTION_DEPENDENCY_MARKERS,
     )
 }
 
@@ -590,7 +600,15 @@ fn feature_enables(package: &Package, feature_name: &str) -> TestResult<Vec<Stri
 }
 
 fn assert_direct_dependency_names(package: &Package, expected: &[&str]) -> TestResult {
-    let actual = direct_dependency_names(package);
+    assert_direct_dependency_names_by_kind(package, "normal", expected)
+}
+
+fn assert_direct_dependency_names_by_kind(
+    package: &Package,
+    kind: &str,
+    expected: &[&str],
+) -> TestResult {
+    let actual = direct_dependency_names_by_kind(package, kind);
     let expected = expected
         .iter()
         .map(|dependency| (*dependency).to_owned())
@@ -600,7 +618,7 @@ fn assert_direct_dependency_names(package: &Package, expected: &[&str]) -> TestR
     }
 
     Err(std::io::Error::other(format!(
-        "{} direct dependencies {:?}, expected {:?}",
+        "{} {kind} direct dependencies {:?}, expected {:?}",
         package.name, actual, expected
     ))
     .into())
@@ -615,6 +633,9 @@ fn assert_packages_omit_dependency_markers(
     for package_name in package_names {
         let package = package_by_name(packages, package_name)?;
         for dependency in &package.dependencies {
+            if dependency_kind(dependency) != "normal" {
+                continue;
+            }
             let dependency_name = dependency.name.to_ascii_lowercase();
             for marker in forbidden_markers {
                 if dependency_name.contains(marker) {
@@ -634,16 +655,17 @@ fn assert_packages_omit_dependency_markers(
     }
 
     Err(std::io::Error::other(format!(
-        "Handoff 3 gateway packages depend on forbidden future-adapter crates: {}",
+        "Handoff gateway packages depend on forbidden future production crates: {}",
         violations.join(", ")
     ))
     .into())
 }
 
-fn direct_dependency_names(package: &Package) -> Vec<String> {
+fn direct_dependency_names_by_kind(package: &Package, kind: &str) -> Vec<String> {
     let mut names = package
         .dependencies
         .iter()
+        .filter(|dependency| dependency_kind(dependency) == kind)
         .map(|dependency| dependency.name.to_owned())
         .collect::<Vec<_>>();
     names.sort();
