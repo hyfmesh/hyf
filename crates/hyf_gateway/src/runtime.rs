@@ -159,11 +159,16 @@ impl<
 
     fn execute_command(&mut self, command: RouterCommand<'a>) -> Result<(), GatewayError> {
         match command {
-            RouterCommand::Send { link_id, envelope } => self.send_envelope(link_id, envelope),
+            RouterCommand::Send { link_id, envelope } => {
+                self.send_envelope(link_id, envelope)?;
+                self.router.commit_seen(envelope.message_id);
+                Ok(())
+            }
             RouterCommand::Store(RouterStoreCommand::Put(envelope)) => {
                 if self.config.policy.allow_store_and_forward {
                     self.store.put(envelope)?;
                     self.metrics.stored = self.metrics.stored.saturating_add(1);
+                    self.router.commit_seen(envelope.message_id);
                 } else {
                     self.metrics.dropped = self.metrics.dropped.saturating_add(1);
                 }
@@ -185,6 +190,7 @@ impl<
             RouterCommand::DeliverLocal(envelope) => {
                 self.last_delivered = Some(envelope);
                 self.metrics.delivered = self.metrics.delivered.saturating_add(1);
+                self.router.commit_seen(envelope.message_id);
                 Ok(())
             }
         }

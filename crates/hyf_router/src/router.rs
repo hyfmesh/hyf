@@ -40,6 +40,12 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         self.now_ms
     }
 
+    pub fn commit_seen(&mut self, message_id: MessageId) {
+        if !self.has_seen(message_id) {
+            self.mark_seen(message_id);
+        }
+    }
+
     pub fn handle_event<'a>(
         &mut self,
         event: RouterEvent<'a>,
@@ -129,7 +135,6 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
                 },
             );
         }
-        self.mark_seen(envelope.message_id);
 
         if self.is_local_destination(envelope.destination) {
             return emit(out, RouterCommand::DeliverLocal(envelope));
@@ -314,11 +319,52 @@ pub(crate) mod tests {
         );
 
         router.handle_event(RouterEvent::LocalSubmit(duplicate), &mut out)?;
+        router.commit_seen(duplicate.message_id);
         router.handle_event(RouterEvent::LocalSubmit(duplicate), &mut out)?;
         assert_eq!(
             out[0],
             RouterCommand::Drop {
                 message_id: MessageId([3; 32]),
+                reason: DropReason::Duplicate,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn uncommitted_message_can_be_retried_before_duplicate_drop() -> Result<(), RouterError> {
+        let mut router = router();
+        let envelope = sample_envelope(MessageId([4; 32]), 100, 300, 1, b"retry");
+        let mut out = [drop_command(); 1];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_A }),
+            &mut out,
+        )?;
+        router.handle_event(RouterEvent::LocalSubmit(envelope), &mut out)?;
+        assert_eq!(
+            out[0],
+            RouterCommand::Send {
+                link_id: LINK_A,
+                envelope,
+            }
+        );
+
+        router.handle_event(RouterEvent::LocalSubmit(envelope), &mut out)?;
+        assert_eq!(
+            out[0],
+            RouterCommand::Send {
+                link_id: LINK_A,
+                envelope,
+            }
+        );
+
+        router.commit_seen(envelope.message_id);
+        router.handle_event(RouterEvent::LocalSubmit(envelope), &mut out)?;
+        assert_eq!(
+            out[0],
+            RouterCommand::Drop {
+                message_id: envelope.message_id,
                 reason: DropReason::Duplicate,
             }
         );

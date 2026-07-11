@@ -4,10 +4,12 @@ use hyf_config::{
 use hyf_core::{MessageId, NodeId, TimestampMs};
 use hyf_gateway::{GATEWAY_FRAME_BUFFER_LEN, GatewayError, GatewayRuntime};
 use hyf_link_loopback::{LOOPBACK_LEFT_ID, LOOPBACK_RIGHT_ID, LoopbackError};
-use hyf_store::StorePolicy;
+use hyf_store::{StoreError, StorePolicy};
 use hyf_wire::{HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, decode_envelope};
 
 type SmokeRuntime<'a> = GatewayRuntime<'a, 2, 8, 4, 4>;
+type QueueLimitedRuntime<'a> = GatewayRuntime<'a, 2, 8, 4, 1>;
+type StoreLimitedRuntime<'a> = GatewayRuntime<'a, 2, 8, 1, 4>;
 
 #[test]
 fn smoke_local_submit_and_loopback_delivery() -> Result<(), GatewayError> {
@@ -147,22 +149,94 @@ fn smoke_duplicate_expiry_ttl_and_mtu_rejection() -> Result<(), GatewayError> {
     assert_eq!(runtime.metrics().dropped, 3);
 
     let mut mtu_runtime = SmokeRuntime::new(config_for(local(), 100))?;
+    let oversized = sample_envelope(MessageId([7; 32]), remote(), 100, 300, 4, b"mtu");
     assert_eq!(
-        mtu_runtime.submit(sample_envelope(
-            MessageId([7; 32]),
-            remote(),
-            100,
-            300,
-            4,
-            b"mtu",
-        )),
+        mtu_runtime.submit(oversized),
         Err(GatewayError::Loopback(LoopbackError::FrameTooLarge {
             actual: 121,
             mtu: 100,
         }))
     );
-    assert_eq!(mtu_runtime.metrics().link_errors, 1);
+    assert_eq!(
+        mtu_runtime.submit(oversized),
+        Err(GatewayError::Loopback(LoopbackError::FrameTooLarge {
+            actual: 121,
+            mtu: 100,
+        }))
+    );
+    assert_eq!(mtu_runtime.metrics().link_errors, 2);
+    assert_eq!(mtu_runtime.metrics().dropped, 0);
     assert_eq!(mtu_runtime.metrics().sent, 0);
+    Ok(())
+}
+
+#[test]
+fn smoke_failed_send_does_not_poison_retry() -> Result<(), GatewayError> {
+    let mut runtime = QueueLimitedRuntime::new(config_for(local(), 512))?;
+    let mut first_frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+    let mut second_frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+    let first = sample_envelope(MessageId([10; 32]), remote(), 100, 300, 4, b"first");
+    let second = sample_envelope(MessageId([11; 32]), remote(), 100, 300, 4, b"second");
+
+    runtime.submit(first)?;
+    assert_eq!(
+        runtime.submit(second),
+        Err(GatewayError::Loopback(LoopbackError::QueueFull {
+            link_id: LOOPBACK_RIGHT_ID,
+            capacity: 1,
+        }))
+    );
+    assert_eq!(runtime.metrics().link_errors, 1);
+    assert_eq!(runtime.metrics().sent, 1);
+
+    assert_eq!(
+        receive_message_id(&mut runtime, &mut first_frame)?,
+        Some(MessageId([10; 32]))
+    );
+    runtime.submit(second)?;
+    assert_eq!(
+        receive_message_id(&mut runtime, &mut second_frame)?,
+        Some(MessageId([11; 32]))
+    );
+    assert_eq!(runtime.metrics().sent, 2);
+
+    runtime.submit(second)?;
+    assert_eq!(runtime.metrics().dropped, 1);
+    assert_eq!(runtime.metrics().sent, 2);
+    Ok(())
+}
+
+#[test]
+fn smoke_failed_store_does_not_poison_retry() -> Result<(), GatewayError> {
+    let mut config = config_for(local(), 512);
+    config.store = StoreConfig::new(1, StorePolicy::new());
+    let mut runtime = StoreLimitedRuntime::new(config)?;
+    let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+    let first = sample_envelope(MessageId([12; 32]), remote(), 100, 300, 4, b"stored first");
+    let second = sample_envelope(MessageId([13; 32]), remote(), 100, 300, 4, b"stored second");
+
+    runtime.set_link_up(LOOPBACK_LEFT_ID, false)?;
+    runtime.set_link_up(LOOPBACK_RIGHT_ID, false)?;
+    runtime.submit(first)?;
+    assert_eq!(runtime.stored_len(), 1);
+    assert_eq!(
+        runtime.submit(second),
+        Err(GatewayError::Store(StoreError::Full))
+    );
+
+    runtime.set_link_up(LOOPBACK_LEFT_ID, true)?;
+    runtime.set_link_up(LOOPBACK_RIGHT_ID, true)?;
+    assert_eq!(
+        receive_message_id(&mut runtime, &mut frame)?,
+        Some(MessageId([12; 32]))
+    );
+
+    runtime.set_link_up(LOOPBACK_LEFT_ID, false)?;
+    runtime.set_link_up(LOOPBACK_RIGHT_ID, false)?;
+    runtime.submit(second)?;
+
+    assert_eq!(runtime.stored_len(), 1);
+    assert_eq!(runtime.metrics().stored, 2);
     Ok(())
 }
 
@@ -207,8 +281,8 @@ fn smoke_store_forward_order_is_deterministic() -> Result<(), GatewayError> {
     Ok(())
 }
 
-fn receive_message_id(
-    runtime: &mut SmokeRuntime<'_>,
+fn receive_message_id<const STORE_CAPACITY: usize, const LOOPBACK_QUEUE: usize>(
+    runtime: &mut GatewayRuntime<'_, 2, 8, STORE_CAPACITY, LOOPBACK_QUEUE>,
     output: &mut [u8],
 ) -> Result<Option<MessageId>, GatewayError> {
     let Some(frame) = runtime.receive_loopback_frame(LOOPBACK_RIGHT_ID, output)? else {
