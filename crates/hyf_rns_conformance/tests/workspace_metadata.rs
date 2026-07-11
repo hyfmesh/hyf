@@ -187,6 +187,28 @@ const FUTURE_PRODUCTION_DEPENDENCY_MARKERS: &[&str] = &[
     "rnode",
     "serialport",
 ];
+const REQUIRED_HANDOFF_4_VERIFY_SNIPPETS: &[&str] = &[
+    "cargo fmt --check",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo test --workspace",
+    "cargo check -p \"$crate\" --no-default-features",
+    "hyf_link_rnode_serial \\",
+    "cargo test -p hyf_gateway --test gateway_smoke",
+    "cargo test -p hyf_gateway --test rnode_serial_smoke",
+    "cargo test -p hyf_link_rns",
+    "cargo test -p hyf_link_rnode_serial",
+    "cargo test -p hyf_rns_conformance",
+    "cargo bench -p hyf_rns_conformance --bench profile0 --no-run",
+    "cargo build --manifest-path fuzz/Cargo.toml --bins",
+    "cargo check -p hyf_link_rnode_serial --features serialport_runtime",
+    "cargo test -p hyf_link_rnode_serial --features serialport_runtime",
+    "cargo tree --duplicates",
+    "cargo tree -p hyf_link_rnode_serial -e features",
+    "cargo tree -p hyf_link_rns -e features",
+    "HYF_RETICULUM_PATH",
+    "HYF_HIL_RNODE_PORT",
+    "status=skipped_no_port",
+];
 
 const fn common_features(package: &'static str) -> FeatureSurface {
     FeatureSurface {
@@ -346,6 +368,33 @@ fn handoff_4_gateway_dependencies_preserve_clean_boundaries() -> TestResult {
         HANDOFF_3_GATEWAY_PACKAGES,
         FUTURE_PRODUCTION_DEPENDENCY_MARKERS,
     )
+}
+
+#[test]
+fn handoff_4_verification_script_preserves_required_closure_surface() -> TestResult {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script_path = workspace_root.join("scripts/verify_handoff4.sh");
+    let script = fs::read_to_string(&script_path)?;
+
+    for snippet in REQUIRED_HANDOFF_4_VERIFY_SNIPPETS {
+        if !script.contains(snippet) {
+            return Err(std::io::Error::other(format!(
+                "{} is missing required snippet: {snippet}",
+                script_path.display()
+            ))
+            .into());
+        }
+    }
+
+    if workspace_root.join(".act").exists() {
+        return Err(std::io::Error::other("public .act workflows are not allowed").into());
+    }
+
+    if workspace_root.join(".github/workflows").exists() {
+        return Err(std::io::Error::other("public GitHub workflows are not allowed").into());
+    }
+
+    Ok(())
 }
 
 #[test]
