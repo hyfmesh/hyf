@@ -5,13 +5,15 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
+mod core;
 mod error;
 mod metrics;
 mod runtime;
 
+pub use core::{GATEWAY_FRAME_BUFFER_LEN, GatewayCore, GatewayLinkExecutor};
 pub use error::GatewayError;
 pub use metrics::GatewayMetrics;
-pub use runtime::{GATEWAY_FRAME_BUFFER_LEN, GatewayRuntime};
+pub use runtime::GatewayRuntime;
 
 #[cfg(test)]
 mod tests {

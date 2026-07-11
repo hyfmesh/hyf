@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GatewayMetrics {
     pub submitted: u64,
+    pub received: u64,
     pub sent: u64,
     pub stored: u64,
     pub delivered: u64,

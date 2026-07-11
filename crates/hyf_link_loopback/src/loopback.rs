@@ -125,6 +125,28 @@ impl<const N: usize> LoopbackDriver<N> {
         endpoint_for_link_mut(&mut self.pair, link_id)?.receive_into(output)
     }
 
+    pub fn send_link_bytes(
+        &mut self,
+        link_id: LinkId,
+        bytes: &[u8],
+        now_ms: TimestampMs,
+    ) -> Result<(), LoopbackError> {
+        if link_id == LOOPBACK_LEFT_ID {
+            self.pair
+                .left
+                .send_bytes_to(&mut self.pair.right, bytes, now_ms)
+        } else if link_id == LOOPBACK_RIGHT_ID {
+            self.pair
+                .right
+                .send_bytes_to(&mut self.pair.left, bytes, now_ms)
+        } else {
+            Err(LoopbackError::LinkMismatch {
+                expected: self.side.link_id(),
+                actual: link_id,
+            })
+        }
+    }
+
     fn tx_endpoint(&self) -> &LoopbackEndpoint<N> {
         match self.side {
             LoopbackSide::Left => &self.pair.left,
@@ -511,6 +533,30 @@ mod tests {
             Err(LoopbackError::Down {
                 link_id: LOOPBACK_LEFT_ID,
             })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn loopback_driver_can_send_from_either_link_id() -> Result<(), LoopbackError> {
+        let mut driver = LoopbackDriver::<2>::left(16);
+        let mut left_output = [0; 8];
+        let mut right_output = [0; 8];
+
+        driver.send_link_bytes(LOOPBACK_RIGHT_ID, b"left", TimestampMs(4))?;
+        assert_eq!(
+            driver
+                .receive_link_frame(LOOPBACK_LEFT_ID, &mut left_output)?
+                .map(|frame| frame.bytes),
+            Some(&b"left"[..])
+        );
+
+        driver.send_link_bytes(LOOPBACK_LEFT_ID, b"right", TimestampMs(5))?;
+        assert_eq!(
+            driver
+                .receive_link_frame(LOOPBACK_RIGHT_ID, &mut right_output)?
+                .map(|frame| frame.bytes),
+            Some(&b"right"[..])
         );
         Ok(())
     }

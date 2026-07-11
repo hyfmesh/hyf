@@ -1,7 +1,7 @@
 use core::fmt;
 
 use hyf_config::ConfigError;
-use hyf_link::LinkId;
+use hyf_link::{LinkDriverError, LinkDriverErrorKind, LinkId};
 use hyf_link_loopback::LoopbackError;
 use hyf_router::RouterError;
 use hyf_store::StoreError;
@@ -16,6 +16,10 @@ pub enum GatewayError {
     Loopback(LoopbackError),
     UnsupportedLink {
         link_id: LinkId,
+    },
+    Driver {
+        link_id: LinkId,
+        kind: LinkDriverErrorKind,
     },
     RuntimeCapacity {
         name: &'static str,
@@ -35,6 +39,12 @@ impl fmt::Display for GatewayError {
             Self::UnsupportedLink { link_id } => {
                 write!(formatter, "unsupported gateway link {link_id:?}")
             }
+            Self::Driver { link_id, kind } => {
+                write!(
+                    formatter,
+                    "gateway driver error on link {link_id:?}: {kind:?}"
+                )
+            }
             Self::RuntimeCapacity {
                 name,
                 configured,
@@ -45,6 +55,16 @@ impl fmt::Display for GatewayError {
                     "gateway {name} capacity mismatch: configured {configured}, maximum {maximum}"
                 )
             }
+        }
+    }
+}
+
+impl GatewayError {
+    pub fn is_recoverable_send_failure(&self) -> bool {
+        match self {
+            Self::Driver { kind, .. } => kind.is_recoverable_send_failure(),
+            Self::Loopback(error) => error.driver_error_kind().is_recoverable_send_failure(),
+            _ => false,
         }
     }
 }
@@ -104,6 +124,37 @@ mod tests {
             }
             .to_string(),
             "gateway store capacity mismatch: configured 3, maximum 2"
+        );
+        assert_eq!(
+            GatewayError::Driver {
+                link_id: LinkId([2; 16]),
+                kind: hyf_link::LinkDriverErrorKind::Backpressure,
+            }
+            .to_string(),
+            "gateway driver error on link LinkId([2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]): Backpressure"
+        );
+    }
+
+    #[test]
+    fn gateway_errors_classify_recoverable_send_failures() {
+        assert!(
+            GatewayError::Driver {
+                link_id: LinkId([1; 16]),
+                kind: hyf_link::LinkDriverErrorKind::Backpressure,
+            }
+            .is_recoverable_send_failure()
+        );
+        assert!(
+            GatewayError::Loopback(hyf_link_loopback::LoopbackError::Down {
+                link_id: LinkId([1; 16]),
+            })
+            .is_recoverable_send_failure()
+        );
+        assert!(
+            !GatewayError::UnsupportedLink {
+                link_id: LinkId([1; 16]),
+            }
+            .is_recoverable_send_failure()
         );
     }
 }
