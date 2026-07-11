@@ -8,6 +8,7 @@ members = [
     "crates/hyf_store",
     "crates/hyf_router",
     "crates/hyf_link_loopback",
+    "crates/hyf_config",
     "crates/hyf_link_kiss",
     "crates/hyf_link_rnode",
     "crates/hyf_rns_core",
@@ -33,6 +34,7 @@ hyf_link = { path = "crates/hyf_link", default-features = false }
 hyf_store = { path = "crates/hyf_store", default-features = false }
 hyf_router = { path = "crates/hyf_router", default-features = false }
 hyf_link_loopback = { path = "crates/hyf_link_loopback", default-features = false }
+hyf_config = { path = "crates/hyf_config", default-features = false }
 hyf_link_kiss = { path = "crates/hyf_link_kiss", default-features = false }
 hyf_link_rnode = { path = "crates/hyf_link_rnode", default-features = false }
 hyf_rns_core = { path = "crates/hyf_rns_core", default-features = false }

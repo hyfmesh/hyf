@@ -394,6 +394,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyf_config"
+version = "0.1.0"
+dependencies = [
+ "hyf_core",
+ "hyf_link",
+ "hyf_router",
+ "hyf_store",
+]
+
+[[package]]
 name = "hyf_core"
 version = "0.1.0"
 
