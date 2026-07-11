@@ -6,15 +6,13 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
-mod command;
 mod error;
 mod policy;
 mod store;
 
-pub use command::StoreCommand;
 pub use error::StoreError;
 pub use policy::StorePolicy;
-pub use store::{Store, StoredEnvelopeRef};
+pub use store::{Store, StoredFrameRef};
 
 #[cfg(test)]
 mod tests {

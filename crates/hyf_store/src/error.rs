@@ -1,10 +1,14 @@
 use core::fmt;
 
+use hyf_wire::HyfWireError;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StoreError {
     Full,
     Duplicate,
     Expired,
+    FrameTooLarge { actual: usize, maximum: usize },
+    InvalidEnvelope(HyfWireError),
     NotFound,
     OutputTooSmall { actual: usize, required: usize },
 }
@@ -15,6 +19,13 @@ impl fmt::Display for StoreError {
             Self::Full => formatter.write_str("store is full"),
             Self::Duplicate => formatter.write_str("duplicate stored message"),
             Self::Expired => formatter.write_str("stored envelope is expired"),
+            Self::FrameTooLarge { actual, maximum } => {
+                write!(
+                    formatter,
+                    "stored frame too large: actual {actual}, maximum {maximum}"
+                )
+            }
+            Self::InvalidEnvelope(error) => write!(formatter, "invalid stored envelope: {error}"),
             Self::NotFound => formatter.write_str("stored message not found"),
             Self::OutputTooSmall { actual, required } => {
                 write!(
@@ -43,6 +54,14 @@ mod tests {
         assert_eq!(
             StoreError::Expired.to_string(),
             "stored envelope is expired"
+        );
+        assert_eq!(
+            StoreError::FrameTooLarge {
+                actual: 3,
+                maximum: 2,
+            }
+            .to_string(),
+            "stored frame too large: actual 3, maximum 2"
         );
         assert_eq!(
             StoreError::OutputTooSmall {
