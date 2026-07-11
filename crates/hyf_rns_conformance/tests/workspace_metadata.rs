@@ -46,7 +46,7 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
             },
             FeatureSpec {
                 name: "hil_std",
-                enables: &["std"],
+                enables: &["dep:serialport", "std"],
             },
             FeatureSpec {
                 name: "rnode",
