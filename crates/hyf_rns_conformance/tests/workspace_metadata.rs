@@ -32,6 +32,23 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
     common_features("hyf_crypto"),
     common_features("hyf_wire"),
     common_features("hyf_link"),
+    common_features("hyf_store"),
+    common_features("hyf_router"),
+    common_features("hyf_link_loopback"),
+    common_features("hyf_config"),
+    FeatureSurface {
+        package: "hyf_gateway",
+        features: &[
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &[],
+            },
+        ],
+    },
     common_features("hyf_link_kiss"),
     FeatureSurface {
         package: "hyf_link_rnode",
@@ -127,6 +144,27 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
         ],
     },
 ];
+const HANDOFF_3_GATEWAY_PACKAGES: &[&str] = &[
+    "hyf_core",
+    "hyf_wire",
+    "hyf_link",
+    "hyf_store",
+    "hyf_router",
+    "hyf_link_loopback",
+    "hyf_config",
+    "hyf_gateway",
+];
+const FUTURE_ADAPTER_DEPENDENCY_MARKERS: &[&str] = &[
+    "bitchat",
+    "fips",
+    "lxmf",
+    "nostr",
+    "pyo3",
+    "python",
+    "reticulum",
+    "rnode",
+    "serialport",
+];
 
 const fn common_features(package: &'static str) -> FeatureSurface {
     FeatureSurface {
@@ -198,6 +236,7 @@ fn first_party_feature_surface_is_explicit() -> TestResult {
         let package = package_by_name(&packages, expected.package)?;
         assert_feature_surface(package, expected)?;
     }
+    assert_feature_surface_covers_workspace(&packages)?;
 
     Ok(())
 }
@@ -234,6 +273,47 @@ fn crypto_hkdf_is_intentional_dependency_isolation_feature() -> TestResult {
     )?;
 
     Ok(())
+}
+
+#[test]
+fn handoff_3_gateway_dependencies_preserve_clean_boundaries() -> TestResult {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let metadata = metadata_for_manifest(&workspace_root.join("Cargo.toml"))?;
+    let packages = workspace_packages(&metadata)?;
+
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_store")?,
+        &["hyf_core", "hyf_wire"],
+    )?;
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_router")?,
+        &["hyf_core", "hyf_link", "hyf_wire"],
+    )?;
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_link_loopback")?,
+        &["hyf_core", "hyf_link"],
+    )?;
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_config")?,
+        &["hyf_core", "hyf_link", "hyf_router", "hyf_store"],
+    )?;
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_gateway")?,
+        &[
+            "hyf_config",
+            "hyf_core",
+            "hyf_link",
+            "hyf_link_loopback",
+            "hyf_router",
+            "hyf_store",
+            "hyf_wire",
+        ],
+    )?;
+    assert_packages_omit_dependency_markers(
+        &packages,
+        HANDOFF_3_GATEWAY_PACKAGES,
+        FUTURE_ADAPTER_DEPENDENCY_MARKERS,
+    )
 }
 
 #[test]
@@ -407,6 +487,27 @@ fn assert_feature_surface(package: &Package, expected: &FeatureSurface) -> TestR
     .into())
 }
 
+fn assert_feature_surface_covers_workspace(packages: &[&Package]) -> TestResult {
+    let actual = packages
+        .iter()
+        .map(|package| package.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let expected = EXPECTED_FEATURE_SURFACE
+        .iter()
+        .map(|feature_surface| feature_surface.package)
+        .collect::<BTreeSet<_>>();
+
+    if actual == expected {
+        return Ok(());
+    }
+
+    Err(std::io::Error::other(format!(
+        "expected feature surface package set {:?}, actual workspace package set {:?}",
+        expected, actual
+    ))
+    .into())
+}
+
 fn normalized_features(features: &BTreeMap<String, Vec<String>>) -> BTreeMap<String, Vec<String>> {
     features
         .iter()
@@ -484,6 +585,67 @@ fn feature_enables(package: &Package, feature_name: &str) -> TestResult<Vec<Stri
             ))
             .into()
         })
+}
+
+fn assert_direct_dependency_names(package: &Package, expected: &[&str]) -> TestResult {
+    let actual = direct_dependency_names(package);
+    let expected = expected
+        .iter()
+        .map(|dependency| (*dependency).to_owned())
+        .collect::<Vec<_>>();
+    if actual == expected {
+        return Ok(());
+    }
+
+    Err(std::io::Error::other(format!(
+        "{} direct dependencies {:?}, expected {:?}",
+        package.name, actual, expected
+    ))
+    .into())
+}
+
+fn assert_packages_omit_dependency_markers(
+    packages: &[&Package],
+    package_names: &[&str],
+    forbidden_markers: &[&str],
+) -> TestResult {
+    let mut violations = Vec::new();
+    for package_name in package_names {
+        let package = package_by_name(packages, package_name)?;
+        for dependency in &package.dependencies {
+            let dependency_name = dependency.name.to_ascii_lowercase();
+            for marker in forbidden_markers {
+                if dependency_name.contains(marker) {
+                    violations.push(format!(
+                        "{} -> {} ({})",
+                        package.name,
+                        dependency.name,
+                        dependency_kind(dependency)
+                    ));
+                }
+            }
+        }
+    }
+
+    if violations.is_empty() {
+        return Ok(());
+    }
+
+    Err(std::io::Error::other(format!(
+        "Handoff 3 gateway packages depend on forbidden future-adapter crates: {}",
+        violations.join(", ")
+    ))
+    .into())
+}
+
+fn direct_dependency_names(package: &Package) -> Vec<String> {
+    let mut names = package
+        .dependencies
+        .iter()
+        .map(|dependency| dependency.name.to_owned())
+        .collect::<Vec<_>>();
+    names.sort();
+    names
 }
 
 fn assert_direct_dependencies_disable_defaults(packages: &[&Package]) -> TestResult {
