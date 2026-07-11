@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 hyf_link_kiss.workspace = true
+serialport = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -18,7 +19,7 @@ default = []
 alloc = []
 std = ["alloc"]
 rnode = []
-hil_std = ["std"]
+hil_std = ["std", "dep:serialport"]
 
 [lints]
 workspace = true

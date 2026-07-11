@@ -2,7 +2,8 @@
 
 use hyf_link_rnode::{
     RNODE_HIL_ARTIFACT_ROOT, RNODE_HIL_DEFAULT_BAUD, RNODE_HIL_MANIFEST_SCHEMA, RNodeHilCheck,
-    RNodeHilCheckStatus, RNodeHilManifest, hil_manifest_artifact_path, write_hil_manifest_json,
+    RNodeHilCheckStatus, RNodeHilManifest, RNodeHilReadinessError, hil_manifest_artifact_path,
+    probe_rnode_readiness_serial, write_hil_manifest_json,
 };
 
 #[test]
@@ -15,17 +16,21 @@ fn hil_rnode_environment_gate_is_non_transmitting_by_default()
     assert!(!port.is_empty());
 
     let allow_rf_tx = parse_optional_bool("HYF_HIL_ALLOW_RF_TX")?;
+    if allow_rf_tx {
+        return Err(RNodeHilReadinessError::RfTransmissionRequested.into());
+    }
     let baud = parse_optional_baud("HYF_HIL_RNODE_BAUD")?;
+    let readiness = probe_rnode_readiness_serial(&port, baud)?;
     let run_id = std::env::var("HYF_HIL_RUN_ID").unwrap_or_else(|_| "manual-rnode-hil".to_owned());
     let generated_at =
         std::env::var("HYF_HIL_GENERATED_AT").unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned());
     let hardware_model = std::env::var("HYF_HIL_RNODE_MODEL").ok();
-    let firmware_version = std::env::var("HYF_HIL_RNODE_FIRMWARE").ok();
-    let check = [
-        RNodeHilCheck::ready(RNodeHilCheckStatus::Skipped).with_detail(
-            "configured readiness probe is not implemented in this manifest contract slice",
-        ),
-    ];
+    let firmware_version = readiness
+        .firmware_version
+        .map(|version| format!("{}.{}", version.major, version.minor))
+        .or_else(|| std::env::var("HYF_HIL_RNODE_FIRMWARE").ok());
+    let check = [RNodeHilCheck::ready(RNodeHilCheckStatus::Passed)
+        .with_detail("non-transmitting readiness probe passed")];
     let manifest = RNodeHilManifest {
         run_id: &run_id,
         generated_at: &generated_at,

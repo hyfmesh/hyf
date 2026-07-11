@@ -40,8 +40,9 @@ pub use error::RNodeError;
 #[cfg(feature = "hil_std")]
 pub use hil::{
     RNODE_HIL_ARTIFACT_ROOT, RNODE_HIL_MANIFEST_FILE_NAME, RNodeHilCheck, RNodeHilCheckStatus,
-    RNodeHilManifest, RNodeHilManifestError, default_hil_manifest_artifact_path,
-    hil_manifest_artifact_path, validate_hil_manifest, write_hil_manifest_json,
+    RNodeHilManifest, RNodeHilManifestError, RNodeHilReadiness, RNodeHilReadinessError,
+    default_hil_manifest_artifact_path, hil_manifest_artifact_path, probe_rnode_readiness_io,
+    probe_rnode_readiness_serial, validate_hil_manifest, write_hil_manifest_json,
 };
 pub use state::RNodeState;
 
