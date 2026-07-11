@@ -1,13 +1,35 @@
 use core::fmt;
 
 use hyf_core::TimestampMs;
-use hyf_link::{Link, LinkClass, LinkCommand, LinkEvent, LinkFrameRef, LinkId};
+use hyf_link::{Link, LinkClass, LinkCommand, LinkDriver, LinkEvent, LinkFrameRef, LinkId};
 
 use crate::LoopbackError;
 
 pub const LOOPBACK_MAX_FRAME_LEN: usize = 2048;
 pub const LOOPBACK_LEFT_ID: LinkId = LinkId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
 pub const LOOPBACK_RIGHT_ID: LinkId = LinkId([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LoopbackSide {
+    Left,
+    Right,
+}
+
+impl LoopbackSide {
+    pub const fn link_id(self) -> LinkId {
+        match self {
+            Self::Left => LOOPBACK_LEFT_ID,
+            Self::Right => LOOPBACK_RIGHT_ID,
+        }
+    }
+
+    pub const fn peer_link_id(self) -> LinkId {
+        match self {
+            Self::Left => LOOPBACK_RIGHT_ID,
+            Self::Right => LOOPBACK_LEFT_ID,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 struct QueuedFrame {
@@ -43,6 +65,126 @@ impl<const N: usize> LoopbackPair<N> {
 
     pub fn split(&mut self) -> (&mut LoopbackEndpoint<N>, &mut LoopbackEndpoint<N>) {
         (&mut self.left, &mut self.right)
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct LoopbackDriver<const N: usize> {
+    pair: LoopbackPair<N>,
+    side: LoopbackSide,
+}
+
+impl<const N: usize> fmt::Debug for LoopbackDriver<N> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LoopbackDriver")
+            .field("side", &self.side)
+            .field("tx_link_id", &self.side.link_id())
+            .field("rx_link_id", &self.side.peer_link_id())
+            .field("tx_up", &self.tx_endpoint().is_up())
+            .field("rx_up", &self.rx_endpoint().is_up())
+            .field("tx_queued", &self.tx_endpoint().queued_len())
+            .field("rx_queued", &self.rx_endpoint().queued_len())
+            .finish()
+    }
+}
+
+impl<const N: usize> LoopbackDriver<N> {
+    pub const fn new(side: LoopbackSide, mtu: usize) -> Self {
+        Self {
+            pair: LoopbackPair::new(mtu),
+            side,
+        }
+    }
+
+    pub const fn left(mtu: usize) -> Self {
+        Self::new(LoopbackSide::Left, mtu)
+    }
+
+    pub const fn right(mtu: usize) -> Self {
+        Self::new(LoopbackSide::Right, mtu)
+    }
+
+    pub fn set_link_up(
+        &mut self,
+        link_id: LinkId,
+        up: bool,
+    ) -> Result<LinkEvent<'static>, LoopbackError> {
+        endpoint_for_link_mut(&mut self.pair, link_id).map(|endpoint| endpoint.set_up(up))
+    }
+
+    pub fn queued_len(&self, link_id: LinkId) -> Result<usize, LoopbackError> {
+        Ok(endpoint_for_link_ref(&self.pair, link_id)?.queued_len())
+    }
+
+    pub fn receive_link_frame<'a>(
+        &mut self,
+        link_id: LinkId,
+        output: &'a mut [u8],
+    ) -> Result<Option<LinkFrameRef<'a>>, LoopbackError> {
+        endpoint_for_link_mut(&mut self.pair, link_id)?.receive_into(output)
+    }
+
+    fn tx_endpoint(&self) -> &LoopbackEndpoint<N> {
+        match self.side {
+            LoopbackSide::Left => &self.pair.left,
+            LoopbackSide::Right => &self.pair.right,
+        }
+    }
+
+    fn rx_endpoint(&self) -> &LoopbackEndpoint<N> {
+        match self.side {
+            LoopbackSide::Left => &self.pair.right,
+            LoopbackSide::Right => &self.pair.left,
+        }
+    }
+
+    fn tx_rx(&mut self) -> (&mut LoopbackEndpoint<N>, &mut LoopbackEndpoint<N>) {
+        match self.side {
+            LoopbackSide::Left => (&mut self.pair.left, &mut self.pair.right),
+            LoopbackSide::Right => (&mut self.pair.right, &mut self.pair.left),
+        }
+    }
+}
+
+impl<const N: usize> LinkDriver for LoopbackDriver<N> {
+    type Error = LoopbackError;
+
+    fn link_id(&self) -> LinkId {
+        self.side.link_id()
+    }
+
+    fn link_class(&self) -> LinkClass {
+        LinkClass::Loopback
+    }
+
+    fn mtu(&self) -> usize {
+        self.tx_endpoint().mtu()
+    }
+
+    fn is_up(&self) -> bool {
+        self.tx_endpoint().is_up() && self.rx_endpoint().is_up()
+    }
+
+    fn send_bytes(&mut self, bytes: &[u8], now_ms: TimestampMs) -> Result<(), Self::Error> {
+        let (tx, rx) = self.tx_rx();
+        tx.send_bytes_to(rx, bytes, now_ms)
+    }
+
+    fn poll_frame<'a>(
+        &mut self,
+        output: &'a mut [u8],
+    ) -> Result<Option<LinkFrameRef<'a>>, Self::Error> {
+        self.rx_endpoint_mut().receive_into(output)
+    }
+}
+
+impl<const N: usize> LoopbackDriver<N> {
+    fn rx_endpoint_mut(&mut self) -> &mut LoopbackEndpoint<N> {
+        match self.side {
+            LoopbackSide::Left => &mut self.pair.right,
+            LoopbackSide::Right => &mut self.pair.left,
+        }
     }
 }
 
@@ -229,12 +371,47 @@ impl<const N: usize> Link for LoopbackEndpoint<N> {
     }
 }
 
+fn endpoint_for_link_ref<const N: usize>(
+    pair: &LoopbackPair<N>,
+    link_id: LinkId,
+) -> Result<&LoopbackEndpoint<N>, LoopbackError> {
+    if link_id == LOOPBACK_LEFT_ID {
+        Ok(&pair.left)
+    } else if link_id == LOOPBACK_RIGHT_ID {
+        Ok(&pair.right)
+    } else {
+        Err(LoopbackError::LinkMismatch {
+            expected: LOOPBACK_LEFT_ID,
+            actual: link_id,
+        })
+    }
+}
+
+fn endpoint_for_link_mut<const N: usize>(
+    pair: &mut LoopbackPair<N>,
+    link_id: LinkId,
+) -> Result<&mut LoopbackEndpoint<N>, LoopbackError> {
+    if link_id == LOOPBACK_LEFT_ID {
+        Ok(&mut pair.left)
+    } else if link_id == LOOPBACK_RIGHT_ID {
+        Ok(&mut pair.right)
+    } else {
+        Err(LoopbackError::LinkMismatch {
+            expected: LOOPBACK_LEFT_ID,
+            actual: link_id,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use hyf_core::TimestampMs;
-    use hyf_link::{LinkCommand, LinkEvent, LinkId};
+    use hyf_link::{LinkCommand, LinkDriver, LinkEvent, LinkId};
 
-    use super::{LOOPBACK_LEFT_ID, LOOPBACK_RIGHT_ID, LoopbackEndpoint, LoopbackPair};
+    use super::{
+        LOOPBACK_LEFT_ID, LOOPBACK_RIGHT_ID, LoopbackDriver, LoopbackEndpoint, LoopbackPair,
+        LoopbackSide,
+    };
     use crate::{LOOPBACK_MAX_FRAME_LEN, LoopbackError};
 
     #[test]
@@ -246,6 +423,110 @@ mod tests {
         assert_eq!(right.link_id(), LOOPBACK_RIGHT_ID);
         assert_eq!(left.mtu(), 256);
         assert_eq!(right.mtu(), 256);
+    }
+
+    #[test]
+    fn loopback_side_exposes_tx_and_peer_ids() {
+        assert_eq!(LoopbackSide::Left.link_id(), LOOPBACK_LEFT_ID);
+        assert_eq!(LoopbackSide::Left.peer_link_id(), LOOPBACK_RIGHT_ID);
+        assert_eq!(LoopbackSide::Right.link_id(), LOOPBACK_RIGHT_ID);
+        assert_eq!(LoopbackSide::Right.peer_link_id(), LOOPBACK_LEFT_ID);
+    }
+
+    #[test]
+    fn loopback_driver_sends_and_polls_peer_frames() -> Result<(), LoopbackError> {
+        let mut driver = LoopbackDriver::<2>::left(16);
+        let mut output = [0; 8];
+
+        assert_eq!(driver.link_id(), LOOPBACK_LEFT_ID);
+        assert_eq!(driver.link_class(), hyf_link::LinkClass::Loopback);
+        assert_eq!(driver.mtu(), 16);
+        assert!(driver.is_up());
+
+        driver.send_bytes(b"one", TimestampMs(10))?;
+        assert_eq!(driver.queued_len(LOOPBACK_RIGHT_ID)?, 1);
+
+        let frame = driver
+            .poll_frame(&mut output)?
+            .ok_or(LoopbackError::QueueFull {
+                link_id: LOOPBACK_RIGHT_ID,
+                capacity: 2,
+            })?;
+        assert_eq!(frame.link_id, LOOPBACK_RIGHT_ID);
+        assert_eq!(frame.received_at_ms, TimestampMs(10));
+        assert_eq!(frame.bytes, b"one");
+        assert_eq!(driver.poll_frame(&mut output)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn loopback_driver_preserves_short_output_without_dequeueing() -> Result<(), LoopbackError> {
+        let mut driver = LoopbackDriver::<1>::left(16);
+        let mut short = [0; 2];
+        let mut full = [0; 4];
+
+        driver.send_bytes(b"four", TimestampMs(1))?;
+        assert_eq!(
+            driver.poll_frame(&mut short),
+            Err(LoopbackError::OutputTooSmall {
+                actual: 2,
+                required: 4,
+            })
+        );
+        assert_eq!(driver.queued_len(LOOPBACK_RIGHT_ID)?, 1);
+        assert_eq!(
+            driver.poll_frame(&mut full)?.map(|frame| frame.bytes),
+            Some(&b"four"[..])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn loopback_driver_reports_down_mtu_and_queue_errors() -> Result<(), LoopbackError> {
+        let mut driver = LoopbackDriver::<1>::left(3);
+
+        assert_eq!(
+            driver.send_bytes(b"four", TimestampMs(1)),
+            Err(LoopbackError::FrameTooLarge { actual: 4, mtu: 3 })
+        );
+
+        driver.send_bytes(b"one", TimestampMs(1))?;
+        assert_eq!(
+            driver.send_bytes(b"two", TimestampMs(2)),
+            Err(LoopbackError::QueueFull {
+                link_id: LOOPBACK_RIGHT_ID,
+                capacity: 1,
+            })
+        );
+
+        assert_eq!(
+            driver.set_link_up(LOOPBACK_LEFT_ID, false)?,
+            LinkEvent::Down {
+                link_id: LOOPBACK_LEFT_ID,
+            }
+        );
+        assert!(!driver.is_up());
+        assert_eq!(
+            driver.send_bytes(b"two", TimestampMs(2)),
+            Err(LoopbackError::Down {
+                link_id: LOOPBACK_LEFT_ID,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn loopback_driver_debug_redacts_payload_bytes() -> Result<(), LoopbackError> {
+        let mut driver = LoopbackDriver::<1>::left(16);
+
+        driver.send_bytes(b"secret", TimestampMs(1))?;
+        let debug = format!("{driver:?}");
+
+        assert!(debug.contains("LoopbackDriver"));
+        assert!(debug.contains("rx_queued"));
+        assert!(!debug.contains("secret"));
+        assert!(!debug.contains("115, 101, 99"));
+        Ok(())
     }
 
     #[test]

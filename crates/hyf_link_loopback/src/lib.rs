@@ -11,7 +11,8 @@ mod loopback;
 
 pub use error::LoopbackError;
 pub use loopback::{
-    LOOPBACK_LEFT_ID, LOOPBACK_MAX_FRAME_LEN, LOOPBACK_RIGHT_ID, LoopbackEndpoint, LoopbackPair,
+    LOOPBACK_LEFT_ID, LOOPBACK_MAX_FRAME_LEN, LOOPBACK_RIGHT_ID, LoopbackDriver, LoopbackEndpoint,
+    LoopbackPair, LoopbackSide,
 };
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use core::fmt;
 
-use hyf_link::LinkId;
+use hyf_link::{LinkDriverError, LinkDriverErrorKind, LinkId};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LoopbackError {
@@ -50,12 +50,26 @@ impl fmt::Display for LoopbackError {
     }
 }
 
+impl LinkDriverError for LoopbackError {
+    fn driver_error_kind(&self) -> LinkDriverErrorKind {
+        match self {
+            Self::Down { .. } => LinkDriverErrorKind::LinkDown,
+            Self::QueueFull { .. } => LinkDriverErrorKind::Backpressure,
+            Self::OutputTooSmall { .. } => LinkDriverErrorKind::OutputTooSmall,
+            Self::FrameTooLarge { .. } | Self::InternalFrameTooLarge { .. } => {
+                LinkDriverErrorKind::FrameTooLarge
+            }
+            Self::LinkMismatch { .. } => LinkDriverErrorKind::Unsupported,
+        }
+    }
+}
+
 #[cfg(any(test, feature = "std"))]
 impl std::error::Error for LoopbackError {}
 
 #[cfg(test)]
 mod tests {
-    use hyf_link::LinkId;
+    use hyf_link::{LinkDriverError, LinkDriverErrorKind, LinkId};
 
     use super::LoopbackError;
 
@@ -79,6 +93,33 @@ mod tests {
             }
             .to_string()
             .contains("loopback link is down")
+        );
+    }
+
+    #[test]
+    fn loopback_errors_classify_driver_failure_kind() {
+        assert_eq!(
+            LoopbackError::Down {
+                link_id: LinkId([1; 16]),
+            }
+            .driver_error_kind(),
+            LinkDriverErrorKind::LinkDown
+        );
+        assert_eq!(
+            LoopbackError::QueueFull {
+                link_id: LinkId([1; 16]),
+                capacity: 1,
+            }
+            .driver_error_kind(),
+            LinkDriverErrorKind::Backpressure
+        );
+        assert!(
+            LoopbackError::QueueFull {
+                link_id: LinkId([1; 16]),
+                capacity: 1,
+            }
+            .driver_error_kind()
+            .is_recoverable_send_failure()
         );
     }
 }
