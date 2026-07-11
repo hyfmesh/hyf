@@ -7,9 +7,9 @@ use hyf_link_loopback::{LOOPBACK_LEFT_ID, LOOPBACK_RIGHT_ID, LoopbackError};
 use hyf_store::{StoreError, StorePolicy};
 use hyf_wire::{HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, decode_envelope};
 
-type SmokeRuntime<'a> = GatewayRuntime<'a, 2, 8, 4, 4>;
-type QueueLimitedRuntime<'a> = GatewayRuntime<'a, 2, 8, 4, 1>;
-type StoreLimitedRuntime<'a> = GatewayRuntime<'a, 2, 8, 1, 4>;
+type SmokeRuntime = GatewayRuntime<2, 8, 4, 4>;
+type QueueLimitedRuntime = GatewayRuntime<2, 8, 4, 1>;
+type StoreLimitedRuntime = GatewayRuntime<2, 8, 1, 4>;
 
 #[test]
 fn smoke_local_submit_and_loopback_delivery() -> Result<(), GatewayError> {
@@ -26,9 +26,10 @@ fn smoke_local_submit_and_loopback_delivery() -> Result<(), GatewayError> {
         b"local",
     ))?;
     assert_eq!(
-        runtime.last_delivered().map(|envelope| envelope.message_id),
+        runtime.last_delivered_message_id(),
         Some(MessageId([1; 32]))
     );
+    assert_eq!(runtime.last_delivered_payload_len(), b"local".len());
     assert_eq!(runtime.metrics().delivered, 1);
     assert_eq!(runtime.loopback_queued_len(LOOPBACK_RIGHT_ID)?, 0);
 
@@ -49,10 +50,8 @@ fn smoke_local_submit_and_loopback_delivery() -> Result<(), GatewayError> {
     })?;
     peer.process_link_frame(frame)?;
 
-    assert_eq!(
-        peer.last_delivered().map(|envelope| envelope.message_id),
-        Some(MessageId([2; 32]))
-    );
+    assert_eq!(peer.last_delivered_message_id(), Some(MessageId([2; 32])));
+    assert_eq!(peer.last_delivered_payload_len(), b"remote".len());
     assert_eq!(peer.metrics().delivered, 1);
     Ok(())
 }
@@ -316,14 +315,14 @@ fn smoke_store_forward_order_is_deterministic() -> Result<(), GatewayError> {
 }
 
 fn receive_message_id<const STORE_CAPACITY: usize, const LOOPBACK_QUEUE: usize>(
-    runtime: &mut GatewayRuntime<'_, 2, 8, STORE_CAPACITY, LOOPBACK_QUEUE>,
+    runtime: &mut GatewayRuntime<2, 8, STORE_CAPACITY, LOOPBACK_QUEUE>,
     output: &mut [u8],
 ) -> Result<Option<MessageId>, GatewayError> {
     receive_message_id_from(runtime, LOOPBACK_RIGHT_ID, output)
 }
 
 fn receive_message_id_from<const STORE_CAPACITY: usize, const LOOPBACK_QUEUE: usize>(
-    runtime: &mut GatewayRuntime<'_, 2, 8, STORE_CAPACITY, LOOPBACK_QUEUE>,
+    runtime: &mut GatewayRuntime<2, 8, STORE_CAPACITY, LOOPBACK_QUEUE>,
     link_id: hyf_link::LinkId,
     output: &mut [u8],
 ) -> Result<Option<MessageId>, GatewayError> {

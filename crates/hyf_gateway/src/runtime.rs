@@ -8,7 +8,7 @@ use hyf_link_loopback::{
 };
 use hyf_router::{DropReason, Router, RouterCommand, RouterEvent, RouterStoreCommand};
 use hyf_store::Store;
-use hyf_wire::{HyfEnvelopeRef, encode_envelope};
+use hyf_wire::{HyfEnvelopeRef, decode_envelope, encode_envelope};
 
 use crate::{GatewayError, GatewayMetrics};
 
@@ -16,7 +16,6 @@ pub const GATEWAY_FRAME_BUFFER_LEN: usize = LOOPBACK_MAX_FRAME_LEN;
 const ROUTER_COMMAND_CAPACITY: usize = 4;
 
 pub struct GatewayRuntime<
-    'a,
     const MAX_LINKS: usize,
     const MAX_SEEN: usize,
     const STORE_CAPACITY: usize,
@@ -24,38 +23,41 @@ pub struct GatewayRuntime<
 > {
     config: GatewayConfig<MAX_LINKS>,
     router: Router<MAX_LINKS, MAX_SEEN>,
-    store: Store<'a, STORE_CAPACITY>,
+    store: Store<STORE_CAPACITY, GATEWAY_FRAME_BUFFER_LEN>,
     loopback: LoopbackPair<LOOPBACK_QUEUE>,
     metrics: GatewayMetrics,
     last_now_ms: TimestampMs,
-    last_delivered: Option<HyfEnvelopeRef<'a>>,
+    last_delivered_message_id: Option<MessageId>,
+    last_delivered_payload_len: usize,
 }
 
 impl<
-    'a,
     const MAX_LINKS: usize,
     const MAX_SEEN: usize,
     const STORE_CAPACITY: usize,
     const LOOPBACK_QUEUE: usize,
-> fmt::Debug for GatewayRuntime<'a, MAX_LINKS, MAX_SEEN, STORE_CAPACITY, LOOPBACK_QUEUE>
+> fmt::Debug for GatewayRuntime<MAX_LINKS, MAX_SEEN, STORE_CAPACITY, LOOPBACK_QUEUE>
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GatewayRuntime")
             .field("metrics", &self.metrics)
             .field("store_len", &self.store.len())
-            .field("last_delivered", &self.last_delivered.map(|_| "<redacted>"))
+            .field("last_delivered_message_id", &self.last_delivered_message_id)
+            .field(
+                "last_delivered_payload_len",
+                &self.last_delivered_payload_len,
+            )
             .finish()
     }
 }
 
 impl<
-    'a,
     const MAX_LINKS: usize,
     const MAX_SEEN: usize,
     const STORE_CAPACITY: usize,
     const LOOPBACK_QUEUE: usize,
-> GatewayRuntime<'a, MAX_LINKS, MAX_SEEN, STORE_CAPACITY, LOOPBACK_QUEUE>
+> GatewayRuntime<MAX_LINKS, MAX_SEEN, STORE_CAPACITY, LOOPBACK_QUEUE>
 {
     pub fn new(config: GatewayConfig<MAX_LINKS>) -> Result<Self, GatewayError> {
         config.validate()?;
@@ -73,7 +75,8 @@ impl<
             loopback: LoopbackPair::new(first_link_mtu(&config)),
             metrics: GatewayMetrics::default(),
             last_now_ms: TimestampMs(0),
-            last_delivered: None,
+            last_delivered_message_id: None,
+            last_delivered_payload_len: 0,
         };
         runtime.activate_configured_links()?;
         Ok(runtime)
@@ -83,8 +86,12 @@ impl<
         self.metrics
     }
 
-    pub fn last_delivered(&self) -> Option<HyfEnvelopeRef<'a>> {
-        self.last_delivered
+    pub fn last_delivered_message_id(&self) -> Option<MessageId> {
+        self.last_delivered_message_id
+    }
+
+    pub fn last_delivered_payload_len(&self) -> usize {
+        self.last_delivered_payload_len
     }
 
     pub fn stored_len(&self) -> usize {
@@ -105,14 +112,14 @@ impl<
         Ok(endpoint_for_link(left, right, link_id)?.receive_into(output)?)
     }
 
-    pub fn process_link_frame(&mut self, frame: LinkFrameRef<'a>) -> Result<(), GatewayError> {
+    pub fn process_link_frame(&mut self, frame: LinkFrameRef<'_>) -> Result<(), GatewayError> {
         let received_at_ms = frame.received_at_ms;
         self.observe_time(received_at_ms)?;
         self.route_event(RouterEvent::Link(LinkEvent::Frame(frame)))?;
         self.flush_store(self.last_now_ms)
     }
 
-    pub fn submit(&mut self, envelope: HyfEnvelopeRef<'a>) -> Result<(), GatewayError> {
+    pub fn submit(&mut self, envelope: HyfEnvelopeRef<'_>) -> Result<(), GatewayError> {
         self.metrics.submitted = self.metrics.submitted.saturating_add(1);
         self.route_event(RouterEvent::LocalSubmit(envelope))?;
         self.flush_store(self.last_now_ms)
@@ -144,20 +151,26 @@ impl<
         self.route_event(RouterEvent::Tick { now_ms: now })
     }
 
-    fn route_event(&mut self, event: RouterEvent<'a>) -> Result<(), GatewayError> {
+    fn route_event<'event>(&mut self, event: RouterEvent<'event>) -> Result<(), GatewayError> {
         let mut commands = [dummy_command(); ROUTER_COMMAND_CAPACITY];
         let count = self.router.handle_event(event, &mut commands)?;
         self.execute_commands(&commands[..count])
     }
 
-    fn execute_commands(&mut self, commands: &[RouterCommand<'a>]) -> Result<(), GatewayError> {
+    fn execute_commands<'event>(
+        &mut self,
+        commands: &[RouterCommand<'event>],
+    ) -> Result<(), GatewayError> {
         for command in commands {
             self.execute_command(*command)?;
         }
         Ok(())
     }
 
-    fn execute_command(&mut self, command: RouterCommand<'a>) -> Result<(), GatewayError> {
+    fn execute_command<'event>(
+        &mut self,
+        command: RouterCommand<'event>,
+    ) -> Result<(), GatewayError> {
         match command {
             RouterCommand::Send { link_id, envelope } => {
                 self.send_envelope(link_id, envelope)?;
@@ -166,7 +179,7 @@ impl<
             }
             RouterCommand::Store(RouterStoreCommand::Put(envelope)) => {
                 if self.config.policy.allow_store_and_forward {
-                    self.store.put(envelope)?;
+                    self.store.put_envelope(envelope)?;
                     self.metrics.stored = self.metrics.stored.saturating_add(1);
                     self.router.commit_seen(envelope.message_id);
                 } else {
@@ -188,7 +201,8 @@ impl<
                 Ok(())
             }
             RouterCommand::DeliverLocal(envelope) => {
-                self.last_delivered = Some(envelope);
+                self.last_delivered_message_id = Some(envelope.message_id);
+                self.last_delivered_payload_len = envelope.payload.len();
                 self.metrics.delivered = self.metrics.delivered.saturating_add(1);
                 self.router.commit_seen(envelope.message_id);
                 Ok(())
@@ -199,7 +213,7 @@ impl<
     fn send_envelope(
         &mut self,
         link_id: LinkId,
-        envelope: HyfEnvelopeRef<'a>,
+        envelope: HyfEnvelopeRef<'_>,
     ) -> Result<(), GatewayError> {
         let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
         let len = encode_envelope(envelope, &mut frame)?;
@@ -235,10 +249,14 @@ impl<
     fn flush_store(&mut self, now: TimestampMs) -> Result<(), GatewayError> {
         let expired = self.store.expire_before(now);
         self.metrics.expired = self.metrics.expired.saturating_add(expired as u64);
-        let mut commands = [dummy_command(); ROUTER_COMMAND_CAPACITY];
         while let Some(stored) = self.store.first_pending() {
-            let message_id = stored.envelope.message_id;
-            let count = self.router.forward_stored(stored.envelope, &mut commands)?;
+            let message_id = stored.message_id;
+            let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+            let len = stored.bytes.len();
+            frame[..len].copy_from_slice(stored.bytes);
+            let envelope = decode_envelope(&frame[..len])?;
+            let mut commands = [dummy_command(); ROUTER_COMMAND_CAPACITY];
+            let count = self.router.forward_stored(envelope, &mut commands)?;
             if count == 0 {
                 break;
             }
@@ -336,7 +354,7 @@ mod tests {
     use super::GatewayRuntime;
     use crate::{GATEWAY_FRAME_BUFFER_LEN, GatewayError};
 
-    type TestRuntime<'a> = GatewayRuntime<'a, 2, 8, 4, 4>;
+    type TestRuntime = GatewayRuntime<2, 8, 4, 4>;
 
     #[test]
     fn runtime_constructs_from_valid_config() -> Result<(), GatewayError> {
@@ -429,9 +447,10 @@ mod tests {
         ))?;
 
         assert_eq!(
-            runtime.last_delivered().map(|envelope| envelope.message_id),
+            runtime.last_delivered_message_id(),
             Some(MessageId([1; 32]))
         );
+        assert_eq!(runtime.last_delivered_payload_len(), b"secret".len());
         assert_eq!(runtime.metrics().delivered, 1);
 
         runtime.set_link_up(LOOPBACK_LEFT_ID, false)?;
@@ -463,7 +482,7 @@ mod tests {
         let debug = format!("{runtime:?}");
 
         assert!(debug.contains("GatewayRuntime"));
-        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("last_delivered_message_id"));
         assert!(!debug.contains("secret"));
         assert!(!debug.contains("115, 101, 99"));
         Ok(())
