@@ -113,7 +113,7 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         ingress: Option<LinkId>,
         out: &mut [RouterCommand<'a>],
     ) -> Result<usize, RouterError> {
-        if let Some(count) = self.reject_terminal_envelope(envelope, out)? {
+        if let Some(count) = self.reject_invalid_or_expired(envelope, out)? {
             return Ok(count);
         }
         if self.has_seen(envelope.message_id) {
@@ -129,11 +129,29 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         if self.is_local_destination(envelope.destination) {
             return emit(out, RouterCommand::DeliverLocal(envelope));
         }
+        let outbound = match envelope_for_next_hop(envelope, ingress) {
+            Ok(outbound) => outbound,
+            Err(reason) => {
+                return emit(
+                    out,
+                    RouterCommand::Drop {
+                        message_id: envelope.message_id,
+                        reason,
+                    },
+                );
+            }
+        };
         if let Some(link_id) = self.first_up_link_except(ingress) {
-            return emit(out, RouterCommand::Send { link_id, envelope });
+            return emit(
+                out,
+                RouterCommand::Send {
+                    link_id,
+                    envelope: outbound,
+                },
+            );
         }
 
-        emit(out, RouterCommand::Store(RouterStoreCommand::Put(envelope)))
+        emit(out, RouterCommand::Store(RouterStoreCommand::Put(outbound)))
     }
 
     fn reject_terminal_envelope<'a>(
@@ -171,6 +189,39 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
                 RouterCommand::Drop {
                     message_id: envelope.message_id,
                     reason: DropReason::HopLimitExhausted,
+                },
+            )
+            .map(Some);
+        }
+
+        Ok(None)
+    }
+
+    fn reject_invalid_or_expired<'a>(
+        &self,
+        envelope: HyfEnvelopeRef<'a>,
+        out: &mut [RouterCommand<'a>],
+    ) -> Result<Option<usize>, RouterError> {
+        if let Err(error) = validate_envelope(envelope) {
+            return match invalid_envelope_drop_reason(error) {
+                Some(reason) => emit(
+                    out,
+                    RouterCommand::Drop {
+                        message_id: envelope.message_id,
+                        reason,
+                    },
+                )
+                .map(Some),
+                None => Err(RouterError::InvalidEnvelope(error)),
+            };
+        }
+
+        if envelope.expires_at_ms.0 <= self.now_ms.0 {
+            return emit(
+                out,
+                RouterCommand::Drop {
+                    message_id: envelope.message_id,
+                    reason: DropReason::Expired,
                 },
             )
             .map(Some);
@@ -236,6 +287,26 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
     fn is_local_destination(&self, destination: HyfDestination) -> bool {
         matches!(destination, HyfDestination::Node(node_id) if node_id == self.policy.local_node_id)
     }
+}
+
+fn envelope_for_next_hop(
+    envelope: HyfEnvelopeRef<'_>,
+    ingress: Option<LinkId>,
+) -> Result<HyfEnvelopeRef<'_>, DropReason> {
+    let Some(_) = ingress else {
+        if envelope.hop_limit == 0 {
+            return Err(DropReason::HopLimitExhausted);
+        }
+        return Ok(envelope);
+    };
+
+    if envelope.hop_limit <= 1 {
+        return Err(DropReason::HopLimitExhausted);
+    }
+    Ok(HyfEnvelopeRef {
+        hop_limit: envelope.hop_limit - 1,
+        ..envelope
+    })
 }
 
 fn invalid_envelope_drop_reason(error: hyf_wire::HyfWireError) -> Option<DropReason> {
@@ -488,7 +559,11 @@ pub(crate) mod tests {
     #[test]
     fn link_frame_decodes_and_routes_without_echoing_ingress() -> Result<(), RouterError> {
         let mut router = router();
-        let envelope = sample_envelope(MessageId([1; 32]), 100, 200, 1, b"payload");
+        let envelope = sample_envelope(MessageId([1; 32]), 100, 200, 2, b"payload");
+        let expected = HyfEnvelopeRef {
+            hop_limit: 1,
+            ..envelope
+        };
         let mut frame = [0; 128];
         let frame_len =
             encode_envelope(envelope, &mut frame).map_err(RouterError::InvalidEnvelope)?;
@@ -515,9 +590,92 @@ pub(crate) mod tests {
             out[0],
             RouterCommand::Send {
                 link_id: LINK_B,
-                envelope,
+                envelope: expected,
             }
         );
+        Ok(())
+    }
+
+    #[test]
+    fn inbound_remote_without_link_stores_decremented_envelope() -> Result<(), RouterError> {
+        let mut router = router();
+        let envelope = sample_envelope(MessageId([8; 32]), 100, 200, 3, b"store");
+        let expected = HyfEnvelopeRef {
+            hop_limit: 2,
+            ..envelope
+        };
+        let mut frame = [0; 128];
+        let frame_len =
+            encode_envelope(envelope, &mut frame).map_err(RouterError::InvalidEnvelope)?;
+        let mut out = [drop_command(); 1];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Frame(LinkFrameRef::new(
+                LINK_A,
+                TimestampMs(100),
+                &frame[..frame_len],
+            ))),
+            &mut out,
+        )?;
+
+        assert_eq!(
+            out[0],
+            RouterCommand::Store(RouterStoreCommand::Put(expected))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn inbound_remote_hop_limit_one_drops_as_exhausted() -> Result<(), RouterError> {
+        let mut router = router();
+        let envelope = sample_envelope(MessageId([9; 32]), 100, 200, 1, b"hop");
+        let mut frame = [0; 128];
+        let frame_len =
+            encode_envelope(envelope, &mut frame).map_err(RouterError::InvalidEnvelope)?;
+        let mut out = [drop_command(); 1];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Frame(LinkFrameRef::new(
+                LINK_A,
+                TimestampMs(100),
+                &frame[..frame_len],
+            ))),
+            &mut out,
+        )?;
+
+        assert_eq!(
+            out[0],
+            RouterCommand::Drop {
+                message_id: envelope.message_id,
+                reason: DropReason::HopLimitExhausted,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn inbound_local_delivery_does_not_decrement_or_require_hop() -> Result<(), RouterError> {
+        let mut router = router();
+        let envelope = HyfEnvelopeRef {
+            destination: HyfDestination::Node(LOCAL),
+            hop_limit: 0,
+            ..sample_envelope(MessageId([10; 32]), 100, 200, 1, b"local")
+        };
+        let mut frame = [0; 128];
+        let frame_len =
+            encode_envelope(envelope, &mut frame).map_err(RouterError::InvalidEnvelope)?;
+        let mut out = [drop_command(); 1];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Frame(LinkFrameRef::new(
+                LINK_A,
+                TimestampMs(100),
+                &frame[..frame_len],
+            ))),
+            &mut out,
+        )?;
+
+        assert_eq!(out[0], RouterCommand::DeliverLocal(envelope));
         Ok(())
     }
 
