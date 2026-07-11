@@ -89,6 +89,35 @@ fn smoke_link_outage_and_store_forward_after_recovery() -> Result<(), GatewayErr
 }
 
 #[test]
+fn smoke_expired_store_record_is_not_forwarded_on_recovery() -> Result<(), GatewayError> {
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
+    let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+
+    runtime.set_link_up(LOOPBACK_LEFT_ID, false)?;
+    runtime.set_link_up(LOOPBACK_RIGHT_ID, false)?;
+    runtime.submit(sample_envelope(
+        MessageId([8; 32]),
+        remote(),
+        100,
+        150,
+        4,
+        b"expired while offline",
+    ))?;
+
+    assert_eq!(runtime.stored_len(), 1);
+    runtime.tick(TimestampMs(200))?;
+    assert_eq!(runtime.stored_len(), 0);
+    assert_eq!(runtime.metrics().expired, 1);
+
+    runtime.set_link_up(LOOPBACK_LEFT_ID, true)?;
+    runtime.set_link_up(LOOPBACK_RIGHT_ID, true)?;
+
+    assert_eq!(runtime.metrics().sent, 0);
+    assert_eq!(receive_message_id(&mut runtime, &mut frame)?, None);
+    Ok(())
+}
+
+#[test]
 fn smoke_duplicate_expiry_ttl_and_mtu_rejection() -> Result<(), GatewayError> {
     let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
     let duplicate = sample_envelope(MessageId([4; 32]), remote(), 100, 300, 4, b"duplicate");

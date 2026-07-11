@@ -27,6 +27,7 @@ pub struct GatewayRuntime<
     store: Store<'a, STORE_CAPACITY>,
     loopback: LoopbackPair<LOOPBACK_QUEUE>,
     metrics: GatewayMetrics,
+    last_now_ms: TimestampMs,
     last_delivered: Option<HyfEnvelopeRef<'a>>,
 }
 
@@ -71,6 +72,7 @@ impl<
             store: Store::new(store_policy),
             loopback: LoopbackPair::new(first_link_mtu(&config)),
             metrics: GatewayMetrics::default(),
+            last_now_ms: TimestampMs(0),
             last_delivered: None,
         };
         runtime.activate_configured_links()?;
@@ -105,19 +107,20 @@ impl<
 
     pub fn process_link_frame(&mut self, frame: LinkFrameRef<'a>) -> Result<(), GatewayError> {
         let received_at_ms = frame.received_at_ms;
+        self.observe_time(received_at_ms)?;
         self.route_event(RouterEvent::Link(LinkEvent::Frame(frame)))?;
-        self.flush_store(received_at_ms)
+        self.flush_store(self.last_now_ms)
     }
 
     pub fn submit(&mut self, envelope: HyfEnvelopeRef<'a>) -> Result<(), GatewayError> {
         self.metrics.submitted = self.metrics.submitted.saturating_add(1);
         self.route_event(RouterEvent::LocalSubmit(envelope))?;
-        self.flush_store(TimestampMs(0))
+        self.flush_store(self.last_now_ms)
     }
 
     pub fn tick(&mut self, now: TimestampMs) -> Result<(), GatewayError> {
-        self.route_event(RouterEvent::Tick { now_ms: now })?;
-        self.flush_store(now)
+        self.observe_time(now)?;
+        self.flush_store(self.last_now_ms)
     }
 
     pub fn set_link_up(&mut self, link_id: LinkId, up: bool) -> Result<(), GatewayError> {
@@ -127,9 +130,18 @@ impl<
         };
         self.route_event(RouterEvent::Link(event))?;
         if up {
-            self.flush_store(TimestampMs(0))?;
+            self.flush_store(self.last_now_ms)?;
         }
         Ok(())
+    }
+
+    fn observe_time(&mut self, now: TimestampMs) -> Result<(), GatewayError> {
+        if now.0 <= self.last_now_ms.0 {
+            return Ok(());
+        }
+
+        self.last_now_ms = now;
+        self.route_event(RouterEvent::Tick { now_ms: now })
     }
 
     fn route_event(&mut self, event: RouterEvent<'a>) -> Result<(), GatewayError> {
@@ -214,7 +226,9 @@ impl<
         Ok(())
     }
 
-    fn flush_store(&mut self, _now: TimestampMs) -> Result<(), GatewayError> {
+    fn flush_store(&mut self, now: TimestampMs) -> Result<(), GatewayError> {
+        let expired = self.store.expire_before(now);
+        self.metrics.expired = self.metrics.expired.saturating_add(expired as u64);
         while let Some(stored) = self.store.first_pending() {
             let Some(link_id) = self.first_up_link_id() else {
                 break;
