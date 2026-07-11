@@ -48,7 +48,7 @@ fn smoke_local_submit_and_loopback_delivery() -> Result<(), GatewayError> {
     let frame = received.ok_or(GatewayError::UnsupportedLink {
         link_id: LOOPBACK_RIGHT_ID,
     })?;
-    peer.process_link_frame(frame)?;
+    peer.ingest_link_frame(frame)?;
 
     assert_eq!(peer.last_delivered_message_id(), Some(MessageId([2; 32])));
     assert_eq!(peer.last_delivered_payload_len(), b"remote".len());

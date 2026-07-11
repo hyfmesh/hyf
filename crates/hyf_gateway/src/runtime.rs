@@ -86,6 +86,10 @@ impl<
         self.metrics
     }
 
+    pub fn now_ms(&self) -> TimestampMs {
+        self.last_now_ms
+    }
+
     pub fn last_delivered_message_id(&self) -> Option<MessageId> {
         self.last_delivered_message_id
     }
@@ -112,11 +116,23 @@ impl<
         Ok(endpoint_for_link(left, right, link_id)?.receive_into(output)?)
     }
 
-    pub fn process_link_frame(&mut self, frame: LinkFrameRef<'_>) -> Result<(), GatewayError> {
+    pub fn ingest_link_frame(&mut self, frame: LinkFrameRef<'_>) -> Result<(), GatewayError> {
         let received_at_ms = frame.received_at_ms;
         self.observe_time(received_at_ms)?;
         self.route_event(RouterEvent::Link(LinkEvent::Frame(frame)))?;
         self.flush_store(self.last_now_ms)
+    }
+
+    pub fn poll_loopback(
+        &mut self,
+        link_id: LinkId,
+        output: &mut [u8],
+    ) -> Result<bool, GatewayError> {
+        let Some(frame) = self.receive_loopback_frame(link_id, output)? else {
+            return Ok(false);
+        };
+        self.ingest_link_frame(frame)?;
+        Ok(true)
     }
 
     pub fn submit(&mut self, envelope: HyfEnvelopeRef<'_>) -> Result<(), GatewayError> {
@@ -466,6 +482,20 @@ mod tests {
 
         assert_eq!(runtime.stored_len(), 0);
         assert_eq!(runtime.metrics().expired, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_reports_current_time_and_empty_poll() -> Result<(), GatewayError> {
+        let mut runtime = TestRuntime::new(valid_config())?;
+        let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+
+        assert_eq!(runtime.now_ms(), TimestampMs(0));
+        runtime.tick(TimestampMs(42))?;
+        runtime.tick(TimestampMs(7))?;
+
+        assert_eq!(runtime.now_ms(), TimestampMs(42));
+        assert!(!runtime.poll_loopback(LOOPBACK_RIGHT_ID, &mut frame)?);
         Ok(())
     }
 
