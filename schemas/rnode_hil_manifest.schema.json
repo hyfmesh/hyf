@@ -75,17 +75,20 @@
     },
     "checks": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "name",
+          "id",
           "status"
         ],
         "properties": {
-          "name": {
+          "id": {
             "type": "string",
-            "minLength": 1
+            "enum": [
+              "hil.rnode.ready"
+            ]
           },
           "status": {
             "enum": [

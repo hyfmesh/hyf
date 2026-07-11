@@ -1,8 +1,8 @@
 #![cfg(feature = "hil_std")]
 
 use hyf_link_rnode::{
-    RNODE_HIL_ARTIFACT_ROOT, RNODE_HIL_DEFAULT_BAUD, RNODE_HIL_MANIFEST_SCHEMA, RNodeHilManifest,
-    hil_manifest_artifact_path, write_hil_manifest_json,
+    RNODE_HIL_ARTIFACT_ROOT, RNODE_HIL_DEFAULT_BAUD, RNODE_HIL_MANIFEST_SCHEMA, RNodeHilCheck,
+    RNodeHilCheckStatus, RNodeHilManifest, hil_manifest_artifact_path, write_hil_manifest_json,
 };
 
 #[test]
@@ -21,6 +21,11 @@ fn hil_rnode_environment_gate_is_non_transmitting_by_default()
         std::env::var("HYF_HIL_GENERATED_AT").unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned());
     let hardware_model = std::env::var("HYF_HIL_RNODE_MODEL").ok();
     let firmware_version = std::env::var("HYF_HIL_RNODE_FIRMWARE").ok();
+    let check = [
+        RNodeHilCheck::ready(RNodeHilCheckStatus::Skipped).with_detail(
+            "configured readiness probe is not implemented in this manifest contract slice",
+        ),
+    ];
     let manifest = RNodeHilManifest {
         run_id: &run_id,
         generated_at: &generated_at,
@@ -30,6 +35,7 @@ fn hil_rnode_environment_gate_is_non_transmitting_by_default()
         firmware_version: firmware_version.as_deref(),
         allow_rf_tx,
         transmission_performed: false,
+        checks: &check,
     };
     let mut manifest_json = Vec::new();
 

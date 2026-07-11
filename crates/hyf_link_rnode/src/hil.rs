@@ -4,10 +4,53 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{RNODE_HIL_DEFAULT_BAUD, RNODE_HIL_MANIFEST_SCHEMA};
+use crate::{RNODE_HIL_DEFAULT_BAUD, RNODE_HIL_MANIFEST_SCHEMA, RNODE_HIL_READY_CHECK_ID};
 
 pub const RNODE_HIL_ARTIFACT_ROOT: &str = "target/hyf_hil/rnode";
 pub const RNODE_HIL_MANIFEST_FILE_NAME: &str = "manifest.json";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RNodeHilCheckStatus {
+    Passed,
+    Failed,
+    Skipped,
+}
+
+impl RNodeHilCheckStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RNodeHilCheck<'a> {
+    pub id: &'a str,
+    pub status: RNodeHilCheckStatus,
+    pub detail: Option<&'a str>,
+}
+
+impl<'a> RNodeHilCheck<'a> {
+    pub const fn new(id: &'a str, status: RNodeHilCheckStatus) -> Self {
+        Self {
+            id,
+            status,
+            detail: None,
+        }
+    }
+
+    pub const fn ready(status: RNodeHilCheckStatus) -> Self {
+        Self::new(RNODE_HIL_READY_CHECK_ID, status)
+    }
+
+    pub const fn with_detail(mut self, detail: &'a str) -> Self {
+        self.detail = Some(detail);
+        self
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RNodeHilManifest<'a> {
@@ -19,6 +62,7 @@ pub struct RNodeHilManifest<'a> {
     pub firmware_version: Option<&'a str>,
     pub allow_rf_tx: bool,
     pub transmission_performed: bool,
+    pub checks: &'a [RNodeHilCheck<'a>],
 }
 
 impl<'a> RNodeHilManifest<'a> {
@@ -32,6 +76,7 @@ impl<'a> RNodeHilManifest<'a> {
             firmware_version: None,
             allow_rf_tx: false,
             transmission_performed: false,
+            checks: &[],
         }
     }
 }
@@ -43,6 +88,8 @@ pub enum RNodeHilManifestError {
     InvalidGeneratedAt,
     EmptyPort,
     InvalidBaud,
+    EmptyChecks,
+    EmptyCheckId,
     RfTransmissionRecorded,
     Io(io::Error),
 }
@@ -65,6 +112,12 @@ pub fn validate_hil_manifest(manifest: &RNodeHilManifest<'_>) -> Result<(), RNod
     }
     if manifest.transmission_performed {
         return Err(RNodeHilManifestError::RfTransmissionRecorded);
+    }
+    if manifest.checks.is_empty() {
+        return Err(RNodeHilManifestError::EmptyChecks);
+    }
+    if manifest.checks.iter().any(|check| check.id.is_empty()) {
+        return Err(RNodeHilManifestError::EmptyCheckId);
     }
     Ok(())
 }
@@ -211,10 +264,29 @@ pub fn write_hil_manifest_json<W: Write>(
     write_optional_json_string(out, manifest.firmware_version)?;
     write!(
         out,
-        "\n  }},\n  \"rf\": {{\n    \"allow_rf_tx\": {},\n    \"transmission_performed\": {}\n  }},\n  \"checks\": []\n}}\n",
+        "\n  }},\n  \"rf\": {{\n    \"allow_rf_tx\": {},\n    \"transmission_performed\": {}\n  }},\n  \"checks\": [",
         manifest.allow_rf_tx, manifest.transmission_performed
     )?;
+    for (index, check) in manifest.checks.iter().enumerate() {
+        if index > 0 {
+            out.write_all(b",")?;
+        }
+        write_hil_check_json(out, check)?;
+    }
+    out.write_all(b"\n  ]\n}\n")?;
     Ok(())
+}
+
+fn write_hil_check_json<W: Write>(out: &mut W, check: &RNodeHilCheck<'_>) -> io::Result<()> {
+    out.write_all(b"\n    {\n      \"id\": ")?;
+    write_json_string(out, check.id)?;
+    out.write_all(b",\n      \"status\": ")?;
+    write_json_string(out, check.status.as_str())?;
+    if let Some(detail) = check.detail {
+        out.write_all(b",\n      \"detail\": ")?;
+        write_json_string(out, detail)?;
+    }
+    out.write_all(b"\n    }")
 }
 
 fn write_optional_json_string<W: Write>(out: &mut W, value: Option<&str>) -> io::Result<()> {
@@ -255,6 +327,8 @@ impl fmt::Display for RNodeHilManifestError {
             }
             Self::EmptyPort => formatter.write_str("empty rnode hil manifest port"),
             Self::InvalidBaud => formatter.write_str("invalid rnode hil manifest baud"),
+            Self::EmptyChecks => formatter.write_str("empty rnode hil manifest checks"),
+            Self::EmptyCheckId => formatter.write_str("empty rnode hil manifest check id"),
             Self::RfTransmissionRecorded => {
                 formatter.write_str("rnode hil manifest recorded rf transmission")
             }
@@ -281,9 +355,11 @@ impl From<io::Error> for RNodeHilManifestError {
 #[cfg(test)]
 mod tests {
     use super::{
-        RNodeHilManifest, RNodeHilManifestError, default_hil_manifest_artifact_path,
-        hil_manifest_artifact_path, validate_hil_manifest, write_hil_manifest_json,
+        RNodeHilCheck, RNodeHilCheckStatus, RNodeHilManifest, RNodeHilManifestError,
+        default_hil_manifest_artifact_path, hil_manifest_artifact_path, validate_hil_manifest,
+        write_hil_manifest_json,
     };
+    use crate::RNODE_HIL_READY_CHECK_ID;
     use serde_json::Value;
     use std::path::PathBuf;
 
@@ -291,8 +367,10 @@ mod tests {
 
     #[test]
     fn manifest_writer_emits_non_transmitting_contract() -> Result<(), RNodeHilManifestError> {
-        let manifest =
+        let check = [RNodeHilCheck::ready(RNodeHilCheckStatus::Passed)];
+        let mut manifest =
             RNodeHilManifest::new("rnode-hil-test", "2026-07-09T00:00:00Z", "loop://rnode0");
+        manifest.checks = &check;
         let mut json = Vec::new();
 
         write_hil_manifest_json(&manifest, &mut json)?;
@@ -303,6 +381,8 @@ mod tests {
         assert!(output.contains("\"port\": \"loop://rnode0\""));
         assert!(output.contains("\"baud\": 115200"));
         assert!(output.contains("\"transmission_performed\": false"));
+        assert!(output.contains("\"id\": \"hil.rnode.ready\""));
+        assert!(output.contains("\"status\": \"passed\""));
         Ok(())
     }
 
@@ -310,8 +390,11 @@ mod tests {
     fn manifest_writer_output_matches_schema_contract() -> Result<(), Box<dyn std::error::Error>> {
         let mut manifest =
             RNodeHilManifest::new("rnode-hil-test", "2026-07-09T00:00:00Z", "loop://rnode0");
+        let check = [RNodeHilCheck::ready(RNodeHilCheckStatus::Passed)
+            .with_detail("non-transmitting readiness probe passed")];
         manifest.hardware_model = Some("RNode Test");
         manifest.firmware_version = Some("0.0.0-test");
+        manifest.checks = &check;
         let mut json = Vec::new();
 
         write_hil_manifest_json(&manifest, &mut json)?;
@@ -321,6 +404,10 @@ mod tests {
         assert_eq!(schema["properties"]["schema"]["const"], "hyf.rnode.hil.v1");
         assert_eq!(schema["properties"]["generated_at"]["format"], "date-time");
         assert_eq!(schema["properties"]["generated_at"]["pattern"], "Z$");
+        assert_eq!(
+            schema["properties"]["checks"]["items"]["properties"]["id"]["enum"][0],
+            RNODE_HIL_READY_CHECK_ID
+        );
         assert_eq!(output["schema"], "hyf.rnode.hil.v1");
         assert_eq!(output["generated_at"], "2026-07-09T00:00:00Z");
         assert_eq!(output["rnode"]["port"], "loop://rnode0");
@@ -329,7 +416,13 @@ mod tests {
         assert_eq!(output["rnode"]["firmware_version"], "0.0.0-test");
         assert_eq!(output["rf"]["allow_rf_tx"], false);
         assert_eq!(output["rf"]["transmission_performed"], false);
-        assert_eq!(output["checks"].as_array().map(Vec::len), Some(0));
+        assert_eq!(output["checks"].as_array().map(Vec::len), Some(1));
+        assert_eq!(output["checks"][0]["id"], RNODE_HIL_READY_CHECK_ID);
+        assert_eq!(output["checks"][0]["status"], "passed");
+        assert_eq!(
+            output["checks"][0]["detail"],
+            "non-transmitting readiness probe passed"
+        );
         Ok(())
     }
 
@@ -373,11 +466,13 @@ mod tests {
 
     #[test]
     fn validation_accepts_utc_generated_at_with_fractional_seconds() {
-        let manifest = RNodeHilManifest::new(
+        let check = [RNodeHilCheck::ready(RNodeHilCheckStatus::Skipped)];
+        let mut manifest = RNodeHilManifest::new(
             "rnode-hil-test",
             "2026-07-09T00:00:00.123Z",
             "loop://rnode0",
         );
+        manifest.checks = &check;
 
         assert!(validate_hil_manifest(&manifest).is_ok());
     }
@@ -396,7 +491,10 @@ mod tests {
             "2026-07-09T00:00:00.Z",
             "not-a-date",
         ] {
-            let manifest = RNodeHilManifest::new("rnode-hil-test", generated_at, "loop://rnode0");
+            let check = [RNodeHilCheck::ready(RNodeHilCheckStatus::Skipped)];
+            let mut manifest =
+                RNodeHilManifest::new("rnode-hil-test", generated_at, "loop://rnode0");
+            manifest.checks = &check;
 
             assert!(matches!(
                 validate_hil_manifest(&manifest),
@@ -409,6 +507,8 @@ mod tests {
     fn validation_rejects_recorded_rf_transmission() {
         let mut manifest =
             RNodeHilManifest::new("rnode-hil-test", "2026-07-09T00:00:00Z", "loop://rnode0");
+        let check = [RNodeHilCheck::ready(RNodeHilCheckStatus::Failed)];
+        manifest.checks = &check;
         manifest.transmission_performed = true;
 
         let result = validate_hil_manifest(&manifest);
@@ -420,10 +520,37 @@ mod tests {
     }
 
     #[test]
+    fn validation_rejects_missing_checks() {
+        let manifest =
+            RNodeHilManifest::new("rnode-hil-test", "2026-07-09T00:00:00Z", "loop://rnode0");
+
+        assert!(matches!(
+            validate_hil_manifest(&manifest),
+            Err(RNodeHilManifestError::EmptyChecks)
+        ));
+    }
+
+    #[test]
+    fn validation_rejects_empty_check_id() {
+        let check = [RNodeHilCheck::new("", RNodeHilCheckStatus::Failed)];
+        let mut manifest =
+            RNodeHilManifest::new("rnode-hil-test", "2026-07-09T00:00:00Z", "loop://rnode0");
+        manifest.checks = &check;
+
+        assert!(matches!(
+            validate_hil_manifest(&manifest),
+            Err(RNodeHilManifestError::EmptyCheckId)
+        ));
+    }
+
+    #[test]
     fn manifest_writer_escapes_json_strings() -> Result<(), RNodeHilManifestError> {
         let mut manifest =
             RNodeHilManifest::new("run\"id", "2026-07-09T00:00:00Z", "loop:\\rnode\n0");
+        let check =
+            [RNodeHilCheck::ready(RNodeHilCheckStatus::Passed).with_detail("ready\twith detail")];
         manifest.hardware_model = Some("model\tone");
+        manifest.checks = &check;
         let mut json = Vec::new();
 
         write_hil_manifest_json(&manifest, &mut json)?;
@@ -433,6 +560,7 @@ mod tests {
         assert!(output.contains("\"run_id\": \"run\\\"id\""));
         assert!(output.contains("\"port\": \"loop:\\\\rnode\\n0\""));
         assert!(output.contains("\"hardware_model\": \"model\\tone\""));
+        assert!(output.contains("\"detail\": \"ready\\twith detail\""));
         Ok(())
     }
 }
