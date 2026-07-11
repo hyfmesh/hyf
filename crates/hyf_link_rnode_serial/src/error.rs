@@ -3,6 +3,8 @@ use core::fmt;
 use hyf_link::{LinkDriverError, LinkDriverErrorKind};
 use hyf_link_kiss::KissError;
 use hyf_link_rnode::RNodeError;
+use hyf_link_rns::HyfLinkRnsError;
+use hyf_wire::HyfWireError;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RNodeSerialError {
@@ -14,8 +16,12 @@ pub enum RNodeSerialError {
     InjectedReadFailure,
     InjectedWriteFailure,
     FlowControlBlocked,
+    RnsWrapParamsRequired,
+    RnsWrapParamsUnexpected,
     Kiss(KissError),
     RNode(RNodeError),
+    Rns(HyfLinkRnsError),
+    HyfWire(HyfWireError),
 }
 
 impl fmt::Display for RNodeSerialError {
@@ -43,8 +49,15 @@ impl fmt::Display for RNodeSerialError {
                 formatter.write_str("injected rnode serial write failure")
             }
             Self::FlowControlBlocked => formatter.write_str("rnode serial flow control blocked"),
+            Self::RnsWrapParamsRequired => {
+                formatter.write_str("rnode serial raw rns mode requires wrap params")
+            }
+            Self::RnsWrapParamsUnexpected => formatter
+                .write_str("rnode serial hyf envelope mode does not accept rns wrap params"),
             Self::Kiss(error) => write!(formatter, "kiss error: {error}"),
             Self::RNode(error) => write!(formatter, "rnode error: {error}"),
+            Self::Rns(error) => write!(formatter, "rns packet error: {error}"),
+            Self::HyfWire(error) => write!(formatter, "hyf wire error: {error}"),
         }
     }
 }
@@ -62,6 +75,9 @@ impl LinkDriverError for RNodeSerialError {
             }
             Self::InjectedReadFailure => LinkDriverErrorKind::TransientReceive,
             Self::InjectedWriteFailure => LinkDriverErrorKind::TransientSend,
+            Self::RnsWrapParamsRequired | Self::RnsWrapParamsUnexpected => {
+                LinkDriverErrorKind::Unsupported
+            }
             Self::Kiss(KissError::FrameTooLarge { .. }) => LinkDriverErrorKind::FrameTooLarge,
             Self::Kiss(KissError::OutputBufferTooShort { .. }) => {
                 LinkDriverErrorKind::OutputTooSmall
@@ -69,7 +85,7 @@ impl LinkDriverError for RNodeSerialError {
             Self::Kiss(KissError::EncodedLengthOverflow | KissError::MalformedEscape { .. }) => {
                 LinkDriverErrorKind::Protocol
             }
-            Self::RNode(_) => LinkDriverErrorKind::Protocol,
+            Self::RNode(_) | Self::Rns(_) | Self::HyfWire(_) => LinkDriverErrorKind::Protocol,
         }
     }
 }
@@ -83,6 +99,18 @@ impl From<KissError> for RNodeSerialError {
 impl From<RNodeError> for RNodeSerialError {
     fn from(error: RNodeError) -> Self {
         Self::RNode(error)
+    }
+}
+
+impl From<HyfLinkRnsError> for RNodeSerialError {
+    fn from(error: HyfLinkRnsError) -> Self {
+        Self::Rns(error)
+    }
+}
+
+impl From<HyfWireError> for RNodeSerialError {
+    fn from(error: HyfWireError) -> Self {
+        Self::HyfWire(error)
     }
 }
 
@@ -114,6 +142,10 @@ mod tests {
             "rnode serial flow control blocked"
         );
         assert_eq!(
+            RNodeSerialError::RnsWrapParamsRequired.to_string(),
+            "rnode serial raw rns mode requires wrap params"
+        );
+        assert_eq!(
             RNodeSerialError::FrameTooLarge { actual: 5, mtu: 4 }.to_string(),
             "rnode serial frame too large: actual 5, mtu 4"
         );
@@ -133,6 +165,10 @@ mod tests {
             RNodeSerialError::Kiss(hyf_link_kiss::KissError::MalformedEscape { byte: 0 })
                 .driver_error_kind(),
             hyf_link::LinkDriverErrorKind::Protocol
+        );
+        assert_eq!(
+            RNodeSerialError::RnsWrapParamsRequired.driver_error_kind(),
+            hyf_link::LinkDriverErrorKind::Unsupported
         );
     }
 }

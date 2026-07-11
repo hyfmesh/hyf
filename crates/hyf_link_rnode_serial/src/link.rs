@@ -6,8 +6,10 @@ use hyf_link_kiss::{
     KISS_CMD_DATA, KISS_FEND, KISS_FESC, KISS_TFEND, KISS_TFESC, KissDecoder, KissFrameRef,
 };
 use hyf_link_rnode::{RNodeState, parse_command_frame};
+use hyf_link_rns::{RnsWrapParams, unwrap_rns_packet, validate_rns_packet, wrap_rns_packet};
+use hyf_wire::{decode_envelope, encode_envelope};
 
-use crate::{RNodeSerialConfig, RNodeSerialError, RNodeSerialEvent, SerialIo};
+use crate::{RNodeDataMode, RNodeSerialConfig, RNodeSerialError, RNodeSerialEvent, SerialIo};
 
 pub struct RNodeSerialLink<Io, const FRAME_MAX: usize> {
     config: RNodeSerialConfig,
@@ -84,9 +86,10 @@ where
         bytes: &[u8],
         _now_ms: TimestampMs,
     ) -> Result<(), RNodeSerialError> {
-        if bytes.len() > self.config.mtu {
+        let payload = self.payload_for_send(bytes)?;
+        if payload.len() > self.config.mtu {
             return Err(RNodeSerialError::FrameTooLarge {
-                actual: bytes.len(),
+                actual: payload.len(),
                 mtu: self.config.mtu,
             });
         }
@@ -94,7 +97,7 @@ where
             return Err(RNodeSerialError::FlowControlBlocked);
         }
 
-        write_kiss_frame(&mut self.io, KISS_CMD_DATA, bytes)?;
+        write_kiss_frame(&mut self.io, KISS_CMD_DATA, payload)?;
         self.state.mark_tx_started();
         Ok(())
     }
@@ -107,6 +110,77 @@ where
             return Ok(None);
         }
         self.drain_pending(output)
+    }
+
+    pub fn poll_gateway_frame<'a>(
+        &mut self,
+        output: &'a mut [u8],
+    ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
+        if self.config.data_mode == RNodeDataMode::RawRnsPacket {
+            return Err(RNodeSerialError::RnsWrapParamsRequired);
+        }
+        self.poll_hyf_gateway_frame(output)
+    }
+
+    pub fn poll_gateway_frame_with_rns_params<'a>(
+        &mut self,
+        output: &'a mut [u8],
+        params: RnsWrapParams,
+    ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
+        if self.config.data_mode == RNodeDataMode::HyfEnvelope {
+            return Err(RNodeSerialError::RnsWrapParamsUnexpected);
+        }
+        self.poll_raw_rns_gateway_frame(output, params)
+    }
+
+    fn payload_for_send<'a>(&self, bytes: &'a [u8]) -> Result<&'a [u8], RNodeSerialError> {
+        match self.config.data_mode {
+            RNodeDataMode::HyfEnvelope => {
+                decode_envelope(bytes)?;
+                Ok(bytes)
+            }
+            RNodeDataMode::RawRnsPacket => {
+                let envelope = decode_envelope(bytes)?;
+                Ok(unwrap_rns_packet(envelope)?)
+            }
+        }
+    }
+
+    fn poll_hyf_gateway_frame<'a>(
+        &mut self,
+        output: &'a mut [u8],
+    ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
+        loop {
+            if self.pending.is_none() && !self.read_until_pending()? {
+                return Ok(None);
+            }
+            let Some(pending) = self.pending else {
+                return Ok(None);
+            };
+            if pending.command == KISS_CMD_DATA {
+                return self.drain_pending_hyf_frame(output);
+            }
+            self.drain_pending_command()?;
+        }
+    }
+
+    fn poll_raw_rns_gateway_frame<'a>(
+        &mut self,
+        output: &'a mut [u8],
+        params: RnsWrapParams,
+    ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
+        loop {
+            if self.pending.is_none() && !self.read_until_pending()? {
+                return Ok(None);
+            }
+            let Some(pending) = self.pending else {
+                return Ok(None);
+            };
+            if pending.command == KISS_CMD_DATA {
+                return self.drain_pending_raw_rns_frame(output, params);
+            }
+            self.drain_pending_command()?;
+        }
     }
 
     fn read_until_pending(&mut self) -> Result<bool, RNodeSerialError> {
@@ -178,6 +252,65 @@ where
         )))
     }
 
+    fn drain_pending_hyf_frame<'a>(
+        &mut self,
+        output: &'a mut [u8],
+    ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
+        let Some(pending) = self.pending else {
+            return Ok(None);
+        };
+        if pending.command != KISS_CMD_DATA {
+            return Ok(None);
+        }
+        if output.len() < pending.payload_len {
+            return Err(RNodeSerialError::ReadBufferTooSmall {
+                actual: output.len(),
+                required: pending.payload_len,
+            });
+        }
+        if let Err(error) = decode_envelope(&pending.payload[..pending.payload_len]) {
+            self.pending = None;
+            return Err(RNodeSerialError::HyfWire(error));
+        }
+
+        output[..pending.payload_len].copy_from_slice(&pending.payload[..pending.payload_len]);
+        self.pending = None;
+        Ok(Some(LinkFrameRef::new(
+            self.config.link_id,
+            pending.received_at_ms,
+            &output[..pending.payload_len],
+        )))
+    }
+
+    fn drain_pending_raw_rns_frame<'a>(
+        &mut self,
+        output: &'a mut [u8],
+        params: RnsWrapParams,
+    ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
+        let Some(pending) = self.pending else {
+            return Ok(None);
+        };
+        if pending.command != KISS_CMD_DATA {
+            return Ok(None);
+        }
+        let raw = &pending.payload[..pending.payload_len];
+        let packet = match validate_rns_packet(raw) {
+            Ok(packet) => packet,
+            Err(error) => {
+                self.pending = None;
+                return Err(RNodeSerialError::Rns(error));
+            }
+        };
+        let envelope = wrap_rns_packet(packet, params)?;
+        let len = encode_envelope(envelope, output)?;
+        self.pending = None;
+        Ok(Some(LinkFrameRef::new(
+            self.config.link_id,
+            params.created_at_ms,
+            &output[..len],
+        )))
+    }
+
     fn drain_pending_command<'a>(
         &mut self,
     ) -> Result<Option<RNodeSerialEvent<'a>>, RNodeSerialError> {
@@ -234,7 +367,7 @@ where
                 return Ok(None);
             };
             if pending.command == KISS_CMD_DATA {
-                return self.drain_pending_frame(output);
+                return self.poll_gateway_frame(output);
             }
             self.drain_pending_command()?;
         }
@@ -308,7 +441,7 @@ fn write_kiss_frame<Io: SerialIo>(
 
 #[cfg(test)]
 mod tests {
-    use hyf_core::TimestampMs;
+    use hyf_core::{MessageId, NodeId, TimestampMs};
     use hyf_link::{LinkDriver, LinkId};
     use hyf_link_kiss::{KISS_CMD_DATA, encode_command_frame, encode_data_frame};
     use hyf_link_rnode::{
@@ -316,11 +449,21 @@ mod tests {
         RNODE_CMD_STAT_RSSI, RNodeConfigReport, RNodeFirmwareVersion, RNodeHardwareError,
         RNodeStat,
     };
+    use hyf_link_rns::{RnsWrapParams, validate_rns_packet, wrap_rns_packet};
+    use hyf_wire::{
+        HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, decode_envelope,
+        encode_envelope,
+    };
 
     use super::RNodeSerialLink;
     use crate::{FakeSerial, RNodeDataMode, RNodeSerialConfig, RNodeSerialError, RNodeSerialEvent};
 
-    type TestLink = RNodeSerialLink<FakeSerial<128, 128>, 16>;
+    type TestLink = RNodeSerialLink<FakeSerial<512, 512>, 256>;
+
+    const HEADER_1_PACKET: &[u8] = &[
+        0x00, 0x00, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+        0x1e, 0x1f, 0x20, 0x00, b'h', b'e', b'a', b'd', b'e', b'r', b'-', b'o', b'n', b'e',
+    ];
 
     #[test]
     fn link_constructs_with_config_io_and_state() -> Result<(), RNodeSerialError> {
@@ -335,13 +478,13 @@ mod tests {
 
     #[test]
     fn link_rejects_mtu_larger_than_frame_capacity() {
-        let config = RNodeSerialConfig::new(LinkId([1; 16]), 16, RNodeDataMode::HyfEnvelope);
+        let config = RNodeSerialConfig::new(LinkId([1; 16]), 256, RNodeDataMode::HyfEnvelope);
 
         assert_eq!(
             TestLink::new(config, FakeSerial::new()).map(|_| ()),
             Err(RNodeSerialError::InvalidFrameCapacity {
-                mtu: 16,
-                capacity: 16,
+                mtu: 256,
+                capacity: 256,
             })
         );
     }
@@ -349,7 +492,7 @@ mod tests {
     #[test]
     fn link_debug_redacts_io() -> Result<(), RNodeSerialError> {
         let config = RNodeSerialConfig::new(LinkId([1; 16]), 8, RNodeDataMode::HyfEnvelope);
-        let mut io = FakeSerial::<128, 128>::new();
+        let mut io = FakeSerial::<512, 512>::new();
         io.push_read_bytes(b"secret")?;
         let link = TestLink::new(config, io)?;
         let debug = format!("{link:?}");
@@ -363,37 +506,145 @@ mod tests {
 
     #[test]
     fn send_gateway_bytes_writes_kiss_data_frame() -> Result<(), RNodeSerialError> {
-        let config = RNodeSerialConfig::new(LinkId([1; 16]), 8, RNodeDataMode::HyfEnvelope)
+        let config = RNodeSerialConfig::new(LinkId([1; 16]), 192, RNodeDataMode::HyfEnvelope)
             .without_flow_control();
         let mut link = TestLink::new(config, FakeSerial::new())?;
+        let mut envelope_bytes = [0; 192];
+        let envelope_len = encode_envelope(
+            sample_envelope(PayloadKind::HyfNativeV0, b"native"),
+            &mut envelope_bytes,
+        )?;
+        let mut expected = [0; 384];
+        let expected_len = encode_data_frame(&envelope_bytes[..envelope_len], &mut expected)?;
 
-        link.send_gateway_bytes(&[0x01, 0xc0, 0xdb], TimestampMs(7))?;
+        link.send_gateway_bytes(&envelope_bytes[..envelope_len], TimestampMs(7))?;
 
-        assert_eq!(
-            link.io().written(),
-            &[0xc0, KISS_CMD_DATA, 0x01, 0xdb, 0xdc, 0xdb, 0xdd, 0xc0]
-        );
+        assert_eq!(link.io().written(), &expected[..expected_len]);
         Ok(())
     }
 
     #[test]
     fn send_gateway_bytes_enforces_mtu_and_flow_control() -> Result<(), RNodeSerialError> {
-        let config = RNodeSerialConfig::new(LinkId([1; 16]), 3, RNodeDataMode::HyfEnvelope);
-        let mut link = TestLink::new(config, FakeSerial::new())?;
+        let mut envelope_bytes = [0; 192];
+        let envelope_len = encode_envelope(
+            sample_envelope(PayloadKind::HyfNativeV0, b"native"),
+            &mut envelope_bytes,
+        )?;
+        let small_mtu = RNodeSerialConfig::new(LinkId([1; 16]), 4, RNodeDataMode::HyfEnvelope);
+        let mut small_link = TestLink::new(small_mtu, FakeSerial::new())?;
 
+        assert!(matches!(
+            small_link.send_gateway_bytes(&envelope_bytes[..envelope_len], TimestampMs(1)),
+            Err(RNodeSerialError::FrameTooLarge { mtu: 4, .. })
+        ));
+        assert!(matches!(
+            small_link.send_gateway_bytes(HEADER_1_PACKET, TimestampMs(1)),
+            Err(RNodeSerialError::HyfWire(_))
+        ));
+
+        let config = RNodeSerialConfig::new(LinkId([1; 16]), 192, RNodeDataMode::HyfEnvelope);
+        let mut link = TestLink::new(config, FakeSerial::new())?;
         assert_eq!(
-            link.send_gateway_bytes(b"abcd", TimestampMs(1)),
-            Err(RNodeSerialError::FrameTooLarge { actual: 4, mtu: 3 })
-        );
-        assert_eq!(
-            link.send_gateway_bytes(b"abc", TimestampMs(1)),
+            link.send_gateway_bytes(&envelope_bytes[..envelope_len], TimestampMs(1)),
             Err(RNodeSerialError::FlowControlBlocked)
         );
-
         feed_command(&mut link, RNODE_CMD_READY, &[])?;
         assert_eq!(link.poll_event(&mut [0; 8])?, Some(RNodeSerialEvent::Ready));
-        link.send_gateway_bytes(b"abc", TimestampMs(2))?;
+        link.send_gateway_bytes(&envelope_bytes[..envelope_len], TimestampMs(2))?;
         assert!(!link.state().can_transmit());
+        Ok(())
+    }
+
+    #[test]
+    fn raw_rns_send_unwraps_foreign_packet_envelopes_only() -> Result<(), RNodeSerialError> {
+        let config = RNodeSerialConfig::new(LinkId([1; 16]), 192, RNodeDataMode::RawRnsPacket)
+            .without_flow_control();
+        let mut link = TestLink::new(config, FakeSerial::new())?;
+        let envelope = wrap_rns_packet(validate_rns_packet(HEADER_1_PACKET)?, rns_params())?;
+        let mut envelope_bytes = [0; 192];
+        let envelope_len = encode_envelope(envelope, &mut envelope_bytes)?;
+        let mut expected = [0; 128];
+        let expected_len = encode_data_frame(HEADER_1_PACKET, &mut expected)?;
+
+        link.send_gateway_bytes(&envelope_bytes[..envelope_len], TimestampMs(2))?;
+        assert_eq!(link.io().written(), &expected[..expected_len]);
+
+        let native = sample_envelope(PayloadKind::HyfNativeV0, b"native");
+        let native_len = encode_envelope(native, &mut envelope_bytes)?;
+        assert_eq!(
+            link.send_gateway_bytes(&envelope_bytes[..native_len], TimestampMs(3)),
+            Err(RNodeSerialError::Rns(
+                hyf_link_rns::HyfLinkRnsError::NotForeignRnsPacket
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn gateway_frame_polling_keeps_hyf_and_raw_rns_modes_explicit() -> Result<(), RNodeSerialError>
+    {
+        let mut hyf_link = no_flow_control_link()?;
+        let mut envelope_bytes = [0; 192];
+        let envelope_len = encode_envelope(
+            sample_envelope(PayloadKind::HyfNativeV0, b"native"),
+            &mut envelope_bytes,
+        )?;
+        let mut encoded = [0; 384];
+        let encoded_len = encode_data_frame(&envelope_bytes[..envelope_len], &mut encoded)?;
+        hyf_link.io_mut().push_read_bytes(&encoded[..encoded_len])?;
+
+        let mut output = [0; 256];
+        let frame = hyf_link
+            .poll_gateway_frame(&mut output)?
+            .ok_or(RNodeSerialError::InjectedReadFailure)?;
+        assert_eq!(
+            decode_envelope(frame.bytes)?.payload_kind,
+            PayloadKind::HyfNativeV0
+        );
+        assert_eq!(
+            hyf_link.poll_gateway_frame_with_rns_params(&mut output, rns_params()),
+            Err(RNodeSerialError::RnsWrapParamsUnexpected)
+        );
+
+        let mut raw_link = raw_rns_link()?;
+        let raw_encoded_len = encode_data_frame(HEADER_1_PACKET, &mut encoded)?;
+        raw_link
+            .io_mut()
+            .push_read_bytes(&encoded[..raw_encoded_len])?;
+        assert_eq!(
+            raw_link.poll_gateway_frame(&mut output),
+            Err(RNodeSerialError::RnsWrapParamsRequired)
+        );
+        let frame = raw_link
+            .poll_gateway_frame_with_rns_params(&mut output, rns_params())?
+            .ok_or(RNodeSerialError::InjectedReadFailure)?;
+        let envelope = decode_envelope(frame.bytes)?;
+        assert_eq!(envelope.payload_kind, PayloadKind::ForeignRnsPacket);
+        assert_eq!(envelope.payload, HEADER_1_PACKET);
+        Ok(())
+    }
+
+    #[test]
+    fn gateway_frame_polling_rejects_wrong_payload_for_mode() -> Result<(), RNodeSerialError> {
+        let mut hyf_link = no_flow_control_link()?;
+        let mut encoded = [0; 128];
+        let encoded_len = encode_data_frame(HEADER_1_PACKET, &mut encoded)?;
+        hyf_link.io_mut().push_read_bytes(&encoded[..encoded_len])?;
+
+        assert!(matches!(
+            hyf_link.poll_gateway_frame(&mut [0; 256]),
+            Err(RNodeSerialError::HyfWire(_))
+        ));
+
+        let mut raw_link = raw_rns_link()?;
+        let malformed_len = encode_data_frame(b"bad", &mut encoded)?;
+        raw_link
+            .io_mut()
+            .push_read_bytes(&encoded[..malformed_len])?;
+        assert!(matches!(
+            raw_link.poll_gateway_frame_with_rns_params(&mut [0; 256], rns_params()),
+            Err(RNodeSerialError::Rns(_))
+        ));
         Ok(())
     }
 
@@ -527,44 +778,83 @@ mod tests {
     #[test]
     fn link_driver_metadata_send_and_poll_frame_work() -> Result<(), RNodeSerialError> {
         let mut link = no_flow_control_link()?;
-        let mut encoded = [0; 16];
-        let len = encode_data_frame(b"rx", &mut encoded)?;
+        let mut frame_bytes = [0; 192];
+        let frame_len = encode_envelope(
+            sample_envelope(PayloadKind::HyfNativeV0, b"rx"),
+            &mut frame_bytes,
+        )?;
+        let mut encoded = [0; 384];
+        let len = encode_data_frame(&frame_bytes[..frame_len], &mut encoded)?;
         link.io_mut().push_read_bytes(&encoded[..len])?;
 
         assert_eq!(link.link_id(), LinkId([1; 16]));
         assert_eq!(link.link_class(), hyf_link::LinkClass::RNodeKiss);
-        assert_eq!(link.mtu(), 8);
+        assert_eq!(link.mtu(), 192);
         assert!(link.is_up());
 
-        link.send_bytes(b"tx", TimestampMs(9))?;
-        assert_eq!(
-            link.io().written(),
-            &[0xc0, KISS_CMD_DATA, b't', b'x', 0xc0]
-        );
+        let tx_len = encode_envelope(
+            sample_envelope(PayloadKind::HyfNativeV0, b"tx"),
+            &mut frame_bytes,
+        )?;
+        let mut expected = [0; 384];
+        let expected_len = encode_data_frame(&frame_bytes[..tx_len], &mut expected)?;
+        link.send_bytes(&frame_bytes[..tx_len], TimestampMs(9))?;
+        assert_eq!(link.io().written(), &expected[..expected_len]);
 
-        let mut output = [0; 8];
+        let mut output = [0; 256];
         let frame = link
             .poll_frame(&mut output)?
             .ok_or(RNodeSerialError::InjectedReadFailure)?;
         assert_eq!(frame.link_id, LinkId([1; 16]));
         assert_eq!(frame.received_at_ms, TimestampMs(0));
-        assert_eq!(frame.bytes, b"rx");
+        assert_eq!(decode_envelope(frame.bytes)?.payload, b"rx");
         Ok(())
     }
 
     fn no_flow_control_link() -> Result<TestLink, RNodeSerialError> {
-        let config = RNodeSerialConfig::new(LinkId([1; 16]), 8, RNodeDataMode::HyfEnvelope)
+        let config = RNodeSerialConfig::new(LinkId([1; 16]), 192, RNodeDataMode::HyfEnvelope)
+            .without_flow_control();
+        TestLink::new(config, FakeSerial::new())
+    }
+
+    fn raw_rns_link() -> Result<TestLink, RNodeSerialError> {
+        let config = RNodeSerialConfig::new(LinkId([1; 16]), 192, RNodeDataMode::RawRnsPacket)
             .without_flow_control();
         TestLink::new(config, FakeSerial::new())
     }
 
     fn feed_command<const FRAME_MAX: usize>(
-        link: &mut RNodeSerialLink<FakeSerial<128, 128>, FRAME_MAX>,
+        link: &mut RNodeSerialLink<FakeSerial<512, 512>, FRAME_MAX>,
         command: u8,
         payload: &[u8],
     ) -> Result<(), RNodeSerialError> {
         let mut encoded = [0; 16];
         let len = encode_command_frame(command, payload, &mut encoded)?;
         link.io_mut().push_read_bytes(&encoded[..len])
+    }
+
+    fn sample_envelope<'a>(payload_kind: PayloadKind, payload: &'a [u8]) -> HyfEnvelopeRef<'a> {
+        HyfEnvelopeRef {
+            version: HYF_WIRE_VERSION_0,
+            message_id: MessageId([3; 32]),
+            source: NodeId([1; 32]),
+            destination: HyfDestination::Node(NodeId([2; 32])),
+            created_at_ms: TimestampMs(10),
+            expires_at_ms: TimestampMs(20),
+            hop_limit: 4,
+            payload_kind,
+            payload,
+        }
+    }
+
+    fn rns_params() -> RnsWrapParams {
+        RnsWrapParams {
+            source_node: NodeId([1; 32]),
+            destination: HyfDestination::Node(NodeId([2; 32])),
+            created_at_ms: TimestampMs(10),
+            expires_at_ms: TimestampMs(20),
+            hop_limit: 4,
+            message_id: MessageId([3; 32]),
+        }
     }
 }

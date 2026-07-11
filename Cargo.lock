@@ -464,6 +464,8 @@ dependencies = [
  "hyf_link",
  "hyf_link_kiss",
  "hyf_link_rnode",
+ "hyf_link_rns",
+ "hyf_wire",
 ]
 
 [[package]]

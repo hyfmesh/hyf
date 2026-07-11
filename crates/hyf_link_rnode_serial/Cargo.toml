@@ -12,6 +12,8 @@ hyf_core.workspace = true
 hyf_link.workspace = true
 hyf_link_kiss.workspace = true
 hyf_link_rnode.workspace = true
+hyf_link_rns.workspace = true
+hyf_wire.workspace = true
 
 [features]
 default = []
