@@ -112,6 +112,17 @@ impl<'a, const N: usize> Store<'a, N> {
         Ok(written)
     }
 
+    pub fn first_pending(&self) -> Option<StoredEnvelopeRef<'a>> {
+        let mut selected: Option<StoreRecord<'a>> = None;
+        for record in self.records.iter().flatten() {
+            selected = match selected {
+                Some(existing) if !record_precedes(*record, existing.envelope) => Some(existing),
+                _ => Some(*record),
+            };
+        }
+        selected.map(|record| StoredEnvelopeRef::new(record.envelope))
+    }
+
     fn contains(&self, message_id: MessageId) -> bool {
         self.find_index(message_id).is_some()
     }
@@ -257,6 +268,24 @@ pub(crate) mod tests {
         assert_eq!(pending[0].envelope.message_id, MessageId([5; 32]));
         assert_eq!(pending[1].envelope.message_id, MessageId([1; 32]));
         assert_eq!(pending[2].envelope.message_id, MessageId([9; 32]));
+        Ok(())
+    }
+
+    #[test]
+    fn first_pending_returns_lowest_deterministic_record() -> Result<(), StoreError> {
+        let mut store = Store::<3>::new(StorePolicy::new());
+        let high_id = sample_envelope(MessageId([9; 32]), 100, 200, b"high");
+        let low_id = sample_envelope(MessageId([1; 32]), 100, 200, b"low");
+
+        store.put(high_id)?;
+        store.put(low_id)?;
+
+        assert_eq!(
+            store
+                .first_pending()
+                .map(|stored| stored.envelope.message_id),
+            Some(MessageId([1; 32]))
+        );
         Ok(())
     }
 

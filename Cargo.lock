@@ -416,6 +416,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyf_gateway"
+version = "0.1.0"
+dependencies = [
+ "hyf_config",
+ "hyf_core",
+ "hyf_link",
+ "hyf_link_loopback",
+ "hyf_router",
+ "hyf_store",
+ "hyf_wire",
+]
+
+[[package]]
 name = "hyf_link"
 version = "0.1.0"
 dependencies = [

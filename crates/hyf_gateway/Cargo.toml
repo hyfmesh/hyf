@@ -1,0 +1,24 @@
+[package]
+name = "hyf_gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hyf_config.workspace = true
+hyf_core.workspace = true
+hyf_link.workspace = true
+hyf_link_loopback.workspace = true
+hyf_router.workspace = true
+hyf_store.workspace = true
+hyf_wire.workspace = true
+
+[features]
+default = []
+std = []
+
+[lints]
+workspace = true
