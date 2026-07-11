@@ -9,6 +9,7 @@ pub enum LinkClass {
     Wifi,
     Ble,
     Nostr,
+    Loopback,
 }
 
 pub trait Link {
@@ -50,6 +51,7 @@ mod tests {
         assert_ne!(LinkClass::RawLora, LinkClass::RNodeKiss);
         assert_ne!(LinkClass::Serial, LinkClass::Wifi);
         assert_ne!(LinkClass::Ble, LinkClass::Nostr);
+        assert_ne!(LinkClass::Loopback, LinkClass::RawLora);
     }
 
     #[test]
