@@ -11,7 +11,8 @@ type SmokeRuntime<'a> = GatewayRuntime<'a, 2, 8, 4, 4>;
 
 #[test]
 fn smoke_local_submit_and_loopback_delivery() -> Result<(), GatewayError> {
-    let mut runtime = SmokeRuntime::new(config_with_mtu(512))?;
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
+    let mut peer = SmokeRuntime::new(config_for(remote(), 512))?;
     let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
 
     runtime.submit(sample_envelope(
@@ -40,16 +41,23 @@ fn smoke_local_submit_and_loopback_delivery() -> Result<(), GatewayError> {
     assert_eq!(runtime.metrics().submitted, 2);
     assert_eq!(runtime.metrics().sent, 1);
     assert_eq!(runtime.loopback_queued_len(LOOPBACK_RIGHT_ID)?, 1);
+    let received = runtime.receive_loopback_frame(LOOPBACK_RIGHT_ID, &mut frame)?;
+    let frame = received.ok_or(GatewayError::UnsupportedLink {
+        link_id: LOOPBACK_RIGHT_ID,
+    })?;
+    peer.process_link_frame(frame)?;
+
     assert_eq!(
-        receive_message_id(&mut runtime, &mut frame)?,
+        peer.last_delivered().map(|envelope| envelope.message_id),
         Some(MessageId([2; 32]))
     );
+    assert_eq!(peer.metrics().delivered, 1);
     Ok(())
 }
 
 #[test]
 fn smoke_link_outage_and_store_forward_after_recovery() -> Result<(), GatewayError> {
-    let mut runtime = SmokeRuntime::new(config_with_mtu(512))?;
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
     let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
 
     runtime.set_link_up(LOOPBACK_LEFT_ID, false)?;
@@ -82,7 +90,7 @@ fn smoke_link_outage_and_store_forward_after_recovery() -> Result<(), GatewayErr
 
 #[test]
 fn smoke_duplicate_expiry_ttl_and_mtu_rejection() -> Result<(), GatewayError> {
-    let mut runtime = SmokeRuntime::new(config_with_mtu(512))?;
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
     let duplicate = sample_envelope(MessageId([4; 32]), remote(), 100, 300, 4, b"duplicate");
 
     runtime.submit(duplicate)?;
@@ -109,7 +117,7 @@ fn smoke_duplicate_expiry_ttl_and_mtu_rejection() -> Result<(), GatewayError> {
     ))?;
     assert_eq!(runtime.metrics().dropped, 3);
 
-    let mut mtu_runtime = SmokeRuntime::new(config_with_mtu(100))?;
+    let mut mtu_runtime = SmokeRuntime::new(config_for(local(), 100))?;
     assert_eq!(
         mtu_runtime.submit(sample_envelope(
             MessageId([7; 32]),
@@ -131,7 +139,7 @@ fn smoke_duplicate_expiry_ttl_and_mtu_rejection() -> Result<(), GatewayError> {
 
 #[test]
 fn smoke_store_forward_order_is_deterministic() -> Result<(), GatewayError> {
-    let mut runtime = SmokeRuntime::new(config_with_mtu(512))?;
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
     let mut first_frame = [0; GATEWAY_FRAME_BUFFER_LEN];
     let mut second_frame = [0; GATEWAY_FRAME_BUFFER_LEN];
     let mut third_frame = [0; GATEWAY_FRAME_BUFFER_LEN];
@@ -180,9 +188,9 @@ fn receive_message_id(
     Ok(Some(decode_envelope(frame.bytes)?.message_id))
 }
 
-fn config_with_mtu(mtu: usize) -> GatewayConfig<2> {
+fn config_for(node_id: NodeId, mtu: usize) -> GatewayConfig<2> {
     GatewayConfig {
-        node_id: local(),
+        node_id,
         router: RouterConfig::new(2, 8),
         store: StoreConfig::new(4, StorePolicy::new()),
         links: LinkConfigSet::new([

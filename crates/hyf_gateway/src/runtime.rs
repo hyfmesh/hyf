@@ -2,7 +2,7 @@ use core::fmt;
 
 use hyf_config::GatewayConfig;
 use hyf_core::{MessageId, TimestampMs};
-use hyf_link::{LinkFrameRef, LinkId};
+use hyf_link::{LinkEvent, LinkFrameRef, LinkId};
 use hyf_link_loopback::{
     LOOPBACK_LEFT_ID, LOOPBACK_MAX_FRAME_LEN, LOOPBACK_RIGHT_ID, LoopbackEndpoint, LoopbackPair,
 };
@@ -101,6 +101,12 @@ impl<
     ) -> Result<Option<LinkFrameRef<'b>>, GatewayError> {
         let (left, right) = self.loopback.split();
         Ok(endpoint_for_link(left, right, link_id)?.receive_into(output)?)
+    }
+
+    pub fn process_link_frame(&mut self, frame: LinkFrameRef<'a>) -> Result<(), GatewayError> {
+        let received_at_ms = frame.received_at_ms;
+        self.route_event(RouterEvent::Link(LinkEvent::Frame(frame)))?;
+        self.flush_store(received_at_ms)
     }
 
     pub fn submit(&mut self, envelope: HyfEnvelopeRef<'a>) -> Result<(), GatewayError> {
