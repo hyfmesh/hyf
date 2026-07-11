@@ -1,5 +1,6 @@
 use core::fmt;
 
+use hyf_link::{LinkDriverError, LinkDriverErrorKind};
 use hyf_link_kiss::KissError;
 use hyf_link_rnode::RNodeError;
 
@@ -7,6 +8,7 @@ use hyf_link_rnode::RNodeError;
 pub enum RNodeSerialError {
     InvalidMtu { mtu: usize },
     InvalidFrameCapacity { mtu: usize, capacity: usize },
+    FrameTooLarge { actual: usize, mtu: usize },
     ReadBufferTooSmall { actual: usize, required: usize },
     WriteBufferFull { required: usize, capacity: usize },
     InjectedReadFailure,
@@ -24,6 +26,10 @@ impl fmt::Display for RNodeSerialError {
                 formatter,
                 "rnode serial frame capacity too small: mtu {mtu}, capacity {capacity}"
             ),
+            Self::FrameTooLarge { actual, mtu } => write!(
+                formatter,
+                "rnode serial frame too large: actual {actual}, mtu {mtu}"
+            ),
             Self::ReadBufferTooSmall { actual, required } => write!(
                 formatter,
                 "rnode serial read buffer too small: actual {actual}, required {required}"
@@ -39,6 +45,31 @@ impl fmt::Display for RNodeSerialError {
             Self::FlowControlBlocked => formatter.write_str("rnode serial flow control blocked"),
             Self::Kiss(error) => write!(formatter, "kiss error: {error}"),
             Self::RNode(error) => write!(formatter, "rnode error: {error}"),
+        }
+    }
+}
+
+impl LinkDriverError for RNodeSerialError {
+    fn driver_error_kind(&self) -> LinkDriverErrorKind {
+        match self {
+            Self::InvalidMtu { .. } | Self::InvalidFrameCapacity { .. } => {
+                LinkDriverErrorKind::Fatal
+            }
+            Self::FrameTooLarge { .. } => LinkDriverErrorKind::FrameTooLarge,
+            Self::ReadBufferTooSmall { .. } => LinkDriverErrorKind::OutputTooSmall,
+            Self::WriteBufferFull { .. } | Self::FlowControlBlocked => {
+                LinkDriverErrorKind::Backpressure
+            }
+            Self::InjectedReadFailure => LinkDriverErrorKind::TransientReceive,
+            Self::InjectedWriteFailure => LinkDriverErrorKind::TransientSend,
+            Self::Kiss(KissError::FrameTooLarge { .. }) => LinkDriverErrorKind::FrameTooLarge,
+            Self::Kiss(KissError::OutputBufferTooShort { .. }) => {
+                LinkDriverErrorKind::OutputTooSmall
+            }
+            Self::Kiss(KissError::EncodedLengthOverflow | KissError::MalformedEscape { .. }) => {
+                LinkDriverErrorKind::Protocol
+            }
+            Self::RNode(_) => LinkDriverErrorKind::Protocol,
         }
     }
 }
@@ -60,6 +91,8 @@ impl std::error::Error for RNodeSerialError {}
 
 #[cfg(test)]
 mod tests {
+    use hyf_link::LinkDriverError;
+
     use super::RNodeSerialError;
 
     #[test]
@@ -79,6 +112,27 @@ mod tests {
         assert_eq!(
             RNodeSerialError::FlowControlBlocked.to_string(),
             "rnode serial flow control blocked"
+        );
+        assert_eq!(
+            RNodeSerialError::FrameTooLarge { actual: 5, mtu: 4 }.to_string(),
+            "rnode serial frame too large: actual 5, mtu 4"
+        );
+    }
+
+    #[test]
+    fn errors_classify_link_driver_kinds() {
+        assert_eq!(
+            RNodeSerialError::FlowControlBlocked.driver_error_kind(),
+            hyf_link::LinkDriverErrorKind::Backpressure
+        );
+        assert_eq!(
+            RNodeSerialError::InjectedReadFailure.driver_error_kind(),
+            hyf_link::LinkDriverErrorKind::TransientReceive
+        );
+        assert_eq!(
+            RNodeSerialError::Kiss(hyf_link_kiss::KissError::MalformedEscape { byte: 0 })
+                .driver_error_kind(),
+            hyf_link::LinkDriverErrorKind::Protocol
         );
     }
 }

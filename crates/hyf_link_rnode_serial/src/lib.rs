@@ -8,11 +8,13 @@
 
 mod config;
 mod error;
+mod event;
 mod io;
 mod link;
 
 pub use config::{RNodeDataMode, RNodeSerialConfig};
 pub use error::RNodeSerialError;
+pub use event::RNodeSerialEvent;
 pub use io::{FakeSerial, SerialIo};
 pub use link::RNodeSerialLink;
 
