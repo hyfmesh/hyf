@@ -3,9 +3,13 @@ use hyf_config::{
 };
 use hyf_core::{MessageId, NodeId, TimestampMs};
 use hyf_gateway::{GATEWAY_FRAME_BUFFER_LEN, GatewayError, GatewayRuntime};
+use hyf_link::LinkFrameRef;
 use hyf_link_loopback::{LOOPBACK_LEFT_ID, LOOPBACK_RIGHT_ID, LoopbackError};
 use hyf_store::{StoreError, StorePolicy};
-use hyf_wire::{HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, decode_envelope};
+use hyf_wire::{
+    HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, decode_envelope,
+    encode_envelope,
+};
 
 type SmokeRuntime = GatewayRuntime<2, 8, 4, 4>;
 type QueueLimitedRuntime = GatewayRuntime<2, 8, 4, 1>;
@@ -86,6 +90,144 @@ fn smoke_link_outage_and_store_forward_after_recovery() -> Result<(), GatewayErr
         receive_message_id(&mut runtime, &mut frame)?,
         Some(MessageId([3; 32]))
     );
+    Ok(())
+}
+
+#[test]
+fn smoke_ingest_inbound_local_frame_delivers_without_payload_borrow() -> Result<(), GatewayError> {
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
+    let envelope = sample_envelope(MessageId([15; 32]), local(), 100, 300, 0, b"inbound local");
+    let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+    let frame_len = encode_envelope(envelope, &mut frame)?;
+
+    runtime.ingest_link_frame(LinkFrameRef::new(
+        LOOPBACK_LEFT_ID,
+        TimestampMs(120),
+        &frame[..frame_len],
+    ))?;
+
+    assert_eq!(
+        runtime.last_delivered_message_id(),
+        Some(MessageId([15; 32]))
+    );
+    assert_eq!(runtime.last_delivered_payload_len(), b"inbound local".len());
+    assert_eq!(runtime.metrics().delivered, 1);
+    assert_eq!(runtime.now_ms(), TimestampMs(120));
+    Ok(())
+}
+
+#[test]
+fn smoke_ingest_inbound_remote_frame_forwards_with_decremented_hop() -> Result<(), GatewayError> {
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
+    let envelope = sample_envelope(MessageId([16; 32]), remote(), 100, 300, 2, b"forward");
+    let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+    let frame_len = encode_envelope(envelope, &mut frame)?;
+    let mut forwarded = [0; GATEWAY_FRAME_BUFFER_LEN];
+
+    runtime.ingest_link_frame(LinkFrameRef::new(
+        LOOPBACK_LEFT_ID,
+        TimestampMs(120),
+        &frame[..frame_len],
+    ))?;
+
+    assert_eq!(runtime.metrics().sent, 1);
+    assert_eq!(
+        receive_message_id_and_hop_from(&mut runtime, LOOPBACK_LEFT_ID, &mut forwarded)?,
+        Some((MessageId([16; 32]), 1))
+    );
+    Ok(())
+}
+
+#[test]
+fn smoke_ingest_inbound_remote_frame_stores_decremented_hop_when_offline()
+-> Result<(), GatewayError> {
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
+    let envelope = sample_envelope(MessageId([17; 32]), remote(), 100, 300, 3, b"store inbound");
+    let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+    let frame_len = encode_envelope(envelope, &mut frame)?;
+    let mut forwarded = [0; GATEWAY_FRAME_BUFFER_LEN];
+
+    runtime.set_link_up(LOOPBACK_LEFT_ID, false)?;
+    runtime.set_link_up(LOOPBACK_RIGHT_ID, false)?;
+    runtime.ingest_link_frame(LinkFrameRef::new(
+        LOOPBACK_LEFT_ID,
+        TimestampMs(120),
+        &frame[..frame_len],
+    ))?;
+
+    assert_eq!(runtime.stored_len(), 1);
+    assert_eq!(runtime.metrics().stored, 1);
+    assert_eq!(runtime.metrics().sent, 0);
+
+    runtime.set_link_up(LOOPBACK_LEFT_ID, true)?;
+    runtime.set_link_up(LOOPBACK_RIGHT_ID, true)?;
+
+    assert_eq!(
+        receive_message_id_and_hop_from(&mut runtime, LOOPBACK_RIGHT_ID, &mut forwarded)?,
+        Some((MessageId([17; 32]), 2))
+    );
+    Ok(())
+}
+
+#[test]
+fn smoke_ingest_inbound_hop_limit_one_drops_exhausted() -> Result<(), GatewayError> {
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
+    let envelope = sample_envelope(MessageId([18; 32]), remote(), 100, 300, 1, b"drop hop");
+    let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+    let frame_len = encode_envelope(envelope, &mut frame)?;
+
+    runtime.ingest_link_frame(LinkFrameRef::new(
+        LOOPBACK_LEFT_ID,
+        TimestampMs(120),
+        &frame[..frame_len],
+    ))?;
+
+    assert_eq!(runtime.metrics().dropped, 1);
+    assert_eq!(runtime.metrics().sent, 0);
+    assert_eq!(runtime.stored_len(), 0);
+    Ok(())
+}
+
+#[test]
+fn smoke_ingest_malformed_frame_drops_without_panic() -> Result<(), GatewayError> {
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
+
+    runtime.ingest_link_frame(LinkFrameRef::new(
+        LOOPBACK_LEFT_ID,
+        TimestampMs(120),
+        b"not an envelope",
+    ))?;
+
+    assert_eq!(runtime.metrics().dropped, 1);
+    assert_eq!(runtime.metrics().delivered, 0);
+    assert_eq!(runtime.metrics().sent, 0);
+    assert_eq!(runtime.now_ms(), TimestampMs(120));
+    Ok(())
+}
+
+#[test]
+fn smoke_poll_loopback_reports_empty_short_output_and_processed_frame() -> Result<(), GatewayError>
+{
+    let mut runtime = SmokeRuntime::new(config_for(local(), 512))?;
+    let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
+    let mut short = [0; 1];
+    let envelope = sample_envelope(MessageId([19; 32]), remote(), 100, 300, 4, b"poll");
+
+    assert!(!runtime.poll_loopback(LOOPBACK_RIGHT_ID, &mut frame)?);
+
+    runtime.submit(envelope)?;
+    assert_eq!(
+        runtime.poll_loopback(LOOPBACK_RIGHT_ID, &mut short),
+        Err(GatewayError::Loopback(LoopbackError::OutputTooSmall {
+            actual: 1,
+            required: 122,
+        }))
+    );
+    assert_eq!(runtime.loopback_queued_len(LOOPBACK_RIGHT_ID)?, 1);
+
+    assert!(runtime.poll_loopback(LOOPBACK_RIGHT_ID, &mut frame)?);
+    assert_eq!(runtime.loopback_queued_len(LOOPBACK_RIGHT_ID)?, 0);
+    assert_eq!(runtime.metrics().dropped, 1);
     Ok(())
 }
 
@@ -330,6 +472,18 @@ fn receive_message_id_from<const STORE_CAPACITY: usize, const LOOPBACK_QUEUE: us
         return Ok(None);
     };
     Ok(Some(decode_envelope(frame.bytes)?.message_id))
+}
+
+fn receive_message_id_and_hop_from<const STORE_CAPACITY: usize, const LOOPBACK_QUEUE: usize>(
+    runtime: &mut GatewayRuntime<2, 8, STORE_CAPACITY, LOOPBACK_QUEUE>,
+    link_id: hyf_link::LinkId,
+    output: &mut [u8],
+) -> Result<Option<(MessageId, u8)>, GatewayError> {
+    let Some(frame) = runtime.receive_loopback_frame(link_id, output)? else {
+        return Ok(None);
+    };
+    let envelope = decode_envelope(frame.bytes)?;
+    Ok(Some((envelope.message_id, envelope.hop_limit)))
 }
 
 fn config_for(node_id: NodeId, mtu: usize) -> GatewayConfig<2> {
