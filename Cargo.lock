@@ -457,6 +457,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyf_link_rnode_serial"
+version = "0.1.0"
+dependencies = [
+ "hyf_core",
+ "hyf_link",
+ "hyf_link_kiss",
+ "hyf_link_rnode",
+]
+
+[[package]]
 name = "hyf_link_rns"
 version = "0.1.0"
 dependencies = [

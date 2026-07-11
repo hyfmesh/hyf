@@ -37,6 +37,7 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
     common_features("hyf_link_loopback"),
     common_features("hyf_config"),
     common_features("hyf_link_rns"),
+    common_features("hyf_link_rnode_serial"),
     FeatureSurface {
         package: "hyf_gateway",
         features: &[
