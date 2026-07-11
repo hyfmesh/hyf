@@ -6,10 +6,12 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
+mod driver;
 mod error;
 mod frame;
 mod link;
 
+pub use driver::{LinkDriver, LinkDriverError, LinkDriverErrorKind};
 pub use error::LinkError;
 pub use frame::{LinkCommand, LinkEvent, LinkFrameRef, validate_frame_mtu};
 pub use link::{Link, LinkClass, LinkId};
