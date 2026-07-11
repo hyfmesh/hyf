@@ -479,7 +479,6 @@ name = "hyf_wire"
 version = "0.1.0"
 dependencies = [
  "hyf_core",
- "hyf_crypto",
 ]
 
 [[package]]

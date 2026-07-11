@@ -6,30 +6,23 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
-pub const HYF_WIRE_VERSION_0: u8 = 0;
+mod destination;
+mod envelope;
+mod error;
+mod payload;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[repr(u8)]
-pub enum PayloadKind {
-    HyfNativeV0 = 0,
-    ForeignRnsPacket = 16,
-}
+pub use destination::HyfDestination;
+pub use envelope::{
+    HYF_ENVELOPE_MAX_PAYLOAD_LEN, HyfEnvelopeRef, decode_envelope, encode_envelope,
+    envelope_encoded_len, validate_envelope,
+};
+pub use error::HyfWireError;
+pub use payload::PayloadKind;
+
+pub const HYF_WIRE_VERSION_0: u8 = 0;
 
 #[cfg(test)]
 mod tests {
-    use super::{HYF_WIRE_VERSION_0, PayloadKind};
-
     #[test]
     fn crate_builds() {}
-
-    #[test]
-    fn version_zero_is_initial_wire_version() {
-        assert_eq!(HYF_WIRE_VERSION_0, 0);
-    }
-
-    #[test]
-    fn payload_kind_discriminants_are_stable() {
-        assert_eq!(PayloadKind::HyfNativeV0 as u8, 0);
-        assert_eq!(PayloadKind::ForeignRnsPacket as u8, 16);
-    }
 }

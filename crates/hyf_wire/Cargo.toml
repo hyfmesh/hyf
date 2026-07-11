@@ -9,7 +9,6 @@ rust-version.workspace = true
 
 [dependencies]
 hyf_core.workspace = true
-hyf_crypto.workspace = true
 
 [features]
 default = []

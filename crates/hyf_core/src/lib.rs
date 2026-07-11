@@ -12,7 +12,9 @@ mod types;
 
 pub use role::NodeRole;
 pub use time::{Clock, TimestampMs};
-pub use types::{CommunityId, MessageId, NodeId};
+pub use types::{
+    CommunityId, ForeignEndpointError, ForeignEndpointId, ForeignNetworkKind, MessageId, NodeId,
+};
 
 #[cfg(test)]
 mod tests {
