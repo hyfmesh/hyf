@@ -48,7 +48,9 @@ fn smoke_gateway_outbound_hyf_envelope_publishes_to_fake_nostr_relay() -> Result
     assert_eq!(core.metrics().sent, 1);
     assert_eq!(executor.relay().stored_event_count(), 1);
     assert_no_payload_leak(&format!("{:?}", core.metrics()));
+    assert_no_payload_leak(&format!("{core:?}"));
     assert_no_payload_leak(&format!("{executor:?}"));
+    assert_no_payload_leak(&format!("{:?}", executor.relay()));
     assert_no_payload_leak(&format!("{:?}", executor.relay().metrics()));
 
     let kinds = [HYF_NOSTR_ENVELOPE_KIND];
@@ -112,6 +114,7 @@ fn smoke_gateway_inbound_fake_nostr_event_delivers_to_core() -> Result<(), Gatew
         Some(MessageId([0x66; 32]))
     );
     assert_eq!(core.last_delivered_payload_len(), b"inbound-secret".len());
+    assert!(!format!("{core:?}").contains("inbound-secret"));
     Ok(())
 }
 
@@ -402,5 +405,6 @@ fn protocol_error() -> GatewayError {
 
 fn assert_no_payload_leak(debug: &str) {
     assert!(!debug.contains("secret-outbound"));
-    assert!(!debug.contains("payload"));
+    assert!(!debug.contains("inbound-secret"));
+    assert!(!debug.contains("115, 101, 99"));
 }

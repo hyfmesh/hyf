@@ -1,3 +1,5 @@
+use core::fmt;
+
 use crate::{
     NostrError, NostrEvent, NostrEventId, NostrFilter, NostrFilterTarget, NostrPublicKey,
     NostrPublishOutcome, NostrRelayStatus, NostrRelayStatusPrefix, matches_any_filter,
@@ -319,6 +321,29 @@ impl<
     }
 }
 
+impl<
+    'a,
+    const EVENT_CAPACITY: usize,
+    const SUBSCRIPTION_CAPACITY: usize,
+    const OUTPUT_CAPACITY: usize,
+> fmt::Debug for FakeNostrRelay<'a, EVENT_CAPACITY, SUBSCRIPTION_CAPACITY, OUTPUT_CAPACITY>
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FakeNostrRelay")
+            .field("event_capacity", &EVENT_CAPACITY)
+            .field("subscription_capacity", &SUBSCRIPTION_CAPACITY)
+            .field("output_capacity", &OUTPUT_CAPACITY)
+            .field("stored_event_count", &self.stored_event_count())
+            .field("metrics", &self.metrics)
+            .field(
+                "has_pending_publish_rejection",
+                &self.next_publish_rejection.is_some(),
+            )
+            .finish()
+    }
+}
+
 fn replay_limit(filters: &[NostrFilter<'_>]) -> Option<usize> {
     let mut limit = Some(0usize);
     for filter in filters {
@@ -411,9 +436,10 @@ mod tests {
     use super::{FakeNostrRelay, FakeNostrRelayOutput};
     use crate::{
         HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HyfNostrEventBuffers, NostrError,
-        NostrEvent, NostrFilter, NostrPublicKey, NostrPublishOutcome, NostrRelayStatus,
-        NostrRelayStatusPrefix, NostrSecretKey, NostrSignature, NostrTagRef, NostrTagsRef,
-        NostrUnsignedEvent, encode_hyf_envelope_content, sign_event, sign_hyf_nostr_event,
+        NostrEvent, NostrEventId, NostrFilter, NostrPublicKey, NostrPublishOutcome,
+        NostrRelayStatus, NostrRelayStatusPrefix, NostrSecretKey, NostrSignature, NostrTagRef,
+        NostrTagsRef, NostrUnsignedEvent, encode_hyf_envelope_content, sign_event,
+        sign_hyf_nostr_event,
     };
     use hyf_core::{MessageId, NodeId, TimestampMs};
     use hyf_wire::{
@@ -538,6 +564,38 @@ mod tests {
             relay.inject_closed("", status),
             Err(NostrError::InvalidSubscriptionId)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn fake_relay_debug_redacts_queued_events_and_control_messages() -> Result<(), NostrError> {
+        let tag_values = ["p", "secret-tag-value"];
+        let tag = NostrTagRef::new(&tag_values)?;
+        let tags = [tag];
+        let event = NostrEvent::new(
+            NostrEventId::from_bytes([0x11; 32]),
+            NostrPublicKey::from_bytes([0x22; 32]),
+            1,
+            HYF_NOSTR_ENVELOPE_KIND,
+            NostrTagsRef::new(&tags),
+            "secret-event-content",
+            NostrSignature::from_bytes([0x33; 64]),
+        )?;
+        let mut relay = FakeNostrRelay::<0, 0, 2>::new();
+
+        relay.enqueue_output(FakeNostrRelayOutput::Event {
+            subscription_id: "secret-subscription",
+            event,
+        })?;
+        relay.enqueue_notice("secret-notice")?;
+        let debug = format!("{relay:?}");
+
+        assert!(debug.contains("FakeNostrRelay"));
+        assert!(debug.contains("queued_outputs"));
+        assert!(!debug.contains("secret-event-content"));
+        assert!(!debug.contains("secret-tag-value"));
+        assert!(!debug.contains("secret-subscription"));
+        assert!(!debug.contains("secret-notice"));
         Ok(())
     }
 
