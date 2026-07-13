@@ -209,6 +209,69 @@ const REQUIRED_HANDOFF_4_VERIFY_SNIPPETS: &[&str] = &[
     "HYF_HIL_RNODE_PORT",
     "status=skipped_no_port",
 ];
+const REQUIRED_HANDOFF_4_PUBLIC_DOCS: &[PublicDocSpec] = &[
+    PublicDocSpec {
+        path: "README.md",
+        required: &[
+            "Handoff 4 adds",
+            "scripts/verify_handoff4.sh",
+            "hyf_link_rnode_serial",
+            "hyf_link_rns",
+            "non-transmitting",
+        ],
+        forbidden: &["scripts/verify_handoff3.sh", "## Non-Goals For Handoff 3"],
+    },
+    PublicDocSpec {
+        path: "AGENTS.md",
+        required: &[
+            "Handoff 4 Boundary",
+            "scripts/verify_handoff4.sh",
+            "Do not add compatibility aliases",
+            "HYF_HIL_RNODE_PORT",
+        ],
+        forbidden: &[
+            "scripts/verify_handoff3.sh",
+            "## Handoff 3 Boundary",
+            "For full Handoff 3 validation",
+        ],
+    },
+    PublicDocSpec {
+        path: "docs/architecture/rnode_gateway_path.md",
+        required: &[
+            "fake serial",
+            "RawRnsPacket",
+            "full Reticulum",
+            "non-transmitting",
+        ],
+        forbidden: &[],
+    },
+    PublicDocSpec {
+        path: "docs/adr/0005-rnode-serial-gateway-path.md",
+        required: &["Accepted", "fake", "RF"],
+        forbidden: &[],
+    },
+    PublicDocSpec {
+        path: "docs/adr/0006-explicit-rns-packet-mode.md",
+        required: &[
+            "Accepted",
+            "no autodetection",
+            "RNodeDataMode",
+            "RnsWrapParams",
+        ],
+        forbidden: &[],
+    },
+    PublicDocSpec {
+        path: "docs/verification/handoff4.md",
+        required: &[
+            "verify_handoff4.sh",
+            "skipped",
+            "HYF_HIL_RNODE_PORT",
+            "HYF_RETICULUM_PATH",
+            "full hardware validation",
+        ],
+        forbidden: &[],
+    },
+];
 
 const fn common_features(package: &'static str) -> FeatureSurface {
     FeatureSurface {
@@ -231,6 +294,12 @@ struct FeatureSurface {
 struct FeatureSpec {
     name: &'static str,
     enables: &'static [&'static str],
+}
+
+struct PublicDocSpec {
+    path: &'static str,
+    required: &'static [&'static str],
+    forbidden: &'static [&'static str],
 }
 
 #[derive(Debug, Deserialize)]
@@ -392,6 +461,20 @@ fn handoff_4_verification_script_preserves_required_closure_surface() -> TestRes
 
     if workspace_root.join(".github/workflows").exists() {
         return Err(std::io::Error::other("public GitHub workflows are not allowed").into());
+    }
+
+    Ok(())
+}
+
+#[test]
+fn handoff_4_public_docs_preserve_current_status() -> TestResult {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+
+    for doc in REQUIRED_HANDOFF_4_PUBLIC_DOCS {
+        let path = workspace_root.join(doc.path);
+        let content = fs::read_to_string(&path)?;
+        assert_snippets_present(&path, &content, doc.required)?;
+        assert_snippets_absent(&path, &content, doc.forbidden)?;
     }
 
     Ok(())
@@ -666,6 +749,34 @@ fn feature_enables(package: &Package, feature_name: &str) -> TestResult<Vec<Stri
             ))
             .into()
         })
+}
+
+fn assert_snippets_present(path: &Path, content: &str, snippets: &[&str]) -> TestResult {
+    for snippet in snippets {
+        if !content.contains(snippet) {
+            return Err(std::io::Error::other(format!(
+                "{} is missing required snippet: {snippet}",
+                path.display()
+            ))
+            .into());
+        }
+    }
+
+    Ok(())
+}
+
+fn assert_snippets_absent(path: &Path, content: &str, snippets: &[&str]) -> TestResult {
+    for snippet in snippets {
+        if content.contains(snippet) {
+            return Err(std::io::Error::other(format!(
+                "{} contains forbidden snippet: {snippet}",
+                path.display()
+            ))
+            .into());
+        }
+    }
+
+    Ok(())
 }
 
 fn assert_direct_dependency_names(package: &Package, expected: &[&str]) -> TestResult {
