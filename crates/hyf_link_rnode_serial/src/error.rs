@@ -19,8 +19,10 @@ pub enum RNodeSerialError {
     SerialReadFailure,
     SerialWriteFailure,
     FlowControlBlocked,
+    RawRnsModeRequired,
     RnsWrapParamsRequired,
     RnsWrapParamsUnexpected,
+    RnsWrapParamsUnavailable,
     Kiss(KissError),
     RNode(RNodeError),
     Rns(HyfLinkRnsError),
@@ -55,11 +57,17 @@ impl fmt::Display for RNodeSerialError {
             Self::SerialReadFailure => formatter.write_str("rnode serial port read failure"),
             Self::SerialWriteFailure => formatter.write_str("rnode serial port write failure"),
             Self::FlowControlBlocked => formatter.write_str("rnode serial flow control blocked"),
+            Self::RawRnsModeRequired => {
+                formatter.write_str("rnode serial raw rns driver requires raw rns mode")
+            }
             Self::RnsWrapParamsRequired => {
                 formatter.write_str("rnode serial raw rns mode requires wrap params")
             }
             Self::RnsWrapParamsUnexpected => formatter
                 .write_str("rnode serial hyf envelope mode does not accept rns wrap params"),
+            Self::RnsWrapParamsUnavailable => {
+                formatter.write_str("rnode serial raw rns provider did not return wrap params")
+            }
             Self::Kiss(error) => write!(formatter, "kiss error: {error}"),
             Self::RNode(error) => write!(formatter, "rnode error: {error}"),
             Self::Rns(error) => write!(formatter, "rns packet error: {error}"),
@@ -84,9 +92,10 @@ impl LinkDriverError for RNodeSerialError {
             Self::SerialOpenFailure => LinkDriverErrorKind::Fatal,
             Self::SerialReadFailure => LinkDriverErrorKind::TransientReceive,
             Self::SerialWriteFailure => LinkDriverErrorKind::TransientSend,
-            Self::RnsWrapParamsRequired | Self::RnsWrapParamsUnexpected => {
-                LinkDriverErrorKind::Unsupported
-            }
+            Self::RawRnsModeRequired
+            | Self::RnsWrapParamsRequired
+            | Self::RnsWrapParamsUnexpected
+            | Self::RnsWrapParamsUnavailable => LinkDriverErrorKind::Unsupported,
             Self::Kiss(KissError::FrameTooLarge { .. }) => LinkDriverErrorKind::FrameTooLarge,
             Self::Kiss(KissError::OutputBufferTooShort { .. }) => {
                 LinkDriverErrorKind::OutputTooSmall
@@ -155,6 +164,10 @@ mod tests {
             "rnode serial raw rns mode requires wrap params"
         );
         assert_eq!(
+            RNodeSerialError::RnsWrapParamsUnavailable.to_string(),
+            "rnode serial raw rns provider did not return wrap params"
+        );
+        assert_eq!(
             RNodeSerialError::SerialOpenFailure.to_string(),
             "rnode serial port open failure"
         );
@@ -185,6 +198,10 @@ mod tests {
         );
         assert_eq!(
             RNodeSerialError::RnsWrapParamsRequired.driver_error_kind(),
+            hyf_link::LinkDriverErrorKind::Unsupported
+        );
+        assert_eq!(
+            RNodeSerialError::RnsWrapParamsUnavailable.driver_error_kind(),
             hyf_link::LinkDriverErrorKind::Unsupported
         );
     }

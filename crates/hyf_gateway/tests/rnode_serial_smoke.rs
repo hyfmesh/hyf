@@ -6,12 +6,13 @@ use hyf_config::{
 };
 use hyf_core::{MessageId, NodeId, TimestampMs};
 use hyf_gateway::{GATEWAY_FRAME_BUFFER_LEN, GatewayCore, GatewayError, GatewayLinkExecutor};
-use hyf_link::{LinkDriverError, LinkFrameRef, LinkId};
+use hyf_link::{LinkDriver, LinkDriverError, LinkFrameRef, LinkId};
 use hyf_link_kiss::{KISS_CMD_DATA, KissDecoder, KissError, encode_data_frame};
 use hyf_link_rnode_serial::{
-    FakeSerial, RNodeDataMode, RNodeSerialConfig, RNodeSerialError, RNodeSerialLink,
+    FakeSerial, RNodeDataMode, RNodeRawRnsSerialDriver, RNodeSerialConfig, RNodeSerialError,
+    RNodeSerialLink, RnsWrapParamsProvider,
 };
-use hyf_link_rns::{RnsWrapParams, validate_rns_packet, wrap_rns_packet};
+use hyf_link_rns::{RnsPacketRef, RnsWrapParams, validate_rns_packet, wrap_rns_packet};
 use hyf_store::StorePolicy;
 use hyf_wire::{
     HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, decode_envelope,
@@ -20,6 +21,8 @@ use hyf_wire::{
 
 type TestCore = GatewayCore<2, 8, 4>;
 type TestSerialLink = RNodeSerialLink<FakeSerial<8192, 8192>, 4096>;
+type TestRawSerialDriver =
+    RNodeRawRnsSerialDriver<FakeSerial<8192, 8192>, FixedRnsWrapParamsProvider, 4096>;
 
 const LINK_A: LinkId = LinkId([0xa1; 16]);
 const LINK_B: LinkId = LinkId([0xb2; 16]);
@@ -149,19 +152,20 @@ fn smoke_gateway_malformed_serial_and_gateway_frames_drop_safely() -> Result<(),
 #[test]
 fn smoke_gateway_opaque_rns_carriage_over_fake_rnode_serial() -> Result<(), Box<dyn Error>> {
     let mut inbound_core = TestCore::new(valid_config())?;
-    let mut inbound = SerialExecutor::new(RNodeDataMode::RawRnsPacket)?;
+    let mut inbound = RawSerialExecutor::new(FixedRnsWrapParamsProvider::new(LOCAL))?;
     inbound_core.handle_link_event(hyf_link::LinkEvent::Up { link_id: LINK_A }, &mut inbound)?;
     let mut encoded_rns = [0; 128];
     let encoded_len = encode_data_frame(HEADER_1_PACKET, &mut encoded_rns)?;
     inbound
-        .link
+        .driver
+        .link_mut()
         .io_mut()
         .push_read_bytes(&encoded_rns[..encoded_len])?;
 
     let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
     let wrapped = inbound
-        .link
-        .poll_gateway_frame_with_rns_params_at(TimestampMs(150), &mut frame, rns_params(LOCAL))?
+        .driver
+        .poll_frame(TimestampMs(150), &mut frame)?
         .ok_or_else(|| missing_frame("wrapped raw RNS frame"))?;
     assert_eq!(wrapped.received_at_ms, TimestampMs(150));
     let envelope = decode_envelope(wrapped.bytes)?;
@@ -175,13 +179,13 @@ fn smoke_gateway_opaque_rns_carriage_over_fake_rnode_serial() -> Result<(), Box<
     );
 
     let mut outbound_core = TestCore::new(valid_config())?;
-    let mut outbound = SerialExecutor::new(RNodeDataMode::RawRnsPacket)?;
+    let mut outbound = RawSerialExecutor::new(FixedRnsWrapParamsProvider::new(REMOTE))?;
     outbound_core.handle_link_event(hyf_link::LinkEvent::Up { link_id: LINK_A }, &mut outbound)?;
     let rns_envelope = wrap_rns_packet(validate_rns_packet(HEADER_1_PACKET)?, rns_params(REMOTE))?;
     outbound_core.submit(rns_envelope, &mut outbound)?;
 
     let mut kiss_payload = [0; GATEWAY_FRAME_BUFFER_LEN];
-    let payload = first_kiss_payload(outbound.link.io().written(), &mut kiss_payload)?;
+    let payload = first_kiss_payload(outbound.driver.link().io().written(), &mut kiss_payload)?;
     assert_eq!(payload, HEADER_1_PACKET);
     Ok(())
 }
@@ -216,6 +220,72 @@ impl GatewayLinkExecutor for SerialExecutor {
                 link_id,
                 kind: error.driver_error_kind(),
             })
+    }
+}
+
+struct RawSerialExecutor {
+    driver: TestRawSerialDriver,
+}
+
+impl RawSerialExecutor {
+    fn new(provider: FixedRnsWrapParamsProvider) -> Result<Self, RNodeSerialError> {
+        let config = RNodeSerialConfig::new(
+            LINK_A,
+            GATEWAY_FRAME_BUFFER_LEN,
+            RNodeDataMode::RawRnsPacket,
+        )
+        .without_flow_control();
+        let link = RNodeSerialLink::new(config, FakeSerial::new())?;
+        Ok(Self {
+            driver: TestRawSerialDriver::new(link, provider)?,
+        })
+    }
+}
+
+impl GatewayLinkExecutor for RawSerialExecutor {
+    fn send_link_bytes(
+        &mut self,
+        link_id: LinkId,
+        bytes: &[u8],
+        now_ms: TimestampMs,
+    ) -> Result<(), GatewayError> {
+        if link_id != LINK_A {
+            return Err(GatewayError::UnsupportedLink { link_id });
+        }
+        self.driver
+            .send_bytes(bytes, now_ms)
+            .map_err(|error| GatewayError::Driver {
+                link_id,
+                kind: error.driver_error_kind(),
+            })
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FixedRnsWrapParamsProvider {
+    destination: NodeId,
+}
+
+impl FixedRnsWrapParamsProvider {
+    fn new(destination: NodeId) -> Self {
+        Self { destination }
+    }
+}
+
+impl RnsWrapParamsProvider for FixedRnsWrapParamsProvider {
+    fn wrap_params(
+        &mut self,
+        _packet: RnsPacketRef<'_>,
+        received_at_ms: TimestampMs,
+    ) -> Option<RnsWrapParams> {
+        Some(RnsWrapParams {
+            source_node: LOCAL,
+            destination: HyfDestination::Node(self.destination),
+            created_at_ms: received_at_ms,
+            expires_at_ms: TimestampMs(received_at_ms.0 + 200),
+            hop_limit: 4,
+            message_id: MessageId([9; 32]),
+        })
     }
 }
 

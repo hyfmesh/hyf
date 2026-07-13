@@ -6,7 +6,9 @@ use hyf_link_kiss::{
     KISS_CMD_DATA, KISS_FEND, KISS_FESC, KISS_TFEND, KISS_TFESC, KissDecoder, KissFrameRef,
 };
 use hyf_link_rnode::{RNodeState, parse_command_frame};
-use hyf_link_rns::{RnsWrapParams, unwrap_rns_packet, validate_rns_packet, wrap_rns_packet};
+use hyf_link_rns::{
+    RnsPacketRef, RnsWrapParams, unwrap_rns_packet, validate_rns_packet, wrap_rns_packet,
+};
 use hyf_wire::{decode_envelope, encode_envelope};
 
 use crate::{RNodeDataMode, RNodeSerialConfig, RNodeSerialError, RNodeSerialEvent, SerialIo};
@@ -17,6 +19,68 @@ pub struct RNodeSerialLink<Io, const FRAME_MAX: usize> {
     state: RNodeState,
     decoder: KissDecoder<FRAME_MAX>,
     pending: Option<PendingFrame<FRAME_MAX>>,
+}
+
+pub trait RnsWrapParamsProvider {
+    fn wrap_params(
+        &mut self,
+        packet: RnsPacketRef<'_>,
+        received_at_ms: TimestampMs,
+    ) -> Option<RnsWrapParams>;
+}
+
+pub struct RNodeRawRnsSerialDriver<Io, Provider, const FRAME_MAX: usize> {
+    link: RNodeSerialLink<Io, FRAME_MAX>,
+    provider: Provider,
+}
+
+impl<Io, Provider, const FRAME_MAX: usize> fmt::Debug
+    for RNodeRawRnsSerialDriver<Io, Provider, FRAME_MAX>
+where
+    RNodeSerialLink<Io, FRAME_MAX>: fmt::Debug,
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RNodeRawRnsSerialDriver")
+            .field("link", &self.link)
+            .field("provider", &"<redacted>")
+            .finish()
+    }
+}
+
+impl<Io, Provider, const FRAME_MAX: usize> RNodeRawRnsSerialDriver<Io, Provider, FRAME_MAX>
+where
+    Io: SerialIo,
+{
+    pub fn new(
+        link: RNodeSerialLink<Io, FRAME_MAX>,
+        provider: Provider,
+    ) -> Result<Self, RNodeSerialError> {
+        if link.config().data_mode != RNodeDataMode::RawRnsPacket {
+            return Err(RNodeSerialError::RawRnsModeRequired);
+        }
+        Ok(Self { link, provider })
+    }
+
+    pub fn link(&self) -> &RNodeSerialLink<Io, FRAME_MAX> {
+        &self.link
+    }
+
+    pub fn link_mut(&mut self) -> &mut RNodeSerialLink<Io, FRAME_MAX> {
+        &mut self.link
+    }
+
+    pub fn provider(&self) -> &Provider {
+        &self.provider
+    }
+
+    pub fn provider_mut(&mut self) -> &mut Provider {
+        &mut self.provider
+    }
+
+    pub fn into_parts(self) -> (RNodeSerialLink<Io, FRAME_MAX>, Provider) {
+        (self.link, self.provider)
+    }
 }
 
 impl<Io, const FRAME_MAX: usize> fmt::Debug for RNodeSerialLink<Io, FRAME_MAX> {
@@ -188,6 +252,29 @@ where
         }
     }
 
+    fn poll_raw_rns_gateway_frame_with_provider<'a, Provider>(
+        &mut self,
+        now_ms: TimestampMs,
+        output: &'a mut [u8],
+        provider: &mut Provider,
+    ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError>
+    where
+        Provider: RnsWrapParamsProvider,
+    {
+        loop {
+            if self.pending.is_none() && !self.read_until_pending(now_ms)? {
+                return Ok(None);
+            }
+            let Some(pending) = self.pending else {
+                return Ok(None);
+            };
+            if pending.command == KISS_CMD_DATA {
+                return self.drain_pending_raw_rns_frame_with_provider(output, provider);
+            }
+            self.drain_pending_command()?;
+        }
+    }
+
     fn read_until_pending(&mut self, now_ms: TimestampMs) -> Result<bool, RNodeSerialError> {
         let mut byte = [0; 1];
         loop {
@@ -316,6 +403,41 @@ where
         )))
     }
 
+    fn drain_pending_raw_rns_frame_with_provider<'a, Provider>(
+        &mut self,
+        output: &'a mut [u8],
+        provider: &mut Provider,
+    ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError>
+    where
+        Provider: RnsWrapParamsProvider,
+    {
+        let Some(pending) = self.pending else {
+            return Ok(None);
+        };
+        if pending.command != KISS_CMD_DATA {
+            return Ok(None);
+        }
+        let raw = &pending.payload[..pending.payload_len];
+        let packet = match validate_rns_packet(raw) {
+            Ok(packet) => packet,
+            Err(error) => {
+                self.pending = None;
+                return Err(RNodeSerialError::Rns(error));
+            }
+        };
+        let params = provider
+            .wrap_params(packet, pending.received_at_ms)
+            .ok_or(RNodeSerialError::RnsWrapParamsUnavailable)?;
+        let envelope = wrap_rns_packet(packet, params)?;
+        let len = encode_envelope(envelope, output)?;
+        self.pending = None;
+        Ok(Some(LinkFrameRef::new(
+            self.config.link_id,
+            pending.received_at_ms,
+            &output[..len],
+        )))
+    }
+
     fn drain_pending_command<'a>(
         &mut self,
     ) -> Result<Option<RNodeSerialEvent<'a>>, RNodeSerialError> {
@@ -377,6 +499,44 @@ where
             }
             self.drain_pending_command()?;
         }
+    }
+}
+
+impl<Io, Provider, const FRAME_MAX: usize> LinkDriver
+    for RNodeRawRnsSerialDriver<Io, Provider, FRAME_MAX>
+where
+    Io: SerialIo,
+    Provider: RnsWrapParamsProvider,
+{
+    type Error = RNodeSerialError;
+
+    fn link_id(&self) -> hyf_link::LinkId {
+        self.link.link_id()
+    }
+
+    fn link_class(&self) -> LinkClass {
+        self.link.link_class()
+    }
+
+    fn mtu(&self) -> usize {
+        self.link.mtu()
+    }
+
+    fn is_up(&self) -> bool {
+        self.link.is_up()
+    }
+
+    fn send_bytes(&mut self, bytes: &[u8], now_ms: TimestampMs) -> Result<(), Self::Error> {
+        self.link.send_bytes(bytes, now_ms)
+    }
+
+    fn poll_frame<'a>(
+        &mut self,
+        now_ms: TimestampMs,
+        output: &'a mut [u8],
+    ) -> Result<Option<LinkFrameRef<'a>>, Self::Error> {
+        self.link
+            .poll_raw_rns_gateway_frame_with_provider(now_ms, output, &mut self.provider)
     }
 }
 
@@ -458,13 +618,13 @@ mod tests {
         RNODE_CMD_STAT_RSSI, RNodeConfigReport, RNodeFirmwareVersion, RNodeHardwareError,
         RNodeStat,
     };
-    use hyf_link_rns::{RnsWrapParams, validate_rns_packet, wrap_rns_packet};
+    use hyf_link_rns::{RnsPacketRef, RnsWrapParams, validate_rns_packet, wrap_rns_packet};
     use hyf_wire::{
         HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, decode_envelope,
         encode_envelope,
     };
 
-    use super::RNodeSerialLink;
+    use super::{RNodeRawRnsSerialDriver, RNodeSerialLink, RnsWrapParamsProvider};
     use crate::{FakeSerial, RNodeDataMode, RNodeSerialConfig, RNodeSerialError, RNodeSerialEvent};
 
     type TestLink = RNodeSerialLink<FakeSerial<512, 512>, 256>;
@@ -845,6 +1005,83 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn raw_rns_adapter_requires_raw_rns_mode() -> Result<(), RNodeSerialError> {
+        let link = no_flow_control_link()?;
+
+        assert!(matches!(
+            RNodeRawRnsSerialDriver::new(link, TestWrapParamsProvider::accepting()),
+            Err(RNodeSerialError::RawRnsModeRequired)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn raw_rns_adapter_poll_frame_wraps_with_explicit_provider() -> Result<(), RNodeSerialError> {
+        let link = raw_rns_link()?;
+        let mut driver = RNodeRawRnsSerialDriver::new(link, TestWrapParamsProvider::accepting())?;
+        let mut encoded = [0; 128];
+        let encoded_len = encode_data_frame(HEADER_1_PACKET, &mut encoded)?;
+        driver
+            .link_mut()
+            .io_mut()
+            .push_read_bytes(&encoded[..encoded_len])?;
+
+        let mut output = [0; 256];
+        let frame = driver
+            .poll_frame(TimestampMs(123), &mut output)?
+            .ok_or(RNodeSerialError::InjectedReadFailure)?;
+        let envelope = decode_envelope(frame.bytes)?;
+
+        assert_eq!(frame.link_id, LinkId([1; 16]));
+        assert_eq!(frame.received_at_ms, TimestampMs(123));
+        assert_eq!(envelope.message_id, MessageId([7; 32]));
+        assert_eq!(envelope.created_at_ms, TimestampMs(123));
+        assert_eq!(envelope.expires_at_ms, TimestampMs(1123));
+        assert_eq!(envelope.payload_kind, PayloadKind::ForeignRnsPacket);
+        assert_eq!(envelope.payload, HEADER_1_PACKET);
+        assert_eq!(driver.provider().calls, 1);
+        assert_eq!(driver.provider().last_received_at_ms, TimestampMs(123));
+        assert_eq!(
+            driver.provider().last_destination_hash,
+            [
+                0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e,
+                0x1f, 0x20,
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn raw_rns_adapter_provider_refusal_is_typed_and_keeps_pending_frame()
+    -> Result<(), RNodeSerialError> {
+        let link = raw_rns_link()?;
+        let mut driver = RNodeRawRnsSerialDriver::new(link, TestWrapParamsProvider::refusing())?;
+        let mut encoded = [0; 128];
+        let encoded_len = encode_data_frame(HEADER_1_PACKET, &mut encoded)?;
+        driver
+            .link_mut()
+            .io_mut()
+            .push_read_bytes(&encoded[..encoded_len])?;
+
+        let mut output = [0; 256];
+        assert_eq!(
+            driver.poll_frame(TimestampMs(201), &mut output),
+            Err(RNodeSerialError::RnsWrapParamsUnavailable)
+        );
+        assert_eq!(driver.provider().calls, 1);
+        driver.provider_mut().refuse = false;
+
+        let frame = driver
+            .poll_frame(TimestampMs(202), &mut output)?
+            .ok_or(RNodeSerialError::InjectedReadFailure)?;
+
+        assert_eq!(frame.received_at_ms, TimestampMs(201));
+        assert_eq!(driver.provider().calls, 2);
+        assert_eq!(decode_envelope(frame.bytes)?.payload, HEADER_1_PACKET);
+        Ok(())
+    }
+
     fn no_flow_control_link() -> Result<TestLink, RNodeSerialError> {
         let config = RNodeSerialConfig::new(LinkId([1; 16]), 192, RNodeDataMode::HyfEnvelope)
             .without_flow_control();
@@ -889,6 +1126,55 @@ mod tests {
             expires_at_ms: TimestampMs(20),
             hop_limit: 4,
             message_id: MessageId([3; 32]),
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct TestWrapParamsProvider {
+        refuse: bool,
+        calls: u8,
+        last_received_at_ms: TimestampMs,
+        last_destination_hash: [u8; 16],
+    }
+
+    impl TestWrapParamsProvider {
+        fn accepting() -> Self {
+            Self {
+                refuse: false,
+                calls: 0,
+                last_received_at_ms: TimestampMs(0),
+                last_destination_hash: [0; 16],
+            }
+        }
+
+        fn refusing() -> Self {
+            Self {
+                refuse: true,
+                ..Self::accepting()
+            }
+        }
+    }
+
+    impl RnsWrapParamsProvider for TestWrapParamsProvider {
+        fn wrap_params(
+            &mut self,
+            packet: RnsPacketRef<'_>,
+            received_at_ms: TimestampMs,
+        ) -> Option<RnsWrapParams> {
+            self.calls = self.calls.saturating_add(1);
+            self.last_received_at_ms = received_at_ms;
+            self.last_destination_hash = packet.destination_hash;
+            if self.refuse {
+                return None;
+            }
+            Some(RnsWrapParams {
+                source_node: NodeId([1; 32]),
+                destination: HyfDestination::Node(NodeId([2; 32])),
+                created_at_ms: received_at_ms,
+                expires_at_ms: TimestampMs(received_at_ms.0 + 1000),
+                hop_limit: 4,
+                message_id: MessageId([7; 32]),
+            })
         }
     }
 }
