@@ -66,4 +66,14 @@ mod tests {
         assert_eq!(HYF_NOSTR_ENVELOPE_KIND, 9775);
         assert_eq!(HYF_NOSTR_MAX_CONTENT_CHARS, 4096);
     }
+
+    #[test]
+    fn websocket_runtime_remains_deferred_without_placeholder_features() {
+        let manifest = include_str!("../Cargo.toml");
+
+        assert!(!manifest.contains("websocket_runtime"));
+        assert!(!manifest.contains("nostr-sdk"));
+        assert!(!manifest.contains("tokio-tungstenite"));
+        assert!(manifest.contains("default = []"));
+    }
 }
