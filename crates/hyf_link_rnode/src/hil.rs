@@ -100,6 +100,7 @@ pub enum RNodeHilManifestError {
     InvalidBaud,
     EmptyChecks,
     EmptyCheckId,
+    RfTransmissionAllowed,
     RfTransmissionRecorded,
     Io(io::Error),
 }
@@ -119,6 +120,9 @@ pub fn validate_hil_manifest(manifest: &RNodeHilManifest<'_>) -> Result<(), RNod
     }
     if manifest.baud == 0 {
         return Err(RNodeHilManifestError::InvalidBaud);
+    }
+    if manifest.allow_rf_tx {
+        return Err(RNodeHilManifestError::RfTransmissionAllowed);
     }
     if manifest.transmission_performed {
         return Err(RNodeHilManifestError::RfTransmissionRecorded);
@@ -468,6 +472,9 @@ impl fmt::Display for RNodeHilManifestError {
             Self::InvalidBaud => formatter.write_str("invalid rnode hil manifest baud"),
             Self::EmptyChecks => formatter.write_str("empty rnode hil manifest checks"),
             Self::EmptyCheckId => formatter.write_str("empty rnode hil manifest check id"),
+            Self::RfTransmissionAllowed => {
+                formatter.write_str("rnode hil manifest allowed rf transmission")
+            }
             Self::RfTransmissionRecorded => {
                 formatter.write_str("rnode hil manifest recorded rf transmission")
             }
@@ -480,7 +487,7 @@ impl fmt::Display for RNodeHilReadinessError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::RfTransmissionRequested => {
-                formatter.write_str("rnode hil rf transmission is not supported in Handoff 2")
+                formatter.write_str("rnode hil rf transmission is not supported in Handoff 4")
             }
             Self::Io(error) => write!(formatter, "rnode hil readiness io error: {error}"),
             Self::Serial(error) => write!(formatter, "rnode hil serial open error: {error}"),
@@ -589,6 +596,14 @@ mod tests {
         assert_eq!(schema["properties"]["generated_at"]["format"], "date-time");
         assert_eq!(schema["properties"]["generated_at"]["pattern"], "Z$");
         assert_eq!(
+            schema["properties"]["rf"]["properties"]["allow_rf_tx"]["const"],
+            false
+        );
+        assert_eq!(
+            schema["properties"]["rf"]["properties"]["transmission_performed"]["const"],
+            false
+        );
+        assert_eq!(
             schema["properties"]["checks"]["items"]["properties"]["id"]["enum"][0],
             RNODE_HIL_READY_CHECK_ID
         );
@@ -685,6 +700,22 @@ mod tests {
                 Err(RNodeHilManifestError::InvalidGeneratedAt)
             ));
         }
+    }
+
+    #[test]
+    fn validation_rejects_allowed_rf_transmission() {
+        let mut manifest =
+            RNodeHilManifest::new("rnode-hil-test", "2026-07-09T00:00:00Z", "loop://rnode0");
+        let check = [RNodeHilCheck::ready(RNodeHilCheckStatus::Failed)];
+        manifest.checks = &check;
+        manifest.allow_rf_tx = true;
+
+        let result = validate_hil_manifest(&manifest);
+
+        assert!(matches!(
+            result,
+            Err(RNodeHilManifestError::RfTransmissionAllowed)
+        ));
     }
 
     #[test]

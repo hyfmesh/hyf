@@ -63,6 +63,7 @@ run cargo test -p hyf_gateway
 run cargo test -p hyf_gateway --test gateway_smoke
 run cargo test -p hyf_gateway --test rnode_serial_smoke
 run cargo test -p hyf_link_rns
+run cargo test -p hyf_link_rnode --features hil_std
 run cargo test -p hyf_link_rnode_serial
 run cargo test -p hyf_rns_conformance
 

@@ -196,6 +196,7 @@ const REQUIRED_HANDOFF_4_VERIFY_SNIPPETS: &[&str] = &[
     "cargo test -p hyf_gateway --test gateway_smoke",
     "cargo test -p hyf_gateway --test rnode_serial_smoke",
     "cargo test -p hyf_link_rns",
+    "cargo test -p hyf_link_rnode --features hil_std",
     "cargo test -p hyf_link_rnode_serial",
     "cargo test -p hyf_rns_conformance",
     "cargo bench -p hyf_rns_conformance --bench profile0 --no-run",
