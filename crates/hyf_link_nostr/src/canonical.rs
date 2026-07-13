@@ -1,57 +1,70 @@
 use core::str;
 
-use crate::{NostrError, NostrUnsignedEvent};
+use sha2::{Digest, Sha256};
+
+use crate::{NostrError, NostrEventId, NostrUnsignedEvent};
+
+pub fn event_id(event: &NostrUnsignedEvent<'_>) -> Result<NostrEventId, NostrError> {
+    let mut sink = HashSink::new();
+    write_canonical_to(event, &mut sink)?;
+    Ok(NostrEventId::from_bytes(sink.finish()))
+}
 
 pub fn write_canonical_event<'out>(
     event: &NostrUnsignedEvent<'_>,
     out: &'out mut [u8],
 ) -> Result<&'out str, NostrError> {
-    let mut writer = CanonicalWriter::new(out);
+    let mut sink = BufferSink::new(out);
+    write_canonical_to(event, &mut sink)?;
+    sink.finish()
+}
+
+fn write_canonical_to<S: CanonicalSink>(
+    event: &NostrUnsignedEvent<'_>,
+    sink: &mut S,
+) -> Result<(), NostrError> {
     let mut pubkey_hex = [0; 64];
     let pubkey_hex = event.pubkey.write_hex(&mut pubkey_hex)?;
 
-    writer.push_byte(b'[')?;
-    writer.push_byte(b'0')?;
-    writer.push_byte(b',')?;
-    writer.write_json_string(pubkey_hex)?;
-    writer.push_byte(b',')?;
-    writer.write_u64(event.created_at)?;
-    writer.push_byte(b',')?;
-    writer.write_u64(u64::from(event.kind))?;
-    writer.push_byte(b',')?;
-    writer.write_tags(event.tags.as_slice())?;
-    writer.push_byte(b',')?;
-    writer.write_json_string(event.content)?;
-    writer.push_byte(b']')?;
-    writer.finish()
+    push_byte(sink, b'[')?;
+    push_byte(sink, b'0')?;
+    push_byte(sink, b',')?;
+    write_json_string(sink, pubkey_hex)?;
+    push_byte(sink, b',')?;
+    write_u64(sink, event.created_at)?;
+    push_byte(sink, b',')?;
+    write_u64(sink, u64::from(event.kind))?;
+    push_byte(sink, b',')?;
+    write_tags(sink, event.tags.as_slice())?;
+    push_byte(sink, b',')?;
+    write_json_string(sink, event.content)?;
+    push_byte(sink, b']')
 }
 
-struct CanonicalWriter<'out> {
+trait CanonicalSink {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), NostrError>;
+}
+
+struct BufferSink<'out> {
     out: &'out mut [u8],
     len: usize,
 }
 
-impl<'out> CanonicalWriter<'out> {
+impl<'out> BufferSink<'out> {
     fn new(out: &'out mut [u8]) -> Self {
         Self { out, len: 0 }
     }
 
-    fn push_byte(&mut self, byte: u8) -> Result<(), NostrError> {
-        if self.len == self.out.len() {
-            return Err(NostrError::OutputTooSmall {
-                needed: self.len + 1,
-                available: self.out.len(),
-            });
-        }
-        self.out[self.len] = byte;
-        self.len += 1;
-        Ok(())
+    fn finish(self) -> Result<&'out str, NostrError> {
+        str::from_utf8(&self.out[..self.len]).map_err(|_| NostrError::Utf8)
     }
+}
 
-    fn push_str(&mut self, value: &str) -> Result<(), NostrError> {
+impl CanonicalSink for BufferSink<'_> {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), NostrError> {
         let needed = self
             .len
-            .checked_add(value.len())
+            .checked_add(bytes.len())
             .ok_or(NostrError::OutputTooSmall {
                 needed: usize::MAX,
                 available: self.out.len(),
@@ -62,83 +75,114 @@ impl<'out> CanonicalWriter<'out> {
                 available: self.out.len(),
             });
         }
-        self.out[self.len..needed].copy_from_slice(value.as_bytes());
+        self.out[self.len..needed].copy_from_slice(bytes);
         self.len = needed;
         Ok(())
     }
+}
 
-    fn write_json_string(&mut self, value: &str) -> Result<(), NostrError> {
-        self.push_byte(b'"')?;
-        for character in value.chars() {
-            match character {
-                '"' => self.push_str(r#"\""#)?,
-                '\\' => self.push_str(r#"\\"#)?,
-                '\n' => self.push_str(r#"\n"#)?,
-                '\r' => self.push_str(r#"\r"#)?,
-                '\t' => self.push_str(r#"\t"#)?,
-                '\u{08}' => self.push_str(r#"\b"#)?,
-                '\u{0c}' => self.push_str(r#"\f"#)?,
-                '\u{00}'..='\u{1f}' => self.write_control_escape(character)?,
-                _ => {
-                    let mut scratch = [0; 4];
-                    self.push_str(character.encode_utf8(&mut scratch))?;
-                }
+struct HashSink {
+    hasher: Sha256,
+}
+
+impl HashSink {
+    fn new() -> Self {
+        Self {
+            hasher: Sha256::new(),
+        }
+    }
+
+    fn finish(self) -> [u8; 32] {
+        let digest = self.hasher.finalize();
+        let mut event_id = [0; 32];
+        event_id.copy_from_slice(&digest);
+        event_id
+    }
+}
+
+impl CanonicalSink for HashSink {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), NostrError> {
+        self.hasher.update(bytes);
+        Ok(())
+    }
+}
+
+fn push_byte<S: CanonicalSink>(sink: &mut S, byte: u8) -> Result<(), NostrError> {
+    sink.write(&[byte])
+}
+
+fn push_str<S: CanonicalSink>(sink: &mut S, value: &str) -> Result<(), NostrError> {
+    sink.write(value.as_bytes())
+}
+
+fn write_json_string<S: CanonicalSink>(sink: &mut S, value: &str) -> Result<(), NostrError> {
+    push_byte(sink, b'"')?;
+    for character in value.chars() {
+        match character {
+            '"' => push_str(sink, r#"\""#)?,
+            '\\' => push_str(sink, r#"\\"#)?,
+            '\n' => push_str(sink, r#"\n"#)?,
+            '\r' => push_str(sink, r#"\r"#)?,
+            '\t' => push_str(sink, r#"\t"#)?,
+            '\u{08}' => push_str(sink, r#"\b"#)?,
+            '\u{0c}' => push_str(sink, r#"\f"#)?,
+            '\u{00}'..='\u{1f}' => write_control_escape(sink, character)?,
+            _ => {
+                let mut scratch = [0; 4];
+                push_str(sink, character.encode_utf8(&mut scratch))?;
             }
         }
-        self.push_byte(b'"')
     }
+    push_byte(sink, b'"')
+}
 
-    fn write_control_escape(&mut self, character: char) -> Result<(), NostrError> {
-        let value = character as u8;
-        let escape = [
-            b'\\',
-            b'u',
-            b'0',
-            b'0',
-            hex_nibble(value >> 4),
-            hex_nibble(value & 0x0f),
-        ];
-        self.push_str(str::from_utf8(&escape).map_err(|_| NostrError::Utf8)?)
-    }
+fn write_control_escape<S: CanonicalSink>(sink: &mut S, character: char) -> Result<(), NostrError> {
+    let value = character as u8;
+    sink.write(&[
+        b'\\',
+        b'u',
+        b'0',
+        b'0',
+        hex_nibble(value >> 4),
+        hex_nibble(value & 0x0f),
+    ])
+}
 
-    fn write_tags(&mut self, tags: &[crate::NostrTagRef<'_>]) -> Result<(), NostrError> {
-        self.push_byte(b'[')?;
-        for (tag_index, tag) in tags.iter().enumerate() {
-            if tag_index > 0 {
-                self.push_byte(b',')?;
+fn write_tags<S: CanonicalSink>(
+    sink: &mut S,
+    tags: &[crate::NostrTagRef<'_>],
+) -> Result<(), NostrError> {
+    push_byte(sink, b'[')?;
+    for (tag_index, tag) in tags.iter().enumerate() {
+        if tag_index > 0 {
+            push_byte(sink, b',')?;
+        }
+        push_byte(sink, b'[')?;
+        for (value_index, value) in tag.values().iter().enumerate() {
+            if value_index > 0 {
+                push_byte(sink, b',')?;
             }
-            self.push_byte(b'[')?;
-            for (value_index, value) in tag.values().iter().enumerate() {
-                if value_index > 0 {
-                    self.push_byte(b',')?;
-                }
-                self.write_json_string(value)?;
-            }
-            self.push_byte(b']')?;
+            write_json_string(sink, value)?;
         }
-        self.push_byte(b']')
+        push_byte(sink, b']')?;
+    }
+    push_byte(sink, b']')
+}
+
+fn write_u64<S: CanonicalSink>(sink: &mut S, mut value: u64) -> Result<(), NostrError> {
+    if value == 0 {
+        return push_byte(sink, b'0');
     }
 
-    fn write_u64(&mut self, mut value: u64) -> Result<(), NostrError> {
-        if value == 0 {
-            return self.push_byte(b'0');
-        }
-
-        let mut scratch = [0; 20];
-        let mut cursor = scratch.len();
-        while value > 0 {
-            cursor -= 1;
-            scratch[cursor] = b'0' + (value % 10) as u8;
-            value /= 10;
-        }
-
-        let value = str::from_utf8(&scratch[cursor..]).map_err(|_| NostrError::Utf8)?;
-        self.push_str(value)
+    let mut scratch = [0; 20];
+    let mut cursor = scratch.len();
+    while value > 0 {
+        cursor -= 1;
+        scratch[cursor] = b'0' + (value % 10) as u8;
+        value /= 10;
     }
 
-    fn finish(self) -> Result<&'out str, NostrError> {
-        str::from_utf8(&self.out[..self.len]).map_err(|_| NostrError::Utf8)
-    }
+    sink.write(&scratch[cursor..])
 }
 
 const fn hex_nibble(value: u8) -> u8 {
@@ -150,8 +194,11 @@ const fn hex_nibble(value: u8) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::write_canonical_event;
-    use crate::{HYF_NOSTR_ENVELOPE_KIND, NostrError, NostrPublicKey, NostrTagRef, NostrTagsRef};
+    use super::{event_id, write_canonical_event};
+    use crate::{
+        HYF_NOSTR_ENVELOPE_KIND, NostrError, NostrEventId, NostrPublicKey, NostrTagRef,
+        NostrTagsRef,
+    };
 
     const PUBLIC_KEY: NostrPublicKey = NostrPublicKey::from_bytes([0x11; 32]);
     const PUBLIC_KEY_HEX: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -171,6 +218,50 @@ mod tests {
                 r#"1720000000,9775,[],"abcd"]"#
             )
         );
+        Ok(())
+    }
+
+    #[test]
+    fn event_id_hashes_known_vector() -> Result<(), NostrError> {
+        let event = event(NostrTagsRef::new(&[]), "abcd", 1720000000);
+
+        assert_eq!(
+            event_id(&event)?,
+            NostrEventId::from_hex(
+                "3422f301716b9b2af14b2f3dc3e258eddba9a312ef2fe5ecbe148ac1ffe5580a"
+            )?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn event_id_changes_when_canonical_fields_change() -> Result<(), NostrError> {
+        let base = event(NostrTagsRef::new(&[]), "abcd", 1720000000);
+        let base_id = event_id(&base)?;
+
+        let changed_content = event(NostrTagsRef::new(&[]), "abce", 1720000000);
+        assert_ne!(event_id(&changed_content)?, base_id);
+
+        let changed_kind = crate::NostrUnsignedEvent { kind: 1, ..base };
+        assert_ne!(event_id(&changed_kind)?, base_id);
+
+        let tag_values = [
+            "p",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ];
+        let tag = NostrTagRef::new(&tag_values)?;
+        let tags = [tag];
+        let changed_tags = crate::NostrUnsignedEvent {
+            tags: NostrTagsRef::new(&tags),
+            ..base
+        };
+        assert_ne!(event_id(&changed_tags)?, base_id);
+
+        let changed_pubkey = crate::NostrUnsignedEvent {
+            pubkey: NostrPublicKey::from_bytes([0x22; 32]),
+            ..base
+        };
+        assert_ne!(event_id(&changed_pubkey)?, base_id);
         Ok(())
     }
 

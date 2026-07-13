@@ -15,7 +15,7 @@ mod hex;
 mod keys;
 mod signing_spike;
 
-pub use canonical::write_canonical_event;
+pub use canonical::{event_id, write_canonical_event};
 pub use constants::{
     HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HYF_NOSTR_MAX_ENVELOPE_BYTES,
 };

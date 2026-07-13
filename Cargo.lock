@@ -549,6 +549,7 @@ name = "hyf_link_nostr"
 version = "0.1.0"
 dependencies = [
  "k256",
+ "sha2",
  "zeroize",
 ]
 
