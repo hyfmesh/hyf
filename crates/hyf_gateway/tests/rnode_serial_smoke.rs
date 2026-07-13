@@ -76,8 +76,9 @@ fn smoke_gateway_inbound_native_hyf_delivery_from_fake_rnode_serial() -> Result<
     let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
     let inbound = executor
         .link
-        .poll_gateway_frame(&mut frame)?
+        .poll_gateway_frame_at(TimestampMs(130), &mut frame)?
         .ok_or_else(|| missing_frame("inbound native HYF frame"))?;
+    assert_eq!(inbound.received_at_ms, TimestampMs(130));
     core.ingest_link_frame(inbound, &mut executor)?;
 
     assert_eq!(core.metrics().received, 1);
@@ -130,7 +131,7 @@ fn smoke_gateway_malformed_serial_and_gateway_frames_drop_safely() -> Result<(),
     assert!(matches!(
         executor
             .link
-            .poll_gateway_frame(&mut [0; GATEWAY_FRAME_BUFFER_LEN]),
+            .poll_gateway_frame_at(TimestampMs(140), &mut [0; GATEWAY_FRAME_BUFFER_LEN]),
         Err(RNodeSerialError::Kiss(KissError::MalformedEscape {
             byte: 0x00
         }))
@@ -160,8 +161,9 @@ fn smoke_gateway_opaque_rns_carriage_over_fake_rnode_serial() -> Result<(), Box<
     let mut frame = [0; GATEWAY_FRAME_BUFFER_LEN];
     let wrapped = inbound
         .link
-        .poll_gateway_frame_with_rns_params(&mut frame, rns_params(LOCAL))?
+        .poll_gateway_frame_with_rns_params_at(TimestampMs(150), &mut frame, rns_params(LOCAL))?
         .ok_or_else(|| missing_frame("wrapped raw RNS frame"))?;
+    assert_eq!(wrapped.received_at_ms, TimestampMs(150));
     let envelope = decode_envelope(wrapped.bytes)?;
     assert_eq!(envelope.payload_kind, PayloadKind::ForeignRnsPacket);
     assert_eq!(envelope.payload, HEADER_1_PACKET);

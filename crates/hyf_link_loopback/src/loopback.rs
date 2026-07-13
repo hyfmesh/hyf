@@ -195,6 +195,7 @@ impl<const N: usize> LinkDriver for LoopbackDriver<N> {
 
     fn poll_frame<'a>(
         &mut self,
+        _now_ms: TimestampMs,
         output: &'a mut [u8],
     ) -> Result<Option<LinkFrameRef<'a>>, Self::Error> {
         self.rx_endpoint_mut().receive_into(output)
@@ -468,16 +469,17 @@ mod tests {
         driver.send_bytes(b"one", TimestampMs(10))?;
         assert_eq!(driver.queued_len(LOOPBACK_RIGHT_ID)?, 1);
 
-        let frame = driver
-            .poll_frame(&mut output)?
-            .ok_or(LoopbackError::QueueFull {
-                link_id: LOOPBACK_RIGHT_ID,
-                capacity: 2,
-            })?;
+        let frame =
+            driver
+                .poll_frame(TimestampMs(99), &mut output)?
+                .ok_or(LoopbackError::QueueFull {
+                    link_id: LOOPBACK_RIGHT_ID,
+                    capacity: 2,
+                })?;
         assert_eq!(frame.link_id, LOOPBACK_RIGHT_ID);
         assert_eq!(frame.received_at_ms, TimestampMs(10));
         assert_eq!(frame.bytes, b"one");
-        assert_eq!(driver.poll_frame(&mut output)?, None);
+        assert_eq!(driver.poll_frame(TimestampMs(100), &mut output)?, None);
         Ok(())
     }
 
@@ -489,17 +491,22 @@ mod tests {
 
         driver.send_bytes(b"four", TimestampMs(1))?;
         assert_eq!(
-            driver.poll_frame(&mut short),
+            driver.poll_frame(TimestampMs(2), &mut short),
             Err(LoopbackError::OutputTooSmall {
                 actual: 2,
                 required: 4,
             })
         );
         assert_eq!(driver.queued_len(LOOPBACK_RIGHT_ID)?, 1);
-        assert_eq!(
-            driver.poll_frame(&mut full)?.map(|frame| frame.bytes),
-            Some(&b"four"[..])
-        );
+        let frame =
+            driver
+                .poll_frame(TimestampMs(3), &mut full)?
+                .ok_or(LoopbackError::QueueFull {
+                    link_id: LOOPBACK_RIGHT_ID,
+                    capacity: 1,
+                })?;
+        assert_eq!(frame.received_at_ms, TimestampMs(1));
+        assert_eq!(frame.bytes, b"four");
         Ok(())
     }
 

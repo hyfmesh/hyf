@@ -102,35 +102,38 @@ where
         Ok(())
     }
 
-    pub fn poll_event<'a>(
+    pub fn poll_event_at<'a>(
         &mut self,
+        now_ms: TimestampMs,
         output: &'a mut [u8],
     ) -> Result<Option<RNodeSerialEvent<'a>>, RNodeSerialError> {
-        if self.pending.is_none() && !self.read_until_pending()? {
+        if self.pending.is_none() && !self.read_until_pending(now_ms)? {
             return Ok(None);
         }
         self.drain_pending(output)
     }
 
-    pub fn poll_gateway_frame<'a>(
+    pub fn poll_gateway_frame_at<'a>(
         &mut self,
+        now_ms: TimestampMs,
         output: &'a mut [u8],
     ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
         if self.config.data_mode == RNodeDataMode::RawRnsPacket {
             return Err(RNodeSerialError::RnsWrapParamsRequired);
         }
-        self.poll_hyf_gateway_frame(output)
+        self.poll_hyf_gateway_frame(now_ms, output)
     }
 
-    pub fn poll_gateway_frame_with_rns_params<'a>(
+    pub fn poll_gateway_frame_with_rns_params_at<'a>(
         &mut self,
+        now_ms: TimestampMs,
         output: &'a mut [u8],
         params: RnsWrapParams,
     ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
         if self.config.data_mode == RNodeDataMode::HyfEnvelope {
             return Err(RNodeSerialError::RnsWrapParamsUnexpected);
         }
-        self.poll_raw_rns_gateway_frame(output, params)
+        self.poll_raw_rns_gateway_frame(now_ms, output, params)
     }
 
     fn payload_for_send<'a>(&self, bytes: &'a [u8]) -> Result<&'a [u8], RNodeSerialError> {
@@ -148,10 +151,11 @@ where
 
     fn poll_hyf_gateway_frame<'a>(
         &mut self,
+        now_ms: TimestampMs,
         output: &'a mut [u8],
     ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
         loop {
-            if self.pending.is_none() && !self.read_until_pending()? {
+            if self.pending.is_none() && !self.read_until_pending(now_ms)? {
                 return Ok(None);
             }
             let Some(pending) = self.pending else {
@@ -166,11 +170,12 @@ where
 
     fn poll_raw_rns_gateway_frame<'a>(
         &mut self,
+        now_ms: TimestampMs,
         output: &'a mut [u8],
         params: RnsWrapParams,
     ) -> Result<Option<LinkFrameRef<'a>>, RNodeSerialError> {
         loop {
-            if self.pending.is_none() && !self.read_until_pending()? {
+            if self.pending.is_none() && !self.read_until_pending(now_ms)? {
                 return Ok(None);
             }
             let Some(pending) = self.pending else {
@@ -183,7 +188,7 @@ where
         }
     }
 
-    fn read_until_pending(&mut self) -> Result<bool, RNodeSerialError> {
+    fn read_until_pending(&mut self, now_ms: TimestampMs) -> Result<bool, RNodeSerialError> {
         let mut byte = [0; 1];
         loop {
             let read = self.io.read(&mut byte)?;
@@ -199,7 +204,7 @@ where
 
             let mut pending = None;
             self.decoder.push_bytes(&byte[..read], |frame| {
-                pending = Some(PendingFrame::try_from_kiss_frame(frame)?);
+                pending = Some(PendingFrame::try_from_kiss_frame(frame, now_ms)?);
                 Ok(())
             })?;
             if let Some(frame) = pending {
@@ -306,7 +311,7 @@ where
         self.pending = None;
         Ok(Some(LinkFrameRef::new(
             self.config.link_id,
-            params.created_at_ms,
+            pending.received_at_ms,
             &output[..len],
         )))
     }
@@ -357,17 +362,18 @@ where
 
     fn poll_frame<'a>(
         &mut self,
+        now_ms: TimestampMs,
         output: &'a mut [u8],
     ) -> Result<Option<LinkFrameRef<'a>>, Self::Error> {
         loop {
-            if self.pending.is_none() && !self.read_until_pending()? {
+            if self.pending.is_none() && !self.read_until_pending(now_ms)? {
                 return Ok(None);
             }
             let Some(pending) = self.pending else {
                 return Ok(None);
             };
             if pending.command == KISS_CMD_DATA {
-                return self.poll_gateway_frame(output);
+                return self.poll_gateway_frame_at(now_ms, output);
             }
             self.drain_pending_command()?;
         }
@@ -383,7 +389,10 @@ struct PendingFrame<const N: usize> {
 }
 
 impl<const N: usize> PendingFrame<N> {
-    fn try_from_kiss_frame(frame: KissFrameRef<'_>) -> Result<Self, hyf_link_kiss::KissError> {
+    fn try_from_kiss_frame(
+        frame: KissFrameRef<'_>,
+        received_at_ms: TimestampMs,
+    ) -> Result<Self, hyf_link_kiss::KissError> {
         let mut payload = [0; N];
         let payload_len = frame.payload().len();
         if payload_len > N {
@@ -397,7 +406,7 @@ impl<const N: usize> PendingFrame<N> {
             command: frame.command(),
             payload,
             payload_len,
-            received_at_ms: TimestampMs(0),
+            received_at_ms,
         })
     }
 
@@ -549,7 +558,10 @@ mod tests {
             Err(RNodeSerialError::FlowControlBlocked)
         );
         feed_command(&mut link, RNODE_CMD_READY, &[])?;
-        assert_eq!(link.poll_event(&mut [0; 8])?, Some(RNodeSerialEvent::Ready));
+        assert_eq!(
+            link.poll_event_at(TimestampMs(2), &mut [0; 8])?,
+            Some(RNodeSerialEvent::Ready)
+        );
         link.send_gateway_bytes(&envelope_bytes[..envelope_len], TimestampMs(2))?;
         assert!(!link.state().can_transmit());
         Ok(())
@@ -595,14 +607,19 @@ mod tests {
 
         let mut output = [0; 256];
         let frame = hyf_link
-            .poll_gateway_frame(&mut output)?
+            .poll_gateway_frame_at(TimestampMs(31), &mut output)?
             .ok_or(RNodeSerialError::InjectedReadFailure)?;
+        assert_eq!(frame.received_at_ms, TimestampMs(31));
         assert_eq!(
             decode_envelope(frame.bytes)?.payload_kind,
             PayloadKind::HyfNativeV0
         );
         assert_eq!(
-            hyf_link.poll_gateway_frame_with_rns_params(&mut output, rns_params()),
+            hyf_link.poll_gateway_frame_with_rns_params_at(
+                TimestampMs(32),
+                &mut output,
+                rns_params()
+            ),
             Err(RNodeSerialError::RnsWrapParamsUnexpected)
         );
 
@@ -612,12 +629,13 @@ mod tests {
             .io_mut()
             .push_read_bytes(&encoded[..raw_encoded_len])?;
         assert_eq!(
-            raw_link.poll_gateway_frame(&mut output),
+            raw_link.poll_gateway_frame_at(TimestampMs(41), &mut output),
             Err(RNodeSerialError::RnsWrapParamsRequired)
         );
         let frame = raw_link
-            .poll_gateway_frame_with_rns_params(&mut output, rns_params())?
+            .poll_gateway_frame_with_rns_params_at(TimestampMs(42), &mut output, rns_params())?
             .ok_or(RNodeSerialError::InjectedReadFailure)?;
+        assert_eq!(frame.received_at_ms, TimestampMs(42));
         let envelope = decode_envelope(frame.bytes)?;
         assert_eq!(envelope.payload_kind, PayloadKind::ForeignRnsPacket);
         assert_eq!(envelope.payload, HEADER_1_PACKET);
@@ -632,7 +650,7 @@ mod tests {
         hyf_link.io_mut().push_read_bytes(&encoded[..encoded_len])?;
 
         assert!(matches!(
-            hyf_link.poll_gateway_frame(&mut [0; 256]),
+            hyf_link.poll_gateway_frame_at(TimestampMs(51), &mut [0; 256]),
             Err(RNodeSerialError::HyfWire(_))
         ));
 
@@ -642,7 +660,11 @@ mod tests {
             .io_mut()
             .push_read_bytes(&encoded[..malformed_len])?;
         assert!(matches!(
-            raw_link.poll_gateway_frame_with_rns_params(&mut [0; 256], rns_params()),
+            raw_link.poll_gateway_frame_with_rns_params_at(
+                TimestampMs(52),
+                &mut [0; 256],
+                rns_params()
+            ),
             Err(RNodeSerialError::Rns(_))
         ));
         Ok(())
@@ -658,15 +680,21 @@ mod tests {
             .push_read_bytes(&encoded[..first_len + second_len])?;
 
         let mut output = [0; 8];
-        let Some(RNodeSerialEvent::Frame(first)) = link.poll_event(&mut output)? else {
+        let Some(RNodeSerialEvent::Frame(first)) =
+            link.poll_event_at(TimestampMs(61), &mut output)?
+        else {
             return Err(RNodeSerialError::InjectedReadFailure);
         };
+        assert_eq!(first.received_at_ms, TimestampMs(61));
         assert_eq!(first.bytes, b"one");
-        let Some(RNodeSerialEvent::Frame(second)) = link.poll_event(&mut output)? else {
+        let Some(RNodeSerialEvent::Frame(second)) =
+            link.poll_event_at(TimestampMs(62), &mut output)?
+        else {
             return Err(RNodeSerialError::InjectedReadFailure);
         };
+        assert_eq!(second.received_at_ms, TimestampMs(62));
         assert_eq!(second.bytes, b"two");
-        assert_eq!(link.poll_event(&mut output)?, None);
+        assert_eq!(link.poll_event_at(TimestampMs(63), &mut output)?, None);
         Ok(())
     }
 
@@ -678,7 +706,7 @@ mod tests {
         link.io_mut().push_read_bytes(&encoded[..len])?;
 
         assert_eq!(
-            link.poll_event(&mut [0; 2]),
+            link.poll_event_at(TimestampMs(71), &mut [0; 2]),
             Err(RNodeSerialError::ReadBufferTooSmall {
                 actual: 2,
                 required: 4,
@@ -686,9 +714,12 @@ mod tests {
         );
 
         let mut output = [0; 4];
-        let Some(RNodeSerialEvent::Frame(frame)) = link.poll_event(&mut output)? else {
+        let Some(RNodeSerialEvent::Frame(frame)) =
+            link.poll_event_at(TimestampMs(72), &mut output)?
+        else {
             return Err(RNodeSerialError::InjectedReadFailure);
         };
+        assert_eq!(frame.received_at_ms, TimestampMs(71));
         assert_eq!(frame.bytes, b"four");
         Ok(())
     }
@@ -700,7 +731,7 @@ mod tests {
             .io_mut()
             .push_read_bytes(&[0xc0, KISS_CMD_DATA, 0xdb, 0x00])?;
         assert_eq!(
-            malformed.poll_event(&mut [0; 8]),
+            malformed.poll_event_at(TimestampMs(81), &mut [0; 8]),
             Err(RNodeSerialError::Kiss(
                 hyf_link_kiss::KissError::MalformedEscape { byte: 0x00 }
             ))
@@ -714,7 +745,7 @@ mod tests {
             .io_mut()
             .push_read_bytes(&[0xc0, KISS_CMD_DATA, 1, 2, 3, 4])?;
         assert_eq!(
-            oversized.poll_event(&mut [0; 8]),
+            oversized.poll_event_at(TimestampMs(82), &mut [0; 8]),
             Err(RNodeSerialError::Kiss(
                 hyf_link_kiss::KissError::FrameTooLarge {
                     actual: 5,
@@ -740,10 +771,13 @@ mod tests {
         feed_command(&mut link, 0xee, &[1, 2, 3])?;
 
         let mut output = [0; 8];
-        assert_eq!(link.poll_event(&mut output)?, Some(RNodeSerialEvent::Ready));
+        assert_eq!(
+            link.poll_event_at(TimestampMs(91), &mut output)?,
+            Some(RNodeSerialEvent::Ready)
+        );
         assert!(link.state().can_transmit());
         assert_eq!(
-            link.poll_event(&mut output)?,
+            link.poll_event_at(TimestampMs(92), &mut output)?,
             Some(RNodeSerialEvent::FirmwareVersion(RNodeFirmwareVersion {
                 major: 1,
                 minor: 52,
@@ -751,22 +785,22 @@ mod tests {
             }))
         );
         assert_eq!(
-            link.poll_event(&mut output)?,
+            link.poll_event_at(TimestampMs(93), &mut output)?,
             Some(RNodeSerialEvent::Stat(RNodeStat::RssiDbm(3)))
         );
         assert_eq!(
-            link.poll_event(&mut output)?,
+            link.poll_event_at(TimestampMs(94), &mut output)?,
             Some(RNodeSerialEvent::ConfigReport(
                 RNodeConfigReport::BandwidthHz(125_000)
             ))
         );
         assert_eq!(
-            link.poll_event(&mut output)?,
+            link.poll_event_at(TimestampMs(95), &mut output)?,
             Some(RNodeSerialEvent::Error(RNodeHardwareError::QueueFull))
         );
         assert!(!link.state().can_transmit());
         assert_eq!(
-            link.poll_event(&mut output)?,
+            link.poll_event_at(TimestampMs(96), &mut output)?,
             Some(RNodeSerialEvent::Unknown {
                 command: 0xee,
                 payload_len: 3,
@@ -803,10 +837,10 @@ mod tests {
 
         let mut output = [0; 256];
         let frame = link
-            .poll_frame(&mut output)?
+            .poll_frame(TimestampMs(101), &mut output)?
             .ok_or(RNodeSerialError::InjectedReadFailure)?;
         assert_eq!(frame.link_id, LinkId([1; 16]));
-        assert_eq!(frame.received_at_ms, TimestampMs(0));
+        assert_eq!(frame.received_at_ms, TimestampMs(101));
         assert_eq!(decode_envelope(frame.bytes)?.payload, b"rx");
         Ok(())
     }

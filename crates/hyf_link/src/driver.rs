@@ -14,6 +14,7 @@ pub trait LinkDriver {
 
     fn poll_frame<'a>(
         &mut self,
+        now_ms: TimestampMs,
         output: &'a mut [u8],
     ) -> Result<Option<LinkFrameRef<'a>>, Self::Error>;
 }
@@ -108,6 +109,7 @@ mod tests {
 
         fn poll_frame<'a>(
             &mut self,
+            now_ms: TimestampMs,
             output: &'a mut [u8],
         ) -> Result<Option<LinkFrameRef<'a>>, Self::Error> {
             if !self.up {
@@ -115,7 +117,7 @@ mod tests {
             }
             Ok(Some(LinkFrameRef::new(
                 self.link_id(),
-                TimestampMs(7),
+                now_ms,
                 &output[..0],
             )))
         }
@@ -133,7 +135,7 @@ mod tests {
 
         driver.send_bytes(b"abc", TimestampMs(1))?;
         let frame = driver
-            .poll_frame(&mut output)?
+            .poll_frame(TimestampMs(7), &mut output)?
             .ok_or(FixedDriverError::Down)?;
 
         assert_eq!(frame.link_id, LinkId([8; 16]));
