@@ -9,6 +9,7 @@
 mod constants;
 mod error;
 mod hex;
+mod keys;
 mod signing_spike;
 
 pub use constants::{
@@ -16,6 +17,7 @@ pub use constants::{
 };
 pub use error::NostrError;
 pub use hex::{decode_fixed_lower_hex, decode_lower_hex, encode_lower_hex};
+pub use keys::{NostrEventId, NostrPublicKey, NostrSecretKey, NostrSignature};
 
 #[cfg(test)]
 mod tests {

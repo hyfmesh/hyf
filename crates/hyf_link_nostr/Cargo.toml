@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 k256.workspace = true
+zeroize.workspace = true
 
 [features]
 default = []
