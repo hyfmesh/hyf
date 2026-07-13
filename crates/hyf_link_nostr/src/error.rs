@@ -17,6 +17,8 @@ pub enum NostrError {
     OddHexLength { len: usize },
     OutputTooSmall { needed: usize, available: usize },
     PublicKeyMismatch,
+    RelayOutputFull { capacity: usize },
+    RelaySubscriptionFull { capacity: usize },
     SubscriptionIdTooLong { len: usize, maximum: usize },
     TagEmpty,
     UnexpectedKind { expected: u16, actual: u16 },
@@ -72,6 +74,18 @@ impl fmt::Display for NostrError {
                 )
             }
             Self::PublicKeyMismatch => write!(formatter, "nostr public key does not match secret"),
+            Self::RelayOutputFull { capacity } => {
+                write!(
+                    formatter,
+                    "fake nostr relay output queue full: capacity {capacity}"
+                )
+            }
+            Self::RelaySubscriptionFull { capacity } => {
+                write!(
+                    formatter,
+                    "fake nostr relay subscription store full: capacity {capacity}"
+                )
+            }
             Self::SubscriptionIdTooLong { len, maximum } => {
                 write!(
                     formatter,
@@ -184,6 +198,14 @@ mod tests {
         assert_eq!(
             NostrError::PublicKeyMismatch.to_string(),
             "nostr public key does not match secret"
+        );
+        assert_eq!(
+            NostrError::RelayOutputFull { capacity: 2 }.to_string(),
+            "fake nostr relay output queue full: capacity 2"
+        );
+        assert_eq!(
+            NostrError::RelaySubscriptionFull { capacity: 1 }.to_string(),
+            "fake nostr relay subscription store full: capacity 1"
         );
         assert_eq!(
             NostrError::SubscriptionIdTooLong {
