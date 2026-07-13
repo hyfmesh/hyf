@@ -38,6 +38,27 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
     common_features("hyf_config"),
     common_features("hyf_link_rns"),
     FeatureSurface {
+        package: "hyf_link_nostr",
+        features: &[
+            FeatureSpec {
+                name: "alloc",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &["alloc"],
+            },
+            FeatureSpec {
+                name: "test_vectors",
+                enables: &[],
+            },
+        ],
+    },
+    FeatureSurface {
         package: "hyf_link_rnode_serial",
         features: &[
             FeatureSpec {
