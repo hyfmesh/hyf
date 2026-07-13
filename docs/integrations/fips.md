@@ -1,6 +1,6 @@
 # FIPS Accommodation
 
-FIPS is a future integration target, not a Handoff 3 implementation.
+FIPS is a future integration target, not a current implementation.
 
 The current model can represent foreign endpoints, including 16-byte FIPS
 `node_addr` values and 32-byte identities such as Nostr public-key-derived
@@ -17,7 +17,7 @@ RNS conformance crates.
 
 ## Current Guarantees
 
-- No FIPS crate or dependency is compiled into Handoff 3.
+- No FIPS crate or dependency is compiled into the current runtime.
 - No FIPS adapter is implemented.
 - No FIPS behavior is claimed by the gateway smoke tests.
 - FIPS does not replace Reticulum/RNS compatibility work.

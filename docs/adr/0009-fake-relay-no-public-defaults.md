@@ -2,13 +2,13 @@
 
 ## Status
 
-Accepted for Handoff 5.
+Accepted.
 
 ## Context
 
-Handoff 5 needs deterministic gateway proof without depending on live relay
-availability, external network state, account policy, rate limits, or public
-relay operator behavior.
+The Nostr gateway path needs deterministic proof without depending on live
+relay availability, external network state, account policy, rate limits, or
+public relay operator behavior.
 
 ## Decision
 
@@ -22,6 +22,6 @@ operator-supplied configuration.
 
 ## Consequences
 
-Handoff 5 remains repeatable and source-reviewable. Interoperability with live
-relays can be explored later without making normal validation depend on the
-network.
+The relay path remains repeatable and source-reviewable. Interoperability with
+live relays can be explored later without making normal validation depend on
+the network.

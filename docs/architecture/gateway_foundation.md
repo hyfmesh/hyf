@@ -1,9 +1,9 @@
 # Gateway Foundation
 
-The Handoff 3 gateway foundation is a deterministic library runtime for local
-testing of HYF envelope routing and store-and-forward behavior. It is designed
-to be small enough to review, explicit about ownership, and free of live
-transport side effects.
+The gateway foundation is a deterministic library runtime for local testing of
+HYF envelope routing and store-and-forward behavior. It is designed to be small
+enough to review, explicit about ownership, and free of live transport side
+effects.
 
 ## Components
 

@@ -2,13 +2,12 @@
 
 ## Status
 
-Accepted for Handoff 4.
+Accepted.
 
 ## Context
 
-RNode KISS `CMD_DATA` frames can carry different application-level payloads. In
-Handoff 4, they may carry native HYF envelope bytes or raw opaque RNS packet
-bytes.
+RNode KISS `CMD_DATA` frames can carry different application-level payloads.
+They may carry native HYF envelope bytes or raw opaque RNS packet bytes.
 
 Autodetection is unsafe because a raw RNS packet could be misclassified as
 malformed HYF or vice versa, leading to ambiguous behavior and future security

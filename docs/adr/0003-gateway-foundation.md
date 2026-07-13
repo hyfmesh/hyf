@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for the Handoff 3 gateway foundation.
+Accepted.
 
 ## Context
 
@@ -27,6 +27,6 @@ metadata.
 
 ## Consequences
 
-This keeps the gateway easy to unit test and source review. It also means
-Handoff 3 does not provide a daemon, live transport, RNode serial runtime,
-Reticulum path table, or production persistence.
+This keeps the gateway easy to unit test and source review. This foundation
+does not provide a daemon, live transport, RNode serial runtime, Reticulum path
+table, or production persistence.

@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted as future-facing documentation only. No FIPS runtime implementation
-is included in Handoff 3.
+Accepted as future-facing documentation only. No FIPS runtime implementation is
+included.
 
 ## Context
 
@@ -15,7 +15,7 @@ or implement FIPS during the gateway foundation phase.
 
 Treat FIPS as a possible future gateway-side accommodation, likely through a
 sidecar or TUN-style boundary. Keep FIPS out of the core crates, router, store,
-wire format implementation, Reticulum/RNS conformance crates, and Handoff 3
+wire format implementation, Reticulum/RNS conformance crates, and current
 gateway runtime.
 
 ## Consequences

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for Handoff 5.
+Accepted.
 
 ## Context
 
@@ -25,4 +25,4 @@ to the NIP-01 event ID rules.
 
 Event ID and signature verification do not depend on pretty JSON output or
 unchecked generic serialization behavior. The implementation must pass known
-canonicalization and signature vectors before claiming Handoff 5 compliance.
+canonicalization and signature vectors before claiming NIP-01 compatibility.

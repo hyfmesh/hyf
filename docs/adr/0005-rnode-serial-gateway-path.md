@@ -2,16 +2,16 @@
 
 ## Status
 
-Accepted for Handoff 4.
+Accepted.
 
 ## Context
 
-Handoff 3 created a deterministic gateway foundation using loopback links only.
-Handoff 4 must add the first hardware-facing gateway path without turning
-`hyf_gateway` into an RNode-specific runtime.
+The deterministic gateway foundation uses loopback links only. HYF needs a
+first hardware-facing gateway path without turning `hyf_gateway` into an
+RNode-specific runtime.
 
-The project already has KISS/RNode primitives from Handoff 2 and gateway
-routing/store-forward primitives from Handoff 3.
+The project already has KISS/RNode primitives and gateway routing/store-forward
+primitives.
 
 ## Decision
 

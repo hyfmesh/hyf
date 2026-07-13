@@ -1,28 +1,22 @@
-# Handoff 3 Gateway Evidence
+# Gateway Foundation Evidence
 
 ## Scope
 
-This evidence covers the Handoff 3 gateway foundation: typed config, pure
-router commands, bounded owned frame storage, deterministic loopback links,
-gateway ingestion, loopback polling, time-aware expiry, retry-safe duplicate
-commit behavior, and local smoke tests.
+This evidence covers the gateway foundation: typed config, pure router
+commands, bounded owned frame storage, deterministic loopback links, gateway
+ingestion, loopback polling, time-aware expiry, retry-safe duplicate commit
+behavior, and local smoke tests.
 
 It does not claim production readiness or live network interoperability.
 
 ## Source State
 
-- Evidence source baseline before this public docs commit: `ebc8c43`
+- Evidence source baseline: `ebc8c43`
 - Verification date: 2026-07-11
 
 ## Commands
 
-The public verification script passed from the repository root:
-
-```bash
-scripts/verify_handoff3.sh
-```
-
-The script ran:
+The following checks passed from the repository root:
 
 - `cargo fmt --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
@@ -36,8 +30,8 @@ The script ran:
 - `cargo bench -p hyf_rns_conformance --bench profile0 --no-run`
 - `cargo build --manifest-path fuzz/Cargo.toml --bins`
 
-`HYF_RETICULUM_PATH` was unset, so optional Python Reticulum oracle checks were
-skipped by the script.
+`HYF_RETICULUM_PATH` was unset for this evidence capture, so optional Python
+Reticulum oracle checks were skipped.
 
 ## Known Limitations
 

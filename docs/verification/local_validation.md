@@ -1,19 +1,21 @@
-# Handoff 4 Verification
+# Local Validation
 
 Run from the repository root:
 
 ```bash
-scripts/verify_handoff4.sh
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
 ## Expected Required Checks
 
-The script should run:
+Broad local validation should include:
 
 - `cargo fmt --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
-- no-default checks for firmware-capable and Handoff 4 crates
+- no-default checks for firmware-capable crates
 - gateway tests
 - `gateway_smoke`
 - `rnode_serial_smoke`
@@ -35,6 +37,6 @@ A skipped optional lane is acceptable when reported.
 
 ## HIL Wording
 
-The Handoff 4 HIL lane is a non-transmitting serial open gate. Do not describe it
-as RF validation or full hardware validation unless a future handoff adds those
-tests and evidence.
+The HIL lane is a non-transmitting serial open gate. Do not describe it as RF
+validation or full hardware validation unless future tests and evidence prove
+that behavior.

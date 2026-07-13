@@ -1,7 +1,7 @@
 # RNode Gateway Path
 
-Handoff 4 adds the first hardware-facing HYF gateway path. It builds on the
-Handoff 3 gateway foundation and the Handoff 2 KISS/RNode primitives.
+The RNode/KISS serial path is the first hardware-facing HYF gateway path. It
+builds on the gateway foundation and the KISS/RNode primitives.
 
 ## Components
 
@@ -26,7 +26,7 @@ envelope. The implementation must not autodetect HYF versus RNS.
 ## Fake Serial First
 
 Normal tests use `FakeSerial`, not a host serial device. The fake serial path
-keeps Handoff 4 repeatable in CI and local review.
+keeps validation repeatable in local review.
 
 Real serial support is feature-gated behind `serialport_runtime`.
 
@@ -38,6 +38,6 @@ acceptance test.
 
 ## Non-Goals
 
-Handoff 4 does not implement full Reticulum pathing, Reticulum link sessions,
-resources, channels, LXMF, Nostr, FIPS, BitChat, bridge rooms, firmware, mobile
-apps, or production persistence.
+The RNode/KISS serial path does not implement full Reticulum pathing,
+Reticulum link sessions, resources, channels, LXMF, Nostr, FIPS, BitChat,
+bridge rooms, firmware, mobile apps, or production persistence.

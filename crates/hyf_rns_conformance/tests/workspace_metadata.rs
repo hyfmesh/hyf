@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::Deserialize;
@@ -207,6 +207,8 @@ const FUTURE_PRODUCTION_DEPENDENCY_MARKERS: &[&str] = &[
     "rnode",
     "serialport",
 ];
+const PUBLIC_DOC_FORBIDDEN_SNIPPETS: &[&str] =
+    &["handoff", "rcld", "docs/handoff", "_hyf", "scripts/verify"];
 const REQUIRED_HANDOFF_4_PUBLIC_DOCS: &[PublicDocSpec] = &[
     PublicDocSpec {
         path: "README.md",
@@ -257,9 +259,19 @@ const REQUIRED_HANDOFF_4_PUBLIC_DOCS: &[PublicDocSpec] = &[
         forbidden: &[],
     },
     PublicDocSpec {
-        path: "docs/verification/handoff4.md",
+        path: "docs/evidence/gateway_foundation.md",
         required: &[
-            "verify_handoff4.sh",
+            "Gateway Foundation Evidence",
+            "cargo clippy --workspace --all-targets -- -D warnings",
+            "HYF_RETICULUM_PATH",
+        ],
+        forbidden: &[],
+    },
+    PublicDocSpec {
+        path: "docs/verification/local_validation.md",
+        required: &[
+            "Local Validation",
+            "cargo fmt --check",
             "skipped",
             "HYF_HIL_RNODE_PORT",
             "HYF_RETICULUM_PATH",
@@ -478,6 +490,49 @@ fn handoff_4_public_docs_preserve_current_status() -> TestResult {
 }
 
 #[test]
+fn public_docs_omit_private_process_terms() -> TestResult {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let docs_root = workspace_root.join("docs");
+    let mut docs = Vec::new();
+    collect_files(&docs_root, &mut docs)?;
+    if docs.is_empty() {
+        return Err(std::io::Error::other("public docs directory has no files").into());
+    }
+
+    let mut violations = Vec::new();
+    for path in docs {
+        let relative_path = path
+            .strip_prefix(&workspace_root)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let relative_path_lowercase = relative_path.to_ascii_lowercase();
+        for forbidden in PUBLIC_DOC_FORBIDDEN_SNIPPETS {
+            if relative_path_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: path contains {forbidden}"));
+            }
+        }
+
+        let content = fs::read_to_string(&path)?;
+        let content_lowercase = content.to_ascii_lowercase();
+        for forbidden in PUBLIC_DOC_FORBIDDEN_SNIPPETS {
+            if content_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: content contains {forbidden}"));
+            }
+        }
+    }
+
+    if !violations.is_empty() {
+        return Err(std::io::Error::other(format!(
+            "public docs contain forbidden private/process terms: {}",
+            violations.join(", ")
+        ))
+        .into());
+    }
+
+    Ok(())
+}
+
+#[test]
 fn text_hex_fuzz_corpus_targets_decode_seed_input() -> TestResult {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let text_hex_targets = text_hex_corpus_targets(&workspace_root.join("fuzz/corpus"))?;
@@ -542,6 +597,20 @@ fn git_ls_files(workspace_root: &Path, pathspecs: &[&str]) -> TestResult<String>
     }
 
     Ok(String::from_utf8(output.stdout)?)
+}
+
+fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> TestResult {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let path = entry.path();
+        if file_type.is_dir() {
+            collect_files(&path, files)?;
+        } else if file_type.is_file() {
+            files.push(path);
+        }
+    }
+    Ok(())
 }
 
 fn text_hex_corpus_targets(corpus_root: &Path) -> TestResult<BTreeSet<String>> {

@@ -1,9 +1,9 @@
 # Nostr Uplink
 
-Handoff 5 adds a fake-relay-first Nostr uplink path for HYF gateway tests. It
-uses a minimal NIP-01 event subset to carry encoded HYF envelopes over signed
-Nostr events without adding a social client, direct-message system, relay
-discovery, or live public relay default.
+The Nostr uplink path is fake-relay-first for HYF gateway tests. It uses a
+minimal NIP-01 event subset to carry encoded HYF envelopes over signed Nostr
+events without adding a social client, direct-message system, relay discovery,
+or live public relay default.
 
 ## Components
 
@@ -54,6 +54,7 @@ responses are accepted duplicate outcomes, not fresh publishes.
 
 ## Non-Goals
 
-Handoff 5 does not implement NIP-17, NIP-44, NIP-65, Nostr chat/social client
-behavior, public relay defaults, async daemon runtime, production persistence,
-FIPS, LXMF, BitChat, bridge rooms, mobile apps, or firmware.
+The Nostr uplink path does not implement NIP-17, NIP-44, NIP-65, Nostr
+chat/social client behavior, public relay defaults, async daemon runtime,
+production persistence, FIPS, LXMF, BitChat, bridge rooms, mobile apps, or
+firmware.

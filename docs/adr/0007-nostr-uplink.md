@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for Handoff 5.
+Accepted.
 
 ## Context
 
