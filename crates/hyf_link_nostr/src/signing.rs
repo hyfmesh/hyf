@@ -1,4 +1,4 @@
-use k256::schnorr::SigningKey;
+use k256::schnorr::{Signature, SigningKey, VerifyingKey};
 
 use crate::{
     NostrError, NostrEvent, NostrPublicKey, NostrSecretKey, NostrSignature, NostrUnsignedEvent,
@@ -40,6 +40,21 @@ pub fn sign_event<'a>(
     )
 }
 
+pub fn verify_event(event: &NostrEvent<'_>) -> Result<(), NostrError> {
+    let expected_id = event_id(&event.unsigned())?;
+    if event.id != expected_id {
+        return Err(NostrError::EventIdMismatch);
+    }
+
+    let verifying_key =
+        VerifyingKey::from_slice(event.pubkey.as_bytes()).map_err(|_| NostrError::Crypto)?;
+    let signature =
+        Signature::from_slice(event.sig.as_bytes()).map_err(|_| NostrError::InvalidSignature)?;
+    verifying_key
+        .verify_raw(event.id.as_bytes(), &signature)
+        .map_err(|_| NostrError::InvalidSignature)
+}
+
 fn signing_key(secret: &NostrSecretKey) -> Result<SigningKey, NostrError> {
     SigningKey::from_slice(secret.as_bytes()).map_err(|_| NostrError::Crypto)
 }
@@ -52,12 +67,10 @@ fn public_key_from_signing_key(signing_key: &SigningKey) -> NostrPublicKey {
 
 #[cfg(test)]
 mod tests {
-    use k256::schnorr::{Signature, VerifyingKey};
-
-    use super::{derive_nostr_public_key, sign_event};
+    use super::{derive_nostr_public_key, sign_event, verify_event};
     use crate::{
-        HYF_NOSTR_ENVELOPE_KIND, NostrError, NostrEventId, NostrPublicKey, NostrSecretKey,
-        NostrTagsRef, NostrUnsignedEvent, event_id,
+        HYF_NOSTR_ENVELOPE_KIND, NostrError, NostrEvent, NostrEventId, NostrPublicKey,
+        NostrSecretKey, NostrSignature, NostrTagRef, NostrTagsRef, NostrUnsignedEvent, event_id,
     };
 
     #[test]
@@ -80,7 +93,7 @@ mod tests {
         assert_eq!(signed.created_at, unsigned.created_at);
         assert_eq!(signed.kind, HYF_NOSTR_ENVELOPE_KIND);
         assert_eq!(signed.content, "abcd");
-        verify_with_k256(signed.id, signed.pubkey, signed.sig.as_bytes())?;
+        verify_event(&signed)?;
         Ok(())
     }
 
@@ -94,6 +107,72 @@ mod tests {
 
         assert_eq!(first.id, second.id);
         assert_eq!(first.sig, second.sig);
+        Ok(())
+    }
+
+    #[test]
+    fn verifies_valid_signed_events() -> Result<(), NostrError> {
+        let signed = signed_fixture_event()?;
+
+        verify_event(&signed)
+    }
+
+    #[test]
+    fn verification_rejects_tampered_event_id() -> Result<(), NostrError> {
+        let signed = signed_fixture_event()?;
+        let tampered = NostrEvent {
+            id: NostrEventId::from_bytes([0x42; 32]),
+            ..signed
+        };
+
+        assert_eq!(verify_event(&tampered), Err(NostrError::EventIdMismatch));
+        Ok(())
+    }
+
+    #[test]
+    fn verification_rejects_tampered_content_kind_pubkey_and_tags() -> Result<(), NostrError> {
+        let signed = signed_fixture_event()?;
+
+        let content = NostrEvent {
+            content: "abce",
+            ..signed
+        };
+        assert_eq!(verify_event(&content), Err(NostrError::EventIdMismatch));
+
+        let kind = NostrEvent { kind: 1, ..signed };
+        assert_eq!(verify_event(&kind), Err(NostrError::EventIdMismatch));
+
+        let pubkey = NostrEvent {
+            pubkey: NostrPublicKey::from_bytes([0x42; 32]),
+            ..signed
+        };
+        assert_eq!(verify_event(&pubkey), Err(NostrError::EventIdMismatch));
+
+        let tag_values = [
+            "p",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ];
+        let tag = NostrTagRef::new(&tag_values)?;
+        let tags = [tag];
+        let tags = NostrEvent {
+            tags: NostrTagsRef::new(&tags),
+            ..signed
+        };
+        assert_eq!(verify_event(&tags), Err(NostrError::EventIdMismatch));
+        Ok(())
+    }
+
+    #[test]
+    fn verification_rejects_tampered_signature() -> Result<(), NostrError> {
+        let signed = signed_fixture_event()?;
+        let mut signature = *signed.sig.as_bytes();
+        signature[0] ^= 0x01;
+        let tampered = NostrEvent {
+            sig: NostrSignature::from_bytes(signature),
+            ..signed
+        };
+
+        assert_eq!(verify_event(&tampered), Err(NostrError::InvalidSignature));
         Ok(())
     }
 
@@ -138,16 +217,7 @@ mod tests {
         )
     }
 
-    fn verify_with_k256(
-        id: NostrEventId,
-        pubkey: NostrPublicKey,
-        signature: &[u8; 64],
-    ) -> Result<(), NostrError> {
-        let verifying_key =
-            VerifyingKey::from_slice(pubkey.as_bytes()).map_err(|_| NostrError::Crypto)?;
-        let signature = Signature::from_slice(signature).map_err(|_| NostrError::Crypto)?;
-        verifying_key
-            .verify_raw(id.as_bytes(), &signature)
-            .map_err(|_| NostrError::Crypto)
+    fn signed_fixture_event() -> Result<NostrEvent<'static>, NostrError> {
+        sign_event(fixture_event()?, &fixture_secret())
     }
 }

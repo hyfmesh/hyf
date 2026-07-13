@@ -28,7 +28,7 @@ pub use filter::{
 };
 pub use hex::{decode_fixed_lower_hex, decode_lower_hex, encode_lower_hex};
 pub use keys::{NostrEventId, NostrPublicKey, NostrSecretKey, NostrSignature};
-pub use signing::{derive_nostr_public_key, sign_event};
+pub use signing::{derive_nostr_public_key, sign_event, verify_event};
 
 #[cfg(test)]
 mod tests {

@@ -4,7 +4,9 @@ use core::fmt;
 pub enum NostrError {
     ContentTooLarge { actual: usize, maximum: usize },
     Crypto,
+    EventIdMismatch,
     HexLength { expected: usize, actual: usize },
+    InvalidSignature,
     InvalidHexChar { index: usize, byte: u8 },
     InvalidSubscriptionId,
     NonCanonicalHex { index: usize, byte: u8 },
@@ -27,12 +29,14 @@ impl fmt::Display for NostrError {
                 )
             }
             Self::Crypto => write!(formatter, "nostr cryptographic operation failed"),
+            Self::EventIdMismatch => write!(formatter, "nostr event id mismatch"),
             Self::HexLength { expected, actual } => {
                 write!(
                     formatter,
                     "hex length mismatch: expected {expected}, actual {actual}"
                 )
             }
+            Self::InvalidSignature => write!(formatter, "invalid nostr signature"),
             Self::InvalidHexChar { index, byte } => {
                 write!(formatter, "invalid hex byte 0x{byte:02x} at index {index}")
             }
@@ -86,12 +90,20 @@ mod tests {
             "nostr cryptographic operation failed"
         );
         assert_eq!(
+            NostrError::EventIdMismatch.to_string(),
+            "nostr event id mismatch"
+        );
+        assert_eq!(
             NostrError::HexLength {
                 expected: 64,
                 actual: 62,
             }
             .to_string(),
             "hex length mismatch: expected 64, actual 62"
+        );
+        assert_eq!(
+            NostrError::InvalidSignature.to_string(),
+            "invalid nostr signature"
         );
         assert_eq!(
             NostrError::InvalidHexChar {
