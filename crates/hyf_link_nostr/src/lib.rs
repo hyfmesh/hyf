@@ -6,6 +6,9 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 
+#[cfg(any(test, feature = "alloc"))]
+extern crate alloc;
+
 mod canonical;
 mod constants;
 mod content;
@@ -15,6 +18,8 @@ mod filter;
 mod hex;
 mod hyf;
 mod keys;
+#[cfg(any(test, feature = "alloc"))]
+mod messages;
 mod signing;
 mod signing_spike;
 
@@ -35,6 +40,11 @@ pub use hyf::{
     verify_and_decode_hyf_nostr_event,
 };
 pub use keys::{NostrEventId, NostrPublicKey, NostrSecretKey, NostrSignature};
+#[cfg(any(test, feature = "alloc"))]
+pub use messages::{
+    NostrClientMessage, NostrOwnedClientMessage, NostrOwnedEvent, NostrOwnedFilter,
+    decode_client_message, write_client_message,
+};
 pub use signing::{derive_nostr_public_key, sign_event, verify_event};
 
 #[cfg(test)]

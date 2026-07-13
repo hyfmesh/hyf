@@ -10,6 +10,7 @@ pub enum NostrError {
     InvalidSignature,
     InvalidHexChar { index: usize, byte: u8 },
     InvalidSubscriptionId,
+    MalformedMessage,
     MalformedEnvelope,
     MissingRequiredTag { tag: &'static str },
     NonCanonicalHex { index: usize, byte: u8 },
@@ -19,6 +20,7 @@ pub enum NostrError {
     SubscriptionIdTooLong { len: usize, maximum: usize },
     TagEmpty,
     UnexpectedKind { expected: u16, actual: u16 },
+    UnsupportedMessage,
     Unsupported,
     Utf8,
 }
@@ -51,6 +53,7 @@ impl fmt::Display for NostrError {
                 write!(formatter, "invalid hex byte 0x{byte:02x} at index {index}")
             }
             Self::InvalidSubscriptionId => write!(formatter, "invalid nostr subscription id"),
+            Self::MalformedMessage => write!(formatter, "malformed nostr message"),
             Self::MalformedEnvelope => write!(formatter, "malformed hyf envelope"),
             Self::MissingRequiredTag { tag } => {
                 write!(formatter, "missing required nostr tag {tag}")
@@ -82,6 +85,7 @@ impl fmt::Display for NostrError {
                     "unexpected nostr kind: expected {expected}, actual {actual}"
                 )
             }
+            Self::UnsupportedMessage => write!(formatter, "unsupported nostr message"),
             Self::Unsupported => write!(formatter, "unsupported nostr operation"),
             Self::Utf8 => write!(formatter, "invalid utf-8 output"),
         }
@@ -146,6 +150,10 @@ mod tests {
             "invalid nostr subscription id"
         );
         assert_eq!(
+            NostrError::MalformedMessage.to_string(),
+            "malformed nostr message"
+        );
+        assert_eq!(
             NostrError::MalformedEnvelope.to_string(),
             "malformed hyf envelope"
         );
@@ -197,6 +205,10 @@ mod tests {
         assert_eq!(
             NostrError::Unsupported.to_string(),
             "unsupported nostr operation"
+        );
+        assert_eq!(
+            NostrError::UnsupportedMessage.to_string(),
+            "unsupported nostr message"
         );
         assert_eq!(NostrError::Utf8.to_string(), "invalid utf-8 output");
     }
