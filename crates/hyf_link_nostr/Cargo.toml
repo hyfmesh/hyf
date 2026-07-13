@@ -8,9 +8,13 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+hyf_wire.workspace = true
 k256.workspace = true
 sha2.workspace = true
 zeroize.workspace = true
+
+[dev-dependencies]
+hyf_core.workspace = true
 
 [features]
 default = []

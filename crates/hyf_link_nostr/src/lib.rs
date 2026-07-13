@@ -13,6 +13,7 @@ mod error;
 mod event;
 mod filter;
 mod hex;
+mod hyf;
 mod keys;
 mod signing;
 mod signing_spike;
@@ -29,6 +30,10 @@ pub use filter::{
     matches_any_filter, validate_subscription_id,
 };
 pub use hex::{decode_fixed_lower_hex, decode_lower_hex, encode_lower_hex};
+pub use hyf::{
+    HYF_NOSTR_ALT_TAG, HYF_NOSTR_TOPIC_TAG, HyfNostrEventBuffers, sign_hyf_nostr_event,
+    verify_and_decode_hyf_nostr_event,
+};
 pub use keys::{NostrEventId, NostrPublicKey, NostrSecretKey, NostrSignature};
 pub use signing::{derive_nostr_public_key, sign_event, verify_event};
 

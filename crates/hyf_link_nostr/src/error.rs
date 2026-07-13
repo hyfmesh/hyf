@@ -10,12 +10,15 @@ pub enum NostrError {
     InvalidSignature,
     InvalidHexChar { index: usize, byte: u8 },
     InvalidSubscriptionId,
+    MalformedEnvelope,
+    MissingRequiredTag { tag: &'static str },
     NonCanonicalHex { index: usize, byte: u8 },
     OddHexLength { len: usize },
     OutputTooSmall { needed: usize, available: usize },
     PublicKeyMismatch,
     SubscriptionIdTooLong { len: usize, maximum: usize },
     TagEmpty,
+    UnexpectedKind { expected: u16, actual: u16 },
     Unsupported,
     Utf8,
 }
@@ -48,6 +51,10 @@ impl fmt::Display for NostrError {
                 write!(formatter, "invalid hex byte 0x{byte:02x} at index {index}")
             }
             Self::InvalidSubscriptionId => write!(formatter, "invalid nostr subscription id"),
+            Self::MalformedEnvelope => write!(formatter, "malformed hyf envelope"),
+            Self::MissingRequiredTag { tag } => {
+                write!(formatter, "missing required nostr tag {tag}")
+            }
             Self::NonCanonicalHex { index, byte } => {
                 write!(
                     formatter,
@@ -69,6 +76,12 @@ impl fmt::Display for NostrError {
                 )
             }
             Self::TagEmpty => write!(formatter, "nostr tag is empty"),
+            Self::UnexpectedKind { expected, actual } => {
+                write!(
+                    formatter,
+                    "unexpected nostr kind: expected {expected}, actual {actual}"
+                )
+            }
             Self::Unsupported => write!(formatter, "unsupported nostr operation"),
             Self::Utf8 => write!(formatter, "invalid utf-8 output"),
         }
@@ -133,6 +146,14 @@ mod tests {
             "invalid nostr subscription id"
         );
         assert_eq!(
+            NostrError::MalformedEnvelope.to_string(),
+            "malformed hyf envelope"
+        );
+        assert_eq!(
+            NostrError::MissingRequiredTag { tag: "p" }.to_string(),
+            "missing required nostr tag p"
+        );
+        assert_eq!(
             NostrError::NonCanonicalHex {
                 index: 1,
                 byte: b'A',
@@ -165,6 +186,14 @@ mod tests {
             "nostr subscription id too long: length 65, maximum 64"
         );
         assert_eq!(NostrError::TagEmpty.to_string(), "nostr tag is empty");
+        assert_eq!(
+            NostrError::UnexpectedKind {
+                expected: 9775,
+                actual: 1,
+            }
+            .to_string(),
+            "unexpected nostr kind: expected 9775, actual 1"
+        );
         assert_eq!(
             NostrError::Unsupported.to_string(),
             "unsupported nostr operation"

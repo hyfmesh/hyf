@@ -548,6 +548,8 @@ dependencies = [
 name = "hyf_link_nostr"
 version = "0.1.0"
 dependencies = [
+ "hyf_core",
+ "hyf_wire",
  "k256",
  "sha2",
  "zeroize",
