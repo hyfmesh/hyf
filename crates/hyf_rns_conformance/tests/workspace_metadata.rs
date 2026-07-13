@@ -207,29 +207,6 @@ const FUTURE_PRODUCTION_DEPENDENCY_MARKERS: &[&str] = &[
     "rnode",
     "serialport",
 ];
-const REQUIRED_HANDOFF_4_VERIFY_SNIPPETS: &[&str] = &[
-    "cargo fmt --check",
-    "cargo clippy --workspace --all-targets -- -D warnings",
-    "cargo test --workspace",
-    "cargo check -p \"$crate\" --no-default-features",
-    "hyf_link_rnode_serial \\",
-    "cargo test -p hyf_gateway --test gateway_smoke",
-    "cargo test -p hyf_gateway --test rnode_serial_smoke",
-    "cargo test -p hyf_link_rns",
-    "cargo test -p hyf_link_rnode --features hil_std",
-    "cargo test -p hyf_link_rnode_serial",
-    "cargo test -p hyf_rns_conformance",
-    "cargo bench -p hyf_rns_conformance --bench profile0 --no-run",
-    "cargo build --manifest-path fuzz/Cargo.toml --bins",
-    "cargo check -p hyf_link_rnode_serial --features serialport_runtime",
-    "cargo test -p hyf_link_rnode_serial --features serialport_runtime",
-    "cargo tree --duplicates",
-    "cargo tree -p hyf_link_rnode_serial -e features",
-    "cargo tree -p hyf_link_rns -e features",
-    "HYF_RETICULUM_PATH",
-    "HYF_HIL_RNODE_PORT",
-    "status=skipped_no_port",
-];
 const REQUIRED_HANDOFF_4_PUBLIC_DOCS: &[PublicDocSpec] = &[
     PublicDocSpec {
         path: "README.md",
@@ -462,27 +439,27 @@ fn handoff_4_gateway_dependencies_preserve_clean_boundaries() -> TestResult {
 }
 
 #[test]
-fn handoff_4_verification_script_preserves_required_closure_surface() -> TestResult {
+fn public_validation_or_workflow_orchestration_is_not_tracked() -> TestResult {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let script_path = workspace_root.join("scripts/verify_handoff4.sh");
-    let script = fs::read_to_string(&script_path)?;
 
-    for snippet in REQUIRED_HANDOFF_4_VERIFY_SNIPPETS {
-        if !script.contains(snippet) {
+    for forbidden_path in ["scripts", ".act", ".github/workflows"] {
+        let path = workspace_root.join(forbidden_path);
+        if path.exists() {
             return Err(std::io::Error::other(format!(
-                "{} is missing required snippet: {snippet}",
-                script_path.display()
+                "public repo must not contain {}",
+                path.display()
             ))
             .into());
         }
     }
 
-    if workspace_root.join(".act").exists() {
-        return Err(std::io::Error::other("public .act workflows are not allowed").into());
-    }
-
-    if workspace_root.join(".github/workflows").exists() {
-        return Err(std::io::Error::other("public GitHub workflows are not allowed").into());
+    let tracked = git_ls_files(&workspace_root, &["scripts", ".act", ".github/workflows"])?;
+    if !tracked.trim().is_empty() {
+        return Err(std::io::Error::other(format!(
+            "public repo tracks forbidden validation/workflow paths: {}",
+            tracked.trim()
+        ))
+        .into());
     }
 
     Ok(())
@@ -547,6 +524,26 @@ fn metadata_for_manifest(manifest_path: &Path) -> TestResult<Metadata> {
     }
 
     Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+fn git_ls_files(workspace_root: &Path, pathspecs: &[&str]) -> TestResult<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(workspace_root)
+        .arg("ls-files")
+        .args(pathspecs)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(std::io::Error::other(format!(
+            "git ls-files failed for {}: {}",
+            workspace_root.display(),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+
+    Ok(String::from_utf8(output.stdout)?)
 }
 
 fn text_hex_corpus_targets(corpus_root: &Path) -> TestResult<BTreeSet<String>> {
