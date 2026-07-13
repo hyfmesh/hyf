@@ -143,6 +143,21 @@ impl<
         self.replay_subscription(subscription_id, filters)
     }
 
+    pub fn close_subscription(&mut self, subscription_id: &str) -> Result<bool, NostrError> {
+        validate_subscription_id(subscription_id)?;
+        for slot in &mut self.subscriptions {
+            if slot
+                .as_ref()
+                .is_some_and(|subscription| subscription.subscription_id == subscription_id)
+            {
+                *slot = None;
+                self.metrics.active_subscriptions -= 1;
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub fn publish(
         &mut self,
         event: NostrEvent<'a>,
@@ -180,6 +195,22 @@ impl<
 
     pub fn enqueue_notice(&mut self, message: &'a str) -> Result<(), NostrError> {
         self.enqueue_output(FakeNostrRelayOutput::Notice { message })
+    }
+
+    pub fn inject_closed(
+        &mut self,
+        subscription_id: &'a str,
+        status: NostrRelayStatus<'a>,
+    ) -> Result<(), NostrError> {
+        validate_subscription_id(subscription_id)?;
+        self.enqueue_output(FakeNostrRelayOutput::Closed {
+            subscription_id,
+            status,
+        })
+    }
+
+    pub fn inject_auth_challenge(&mut self, challenge: &'a str) -> Result<(), NostrError> {
+        self.enqueue_output(FakeNostrRelayOutput::Auth { challenge })
     }
 
     pub fn enqueue_output(&mut self, output: FakeNostrRelayOutput<'a>) -> Result<(), NostrError> {
@@ -410,6 +441,26 @@ mod tests {
     }
 
     #[test]
+    fn fake_relay_close_removes_subscription_state() -> Result<(), NostrError> {
+        let mut relay = FakeNostrRelay::<0, 1, 0>::new();
+        let filters = [NostrFilter::empty()];
+
+        relay.remember_subscription("sub-1", &filters)?;
+        assert_eq!(relay.metrics().active_subscriptions, 1);
+        assert_eq!(relay.close_subscription("sub-1")?, true);
+        assert_eq!(relay.metrics().active_subscriptions, 0);
+        assert_eq!(relay.close_subscription("sub-1")?, false);
+        assert_eq!(
+            relay.close_subscription(""),
+            Err(NostrError::InvalidSubscriptionId)
+        );
+
+        relay.remember_subscription("sub-2", &filters)?;
+        assert_eq!(relay.metrics().active_subscriptions, 1);
+        Ok(())
+    }
+
+    #[test]
     fn fake_relay_output_queue_is_bounded_and_fifo() -> Result<(), NostrError> {
         let mut relay = FakeNostrRelay::<0, 0, 2>::new();
 
@@ -431,6 +482,46 @@ mod tests {
         );
         assert_eq!(relay.pop_output(), None);
         assert_eq!(relay.metrics().queued_outputs, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn fake_relay_control_messages_are_injected_in_order() -> Result<(), NostrError> {
+        let mut relay = FakeNostrRelay::<0, 0, 3>::new();
+        let status = NostrRelayStatus {
+            prefix: NostrRelayStatusPrefix::AuthRequired,
+            raw_prefix: "auth-required",
+            detail: "challenge required",
+        };
+
+        relay.enqueue_notice("relay notice")?;
+        relay.inject_closed("sub-1", status)?;
+        relay.inject_auth_challenge("challenge-token")?;
+
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Notice {
+                message: "relay notice",
+            })
+        );
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Closed {
+                subscription_id: "sub-1",
+                status,
+            })
+        );
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Auth {
+                challenge: "challenge-token",
+            })
+        );
+        assert_eq!(relay.pop_output(), None);
+        assert_eq!(
+            relay.inject_closed("", status),
+            Err(NostrError::InvalidSubscriptionId)
+        );
         Ok(())
     }
 
