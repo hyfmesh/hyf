@@ -23,7 +23,7 @@ machine-specific assumptions.
 
 ## Handoff 4 Boundary
 
-Allowed Handoff 4 work includes:
+Completed Handoff 4 work includes:
 
 - generic synchronous link-driver contracts;
 - loopback driver integration;
@@ -34,9 +34,28 @@ Allowed Handoff 4 work includes:
 - fake RNode serial smoke tests;
 - public docs, ADRs, and local verification scripts.
 
-Handoff 4 must not implement FIPS runtime code, Nostr, LXMF, BitChat, bridge
+Handoff 4 did not implement FIPS runtime code, Nostr, LXMF, BitChat, bridge
 rooms, full Reticulum path tables, Reticulum link sessions, resources, channels,
 firmware, mobile apps, production persistence, or RF transmission by default.
+
+## Handoff 5 Boundary
+
+Allowed Handoff 5 work includes:
+
+- `hyf_link_nostr`;
+- minimal NIP-01 event, signature, canonicalization, message codec, and filter
+  behavior;
+- HYF envelope content encoding as lowercase canonical hex;
+- bounded fake relay behavior for normal tests;
+- Nostr gateway executor behavior through `GatewayLinkExecutor`;
+- inbound verified relay events as `LinkFrameRef`;
+- local verification through `scripts/verify_handoff5.sh` once added.
+
+Handoff 5 must not implement NIP-17 direct messages, NIP-44 encryption,
+NIP-65 relay discovery, Nostr chat/social client behavior, FIPS, LXMF, BitChat,
+bridge rooms, public relay defaults, async daemon runtime, production
+persistence, mobile apps, firmware, public workflow files, or live relay
+requirements in default tests.
 
 ## Verification
 
