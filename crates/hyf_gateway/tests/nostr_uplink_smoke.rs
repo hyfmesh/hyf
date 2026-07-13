@@ -6,8 +6,8 @@ use hyf_gateway::{GatewayCore, GatewayError, GatewayLinkExecutor, NostrGatewayEx
 use hyf_link::{LinkDriverErrorKind, LinkEvent, LinkId};
 use hyf_link_nostr::{
     FakeNostrRelay, FakeNostrRelayOutput, HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS,
-    HyfNostrEventBuffers, NostrError, NostrEvent, NostrFilter, NostrPublicKey, NostrSecretKey,
-    NostrSignature, NostrTagRef, sign_hyf_nostr_event,
+    HyfNostrEventBuffers, NostrError, NostrEvent, NostrFilter, NostrPublicKey, NostrRelayStatus,
+    NostrRelayStatusPrefix, NostrSecretKey, NostrSignature, NostrTagRef, sign_hyf_nostr_event,
 };
 use hyf_store::StorePolicy;
 use hyf_wire::{
@@ -209,6 +209,49 @@ fn smoke_gateway_store_forward_keeps_pending_on_recoverable_nostr_failure()
     Ok(())
 }
 
+#[test]
+fn smoke_gateway_duplicate_ok_does_not_poison_store_forward_retry() -> Result<(), GatewayError> {
+    let mut core = SmokeCore::new(config())?;
+    let mut executor = NostrGatewayExecutor::new(
+        NOSTR_LINK,
+        2048,
+        SmokeRelay::new(),
+        fixture_secret(),
+        RECIPIENT,
+    );
+    let mut encoded = [0; 256];
+    let len = encode_envelope(sample_envelope(), &mut encoded)?;
+
+    core.submit(sample_envelope(), &mut executor)?;
+    assert_eq!(core.stored_len(), 1);
+
+    executor.set_up(true);
+    executor.send_link_bytes(NOSTR_LINK, &encoded[..len], sample_envelope().created_at_ms)?;
+    assert_eq!(executor.relay().stored_event_count(), 1);
+
+    core.handle_link_event(
+        LinkEvent::Up {
+            link_id: NOSTR_LINK,
+        },
+        &mut executor,
+    )?;
+
+    assert_eq!(core.stored_len(), 0);
+    assert_eq!(executor.relay().stored_event_count(), 1);
+    Ok(())
+}
+
+#[test]
+fn smoke_gateway_relay_rejections_are_typed_and_store_safe() -> Result<(), GatewayError> {
+    assert_rejection_keeps_pending(
+        rate_limited_status(),
+        LinkDriverErrorKind::Backpressure,
+        true,
+    )?;
+    assert_rejection_keeps_pending(auth_required_status(), LinkDriverErrorKind::LinkDown, true)?;
+    assert_rejection_keeps_pending(invalid_status(), LinkDriverErrorKind::Protocol, false)
+}
+
 fn config() -> GatewayConfig<1> {
     GatewayConfig {
         node_id: LOCAL_NODE,
@@ -285,6 +328,69 @@ fn leaked_event_buffers() -> Result<HyfNostrEventBuffers<'static>, GatewayError>
 
 fn map_nostr_error(_error: NostrError) -> GatewayError {
     protocol_error()
+}
+
+fn assert_rejection_keeps_pending(
+    status: NostrRelayStatus<'static>,
+    kind: LinkDriverErrorKind,
+    recoverable: bool,
+) -> Result<(), GatewayError> {
+    let mut core = SmokeCore::new(config())?;
+    let mut executor = NostrGatewayExecutor::new(
+        NOSTR_LINK,
+        2048,
+        SmokeRelay::new(),
+        fixture_secret(),
+        RECIPIENT,
+    );
+
+    core.submit(sample_envelope(), &mut executor)?;
+    executor.set_up(true);
+    executor.relay_mut().reject_next_publish(status);
+
+    let result = core.handle_link_event(
+        LinkEvent::Up {
+            link_id: NOSTR_LINK,
+        },
+        &mut executor,
+    );
+    let expected = Err(GatewayError::Driver {
+        link_id: NOSTR_LINK,
+        kind,
+    });
+    if recoverable {
+        assert_eq!(result, Ok(()));
+    } else {
+        assert_eq!(result, expected);
+    }
+    assert_eq!(core.stored_len(), 1);
+    assert_eq!(core.metrics().link_errors, 1);
+    assert_eq!(executor.relay().stored_event_count(), 0);
+    Ok(())
+}
+
+const fn rate_limited_status() -> NostrRelayStatus<'static> {
+    NostrRelayStatus {
+        prefix: NostrRelayStatusPrefix::RateLimited,
+        raw_prefix: "rate-limited",
+        detail: "slow down",
+    }
+}
+
+const fn auth_required_status() -> NostrRelayStatus<'static> {
+    NostrRelayStatus {
+        prefix: NostrRelayStatusPrefix::AuthRequired,
+        raw_prefix: "auth-required",
+        detail: "challenge first",
+    }
+}
+
+const fn invalid_status() -> NostrRelayStatus<'static> {
+    NostrRelayStatus {
+        prefix: NostrRelayStatusPrefix::Invalid,
+        raw_prefix: "invalid",
+        detail: "bad event",
+    }
 }
 
 fn protocol_error() -> GatewayError {

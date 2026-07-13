@@ -4,8 +4,9 @@ use hyf_core::TimestampMs;
 use hyf_link::{Link, LinkClass, LinkDriverErrorKind, LinkFrameRef, LinkId};
 use hyf_link_nostr::{
     FakeNostrRelay, FakeNostrRelayOutput, HYF_NOSTR_MAX_CONTENT_CHARS, HyfNostrEventBuffers,
-    NostrError, NostrEvent, NostrPublicKey, NostrPublishOutcome, NostrSecretKey, NostrTagRef,
-    sign_hyf_nostr_event, verify_and_decode_hyf_nostr_event,
+    NostrError, NostrEvent, NostrPublicKey, NostrPublishOutcome, NostrRelayStatus,
+    NostrRelayStatusPrefix, NostrSecretKey, NostrTagRef, sign_hyf_nostr_event,
+    verify_and_decode_hyf_nostr_event,
 };
 
 use crate::{GatewayError, GatewayLinkExecutor};
@@ -199,10 +200,7 @@ impl<
         {
             NostrPublishOutcome::Accepted { .. }
             | NostrPublishOutcome::AcceptedDuplicate { .. } => Ok(()),
-            NostrPublishOutcome::Rejected { .. } => Err(GatewayError::Driver {
-                link_id,
-                kind: LinkDriverErrorKind::Protocol,
-            }),
+            NostrPublishOutcome::Rejected { status } => Err(map_relay_rejection(link_id, status)),
         }
     }
 }
@@ -237,6 +235,17 @@ fn map_nostr_send_error(link_id: LinkId, error: NostrError) -> GatewayError {
 fn map_nostr_receive_error(link_id: LinkId, error: NostrError) -> GatewayError {
     let kind = match error {
         NostrError::OutputTooSmall { .. } => LinkDriverErrorKind::OutputTooSmall,
+        _ => LinkDriverErrorKind::Protocol,
+    };
+    GatewayError::Driver { link_id, kind }
+}
+
+fn map_relay_rejection(link_id: LinkId, status: NostrRelayStatus<'_>) -> GatewayError {
+    let kind = match status.prefix {
+        NostrRelayStatusPrefix::RateLimited | NostrRelayStatusPrefix::Pow => {
+            LinkDriverErrorKind::Backpressure
+        }
+        NostrRelayStatusPrefix::AuthRequired => LinkDriverErrorKind::LinkDown,
         _ => LinkDriverErrorKind::Protocol,
     };
     GatewayError::Driver { link_id, kind }

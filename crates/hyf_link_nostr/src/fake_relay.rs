@@ -55,6 +55,7 @@ pub struct FakeNostrRelay<
     events: [Option<NostrEvent<'a>>; EVENT_CAPACITY],
     subscriptions: [Option<FakeNostrSubscription<'a>>; SUBSCRIPTION_CAPACITY],
     outputs: [Option<FakeNostrRelayOutput<'a>>; OUTPUT_CAPACITY],
+    next_publish_rejection: Option<NostrRelayStatus<'a>>,
     metrics: FakeNostrRelayMetrics,
 }
 
@@ -70,6 +71,7 @@ impl<
             events: [None; EVENT_CAPACITY],
             subscriptions: [None; SUBSCRIPTION_CAPACITY],
             outputs: [None; OUTPUT_CAPACITY],
+            next_publish_rejection: None,
             metrics: FakeNostrRelayMetrics {
                 stored_events: 0,
                 active_subscriptions: 0,
@@ -143,6 +145,10 @@ impl<
         self.replay_subscription(subscription_id, filters)
     }
 
+    pub fn reject_next_publish(&mut self, status: NostrRelayStatus<'a>) {
+        self.next_publish_rejection = Some(status);
+    }
+
     pub fn close_subscription(&mut self, subscription_id: &str) -> Result<bool, NostrError> {
         validate_subscription_id(subscription_id)?;
         for slot in &mut self.subscriptions {
@@ -162,7 +168,7 @@ impl<
         &mut self,
         event: NostrEvent<'a>,
         decode_buffer: &mut [u8],
-    ) -> Result<NostrPublishOutcome<'static>, NostrError> {
+    ) -> Result<NostrPublishOutcome<'a>, NostrError> {
         if verify_and_decode_hyf_nostr_event(&event, decode_buffer).is_err() {
             let status = invalid_status();
             self.enqueue_output(FakeNostrRelayOutput::Ok {
@@ -181,6 +187,16 @@ impl<
                 status,
             })?;
             return Ok(NostrPublishOutcome::AcceptedDuplicate { status });
+        }
+
+        if let Some(status) = self.next_publish_rejection {
+            self.next_publish_rejection = None;
+            self.enqueue_output(FakeNostrRelayOutput::Ok {
+                event_id: event.id,
+                accepted: false,
+                status,
+            })?;
+            return Ok(NostrPublishOutcome::Rejected { status });
         }
 
         self.store_event(event)?;
@@ -810,6 +826,36 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn fake_relay_can_reject_next_valid_publish() -> Result<(), NostrError> {
+        let event = valid_static_event(1720000000)?;
+        let status = rate_limited_test_status();
+        let mut relay = FakeNostrRelay::<1, 0, 2>::new();
+        let mut decode = [0; 256];
+
+        relay.reject_next_publish(status);
+        assert_eq!(
+            relay.publish(event, &mut decode)?,
+            NostrPublishOutcome::Rejected { status }
+        );
+        assert_eq!(relay.stored_event_count(), 0);
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Ok {
+                event_id: event.id,
+                accepted: false,
+                status,
+            })
+        );
+
+        assert_eq!(
+            relay.publish(event, &mut decode)?,
+            NostrPublishOutcome::Accepted { message: "" }
+        );
+        assert_eq!(relay.stored_event_count(), 1);
+        Ok(())
+    }
+
     struct PublishBuffers<'a> {
         content: [u8; HYF_NOSTR_MAX_CONTENT_CHARS],
         recipient_hex: [u8; 64],
@@ -1003,6 +1049,14 @@ mod tests {
             prefix: NostrRelayStatusPrefix::Invalid,
             raw_prefix: "invalid",
             detail: "invalid event",
+        }
+    }
+
+    const fn rate_limited_test_status() -> NostrRelayStatus<'static> {
+        NostrRelayStatus {
+            prefix: NostrRelayStatusPrefix::RateLimited,
+            raw_prefix: "rate-limited",
+            detail: "slow down",
         }
     }
 }
