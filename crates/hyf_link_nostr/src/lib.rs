@@ -8,12 +8,14 @@
 
 mod constants;
 mod error;
+mod hex;
 mod signing_spike;
 
 pub use constants::{
     HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HYF_NOSTR_MAX_ENVELOPE_BYTES,
 };
 pub use error::NostrError;
+pub use hex::{decode_fixed_lower_hex, decode_lower_hex, encode_lower_hex};
 
 #[cfg(test)]
 mod tests {
