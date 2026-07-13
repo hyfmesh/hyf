@@ -22,6 +22,7 @@ mod keys;
 mod messages;
 mod signing;
 mod signing_spike;
+mod status;
 
 pub use canonical::{event_id, write_canonical_event};
 pub use constants::{
@@ -47,6 +48,10 @@ pub use messages::{
     write_client_message, write_relay_message,
 };
 pub use signing::{derive_nostr_public_key, sign_event, verify_event};
+pub use status::{
+    NostrPublishOutcome, NostrRelayStatus, NostrRelayStatusPrefix, classify_closed_message,
+    classify_ok_message, parse_relay_status,
+};
 
 #[cfg(test)]
 mod tests {
