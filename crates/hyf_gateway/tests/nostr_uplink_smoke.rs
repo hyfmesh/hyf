@@ -17,6 +17,7 @@ use hyf_wire::{
 
 type SmokeCore = GatewayCore<1, 8, 4>;
 type SmokeRelay = FakeNostrRelay<'static, 4, 2, 8>;
+type FullRelay = FakeNostrRelay<'static, 0, 0, 1>;
 
 const LOCAL_NODE: NodeId = NodeId([0x11; 32]);
 const REMOTE_NODE: NodeId = NodeId([0x22; 32]);
@@ -147,6 +148,64 @@ fn smoke_gateway_rejects_malformed_nostr_before_core_ingest() -> Result<(), Gate
     );
     assert_eq!(core.metrics().received, 0);
     assert_eq!(core.last_delivered_message_id(), None);
+    Ok(())
+}
+
+#[test]
+fn smoke_gateway_store_forward_flushes_over_fake_nostr_relay() -> Result<(), GatewayError> {
+    let mut core = SmokeCore::new(config())?;
+    let mut executor = NostrGatewayExecutor::new(
+        NOSTR_LINK,
+        2048,
+        SmokeRelay::new(),
+        fixture_secret(),
+        RECIPIENT,
+    );
+
+    core.submit(sample_envelope(), &mut executor)?;
+    assert_eq!(core.stored_len(), 1);
+    assert_eq!(executor.relay().stored_event_count(), 0);
+
+    executor.set_up(true);
+    core.handle_link_event(
+        LinkEvent::Up {
+            link_id: NOSTR_LINK,
+        },
+        &mut executor,
+    )?;
+
+    assert_eq!(core.stored_len(), 0);
+    assert_eq!(core.metrics().sent, 1);
+    assert_eq!(executor.relay().stored_event_count(), 1);
+    Ok(())
+}
+
+#[test]
+fn smoke_gateway_store_forward_keeps_pending_on_recoverable_nostr_failure()
+-> Result<(), GatewayError> {
+    let mut core = SmokeCore::new(config())?;
+    let mut executor = NostrGatewayExecutor::new(
+        NOSTR_LINK,
+        2048,
+        FullRelay::new(),
+        fixture_secret(),
+        RECIPIENT,
+    );
+
+    core.submit(sample_envelope(), &mut executor)?;
+    assert_eq!(core.stored_len(), 1);
+
+    executor.set_up(true);
+    core.handle_link_event(
+        LinkEvent::Up {
+            link_id: NOSTR_LINK,
+        },
+        &mut executor,
+    )?;
+
+    assert_eq!(core.stored_len(), 1);
+    assert_eq!(core.metrics().link_errors, 1);
+    assert_eq!(executor.relay().stored_event_count(), 0);
     Ok(())
 }
 
