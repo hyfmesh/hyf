@@ -211,27 +211,25 @@ const REQUIRED_HANDOFF_4_PUBLIC_DOCS: &[PublicDocSpec] = &[
     PublicDocSpec {
         path: "README.md",
         required: &[
-            "Handoff 4 adds",
-            "scripts/verify_handoff4.sh",
+            "HYF is a Rust workspace",
             "hyf_link_rnode_serial",
-            "hyf_link_rns",
-            "non-transmitting",
+            "hyf_link_nostr",
+            "cargo clippy --workspace --all-targets -- -D warnings",
+            "HYF_RETICULUM_PATH",
+            "not a production",
         ],
-        forbidden: &["scripts/verify_handoff3.sh", "## Non-Goals For Handoff 3"],
+        forbidden: &["Handoff", "RCLD", "docs/handoff", "_hyf", "scripts/verify"],
     },
     PublicDocSpec {
         path: "AGENTS.md",
         required: &[
-            "Handoff 4 Boundary",
-            "scripts/verify_handoff4.sh",
-            "Do not add compatibility aliases",
+            "public HYF Rust workspace",
+            "Do not add `scripts/**`",
+            "Do not add runtime Python dependencies",
+            "cargo test --workspace",
             "HYF_HIL_RNODE_PORT",
         ],
-        forbidden: &[
-            "scripts/verify_handoff3.sh",
-            "## Handoff 3 Boundary",
-            "For full Handoff 3 validation",
-        ],
+        forbidden: &["Handoff", "RCLD", "docs/handoff", "_hyf", "scripts/verify"],
     },
     PublicDocSpec {
         path: "docs/architecture/rnode_gateway_path.md",

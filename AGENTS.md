@@ -2,71 +2,32 @@
 
 ## Scope
 
-This repository is the public `hyf` Rust workspace. Keep it usable from this
-repository root without private workspace paths, private planning files, or
-machine-specific assumptions.
+This repository is the public HYF Rust workspace. Keep it usable from its own
+root with ordinary Cargo commands and without machine-local paths or operator
+context.
 
 ## Engineering Rules
 
-- Work from the public source, tests, and docs in this repository.
-- Keep changes small, reviewable, deterministic, and verified.
-- Prefer explicit contracts, typed errors, bounded buffers, and caller-provided
-  storage.
+- Work from the source, tests, fixtures, and public docs in this repository.
+- Keep changes small, deterministic, reviewable, and verified.
+- Prefer explicit contracts, typed errors, bounded buffers, caller-provided
+  storage, and borrowed decoding on hot paths.
+- Preserve `no_std` posture for firmware-capable crates.
+- Do not add `unsafe`.
 - Do not add compatibility aliases, legacy wrappers, hidden fallbacks, or
   deprecated shim modules.
 - Do not add runtime Python dependencies.
-- Do not add LXMF-rs or copy code from external reference implementations.
-- Do not claim Reticulum/RNS compatibility beyond the profiles proven by tests
-  and evidence.
-- Do not add GitHub Actions or workflow files under `.github/workflows`.
-- Do not add `.act` workflows to this public repository.
+- Do not copy code from external reference implementations.
+- Do not claim Reticulum/RNS compatibility beyond profiles proven by tests and
+  evidence.
+- Do not add `scripts/**`, `.act/**`, or `.github/workflows/**`.
+- Do not add live relay defaults, production secrets, real identities, or
+  hardware requirements to default tests.
 
-## Handoff 4 Boundary
-
-Completed Handoff 4 work includes:
-
-- generic synchronous link-driver contracts;
-- loopback driver integration;
-- opaque RNS packet wrapping as `PayloadKind::ForeignRnsPacket`;
-- fake-serial-first RNode/KISS serial gateway link behavior;
-- feature-gated serialport open-gate support;
-- gateway core/executor separation;
-- fake RNode serial smoke tests;
-- public docs, ADRs, and local verification scripts.
-
-Handoff 4 did not implement FIPS runtime code, Nostr, LXMF, BitChat, bridge
-rooms, full Reticulum path tables, Reticulum link sessions, resources, channels,
-firmware, mobile apps, production persistence, or RF transmission by default.
-
-## Handoff 5 Boundary
-
-Allowed Handoff 5 work includes:
-
-- `hyf_link_nostr`;
-- minimal NIP-01 event, signature, canonicalization, message codec, and filter
-  behavior;
-- HYF envelope content encoding as lowercase canonical hex;
-- bounded fake relay behavior for normal tests;
-- Nostr gateway executor behavior through `GatewayLinkExecutor`;
-- inbound verified relay events as `LinkFrameRef`;
-- local verification through `scripts/verify_handoff5.sh` once added.
-
-Handoff 5 must not implement NIP-17 direct messages, NIP-44 encryption,
-NIP-65 relay discovery, Nostr chat/social client behavior, FIPS, LXMF, BitChat,
-bridge rooms, public relay defaults, async daemon runtime, production
-persistence, mobile apps, firmware, public workflow files, or live relay
-requirements in default tests.
-
-## Verification
+## Validation
 
 Before claiming a source change is complete, run the narrowest relevant checks.
-For full Handoff 4 validation, run:
-
-```bash
-scripts/verify_handoff4.sh
-```
-
-For focused Rust work, prefer:
+For broad Rust validation, use:
 
 ```bash
 cargo fmt --check
@@ -74,6 +35,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Optional `HYF_RETICULUM_PATH` and `HYF_HIL_RNODE_PORT` lanes may skip when the
-environment is not configured. Report skips explicitly and do not overclaim
-hardware validation.
+For crate-specific work, prefer the smallest package or integration test that
+covers the change, then widen as risk increases.
+
+Optional Reticulum oracle checks may use `HYF_RETICULUM_PATH`. Optional RNode
+serial checks may use `HYF_HIL_RNODE_PORT` only when a real device is explicitly
+connected. When hardware is not configured, report the skip plainly and do not
+describe it as hardware validation.
