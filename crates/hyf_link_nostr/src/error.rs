@@ -4,6 +4,7 @@ use core::fmt;
 pub enum NostrError {
     ContentTooLarge { actual: usize, maximum: usize },
     Crypto,
+    EnvelopeTooLarge { actual: usize, maximum: usize },
     EventIdMismatch,
     HexLength { expected: usize, actual: usize },
     InvalidSignature,
@@ -29,6 +30,12 @@ impl fmt::Display for NostrError {
                 )
             }
             Self::Crypto => write!(formatter, "nostr cryptographic operation failed"),
+            Self::EnvelopeTooLarge { actual, maximum } => {
+                write!(
+                    formatter,
+                    "hyf envelope too large for nostr content: length {actual}, maximum {maximum}"
+                )
+            }
             Self::EventIdMismatch => write!(formatter, "nostr event id mismatch"),
             Self::HexLength { expected, actual } => {
                 write!(
@@ -88,6 +95,14 @@ mod tests {
         assert_eq!(
             NostrError::Crypto.to_string(),
             "nostr cryptographic operation failed"
+        );
+        assert_eq!(
+            NostrError::EnvelopeTooLarge {
+                actual: 2049,
+                maximum: 2048,
+            }
+            .to_string(),
+            "hyf envelope too large for nostr content: length 2049, maximum 2048"
         );
         assert_eq!(
             NostrError::EventIdMismatch.to_string(),

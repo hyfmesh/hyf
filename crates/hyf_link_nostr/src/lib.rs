@@ -8,6 +8,7 @@
 
 mod canonical;
 mod constants;
+mod content;
 mod error;
 mod event;
 mod filter;
@@ -20,6 +21,7 @@ pub use canonical::{event_id, write_canonical_event};
 pub use constants::{
     HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HYF_NOSTR_MAX_ENVELOPE_BYTES,
 };
+pub use content::{decode_hyf_envelope_content, encode_hyf_envelope_content};
 pub use error::NostrError;
 pub use event::{NostrEvent, NostrUnsignedEvent, validate_content_len};
 pub use filter::{
