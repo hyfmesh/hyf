@@ -4,9 +4,12 @@ use core::fmt;
 pub enum NostrError {
     HexLength { expected: usize, actual: usize },
     InvalidHexChar { index: usize, byte: u8 },
+    InvalidSubscriptionId,
     NonCanonicalHex { index: usize, byte: u8 },
     OddHexLength { len: usize },
     OutputTooSmall { needed: usize, available: usize },
+    SubscriptionIdTooLong { len: usize, maximum: usize },
+    TagEmpty,
     Unsupported,
     Utf8,
 }
@@ -23,6 +26,7 @@ impl fmt::Display for NostrError {
             Self::InvalidHexChar { index, byte } => {
                 write!(formatter, "invalid hex byte 0x{byte:02x} at index {index}")
             }
+            Self::InvalidSubscriptionId => write!(formatter, "invalid nostr subscription id"),
             Self::NonCanonicalHex { index, byte } => {
                 write!(
                     formatter,
@@ -36,6 +40,13 @@ impl fmt::Display for NostrError {
                     "output too small: needed {needed}, available {available}"
                 )
             }
+            Self::SubscriptionIdTooLong { len, maximum } => {
+                write!(
+                    formatter,
+                    "nostr subscription id too long: length {len}, maximum {maximum}"
+                )
+            }
+            Self::TagEmpty => write!(formatter, "nostr tag is empty"),
             Self::Unsupported => write!(formatter, "unsupported nostr operation"),
             Self::Utf8 => write!(formatter, "invalid utf-8 output"),
         }
@@ -68,6 +79,10 @@ mod tests {
             "invalid hex byte 0x7a at index 4"
         );
         assert_eq!(
+            NostrError::InvalidSubscriptionId.to_string(),
+            "invalid nostr subscription id"
+        );
+        assert_eq!(
             NostrError::NonCanonicalHex {
                 index: 1,
                 byte: b'A',
@@ -87,6 +102,15 @@ mod tests {
             .to_string(),
             "output too small: needed 4, available 3"
         );
+        assert_eq!(
+            NostrError::SubscriptionIdTooLong {
+                len: 65,
+                maximum: 64,
+            }
+            .to_string(),
+            "nostr subscription id too long: length 65, maximum 64"
+        );
+        assert_eq!(NostrError::TagEmpty.to_string(), "nostr tag is empty");
         assert_eq!(
             NostrError::Unsupported.to_string(),
             "unsupported nostr operation"

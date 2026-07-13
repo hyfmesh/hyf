@@ -8,6 +8,7 @@
 
 mod constants;
 mod error;
+mod filter;
 mod hex;
 mod keys;
 mod signing_spike;
@@ -16,6 +17,10 @@ pub use constants::{
     HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HYF_NOSTR_MAX_ENVELOPE_BYTES,
 };
 pub use error::NostrError;
+pub use filter::{
+    NOSTR_SUBSCRIPTION_ID_MAX_LEN, NostrFilter, NostrFilterTarget, NostrTagRef, NostrTagsRef,
+    matches_any_filter, validate_subscription_id,
+};
 pub use hex::{decode_fixed_lower_hex, decode_lower_hex, encode_lower_hex};
 pub use keys::{NostrEventId, NostrPublicKey, NostrSecretKey, NostrSignature};
 
