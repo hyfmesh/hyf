@@ -29,7 +29,7 @@ pub fn encode_lower_hex<'a>(bytes: &[u8], out: &'a mut [u8]) -> Result<&'a str, 
 
 pub fn decode_lower_hex(input: &str, out: &mut [u8]) -> Result<usize, NostrError> {
     let bytes = input.as_bytes();
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return Err(NostrError::OddHexLength { len: bytes.len() });
     }
 

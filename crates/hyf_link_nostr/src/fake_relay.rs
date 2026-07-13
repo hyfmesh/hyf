@@ -347,9 +347,7 @@ impl<
 fn replay_limit(filters: &[NostrFilter<'_>]) -> Option<usize> {
     let mut limit = Some(0usize);
     for filter in filters {
-        let Some(filter_limit) = filter.limit else {
-            return None;
-        };
+        let filter_limit = filter.limit?;
         if let Some(total) = &mut limit {
             *total = total.saturating_add(filter_limit);
         }
@@ -489,9 +487,9 @@ mod tests {
 
         relay.remember_subscription("sub-1", &filters)?;
         assert_eq!(relay.metrics().active_subscriptions, 1);
-        assert_eq!(relay.close_subscription("sub-1")?, true);
+        assert!(relay.close_subscription("sub-1")?);
         assert_eq!(relay.metrics().active_subscriptions, 0);
-        assert_eq!(relay.close_subscription("sub-1")?, false);
+        assert!(!relay.close_subscription("sub-1")?);
         assert_eq!(
             relay.close_subscription(""),
             Err(NostrError::InvalidSubscriptionId)
