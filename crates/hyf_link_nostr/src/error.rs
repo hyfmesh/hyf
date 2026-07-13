@@ -2,6 +2,7 @@ use core::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NostrError {
+    ContentTooLarge { actual: usize, maximum: usize },
     HexLength { expected: usize, actual: usize },
     InvalidHexChar { index: usize, byte: u8 },
     InvalidSubscriptionId,
@@ -17,6 +18,12 @@ pub enum NostrError {
 impl fmt::Display for NostrError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ContentTooLarge { actual, maximum } => {
+                write!(
+                    formatter,
+                    "nostr content too large: length {actual}, maximum {maximum}"
+                )
+            }
             Self::HexLength { expected, actual } => {
                 write!(
                     formatter,
@@ -62,6 +69,14 @@ mod tests {
 
     #[test]
     fn errors_have_stable_display_text() {
+        assert_eq!(
+            NostrError::ContentTooLarge {
+                actual: 4097,
+                maximum: 4096,
+            }
+            .to_string(),
+            "nostr content too large: length 4097, maximum 4096"
+        );
         assert_eq!(
             NostrError::HexLength {
                 expected: 64,

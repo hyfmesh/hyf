@@ -8,6 +8,7 @@
 
 mod constants;
 mod error;
+mod event;
 mod filter;
 mod hex;
 mod keys;
@@ -17,6 +18,7 @@ pub use constants::{
     HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HYF_NOSTR_MAX_ENVELOPE_BYTES,
 };
 pub use error::NostrError;
+pub use event::{NostrEvent, NostrUnsignedEvent, validate_content_len};
 pub use filter::{
     NOSTR_SUBSCRIPTION_ID_MAX_LEN, NostrFilter, NostrFilterTarget, NostrTagRef, NostrTagsRef,
     matches_any_filter, validate_subscription_id,
