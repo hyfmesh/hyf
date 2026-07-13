@@ -1,7 +1,10 @@
 use crate::{
-    NostrError, NostrEvent, NostrEventId, NostrFilter, NostrPublishOutcome, NostrRelayStatus,
-    NostrRelayStatusPrefix, validate_subscription_id, verify_and_decode_hyf_nostr_event,
+    NostrError, NostrEvent, NostrEventId, NostrFilter, NostrFilterTarget, NostrPublicKey,
+    NostrPublishOutcome, NostrRelayStatus, NostrRelayStatusPrefix, matches_any_filter,
+    validate_subscription_id, verify_and_decode_hyf_nostr_event,
 };
+
+const EVENT_P_TAG_SCAN_CAPACITY: usize = 8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FakeNostrRelayMetrics {
@@ -102,6 +105,20 @@ impl<
         filters: &'a [NostrFilter<'a>],
     ) -> Result<(), NostrError> {
         validate_subscription_id(subscription_id)?;
+
+        if let Some(subscription) = self
+            .subscriptions
+            .iter_mut()
+            .flatten()
+            .find(|subscription| subscription.subscription_id == subscription_id)
+        {
+            *subscription = FakeNostrSubscription {
+                subscription_id,
+                filters,
+            };
+            return Ok(());
+        }
+
         let slot = self
             .subscriptions
             .iter_mut()
@@ -115,6 +132,15 @@ impl<
         });
         self.metrics.active_subscriptions += 1;
         Ok(())
+    }
+
+    pub fn subscribe(
+        &mut self,
+        subscription_id: &'a str,
+        filters: &'a [NostrFilter<'a>],
+    ) -> Result<(), NostrError> {
+        self.remember_subscription(subscription_id, filters)?;
+        self.replay_subscription(subscription_id, filters)
     }
 
     pub fn publish(
@@ -195,6 +221,106 @@ impl<
         self.metrics.stored_events += 1;
         Ok(())
     }
+
+    fn replay_subscription(
+        &mut self,
+        subscription_id: &'a str,
+        filters: &'a [NostrFilter<'a>],
+    ) -> Result<(), NostrError> {
+        let mut emitted = [false; EVENT_CAPACITY];
+        let replay_limit = replay_limit(filters);
+        let mut emitted_count = 0;
+
+        while replay_limit.is_none_or(|limit| emitted_count < limit) {
+            let Some((index, event)) = self.next_replay_event(filters, &emitted) else {
+                break;
+            };
+            self.enqueue_output(FakeNostrRelayOutput::Event {
+                subscription_id,
+                event,
+            })?;
+            emitted[index] = true;
+            emitted_count += 1;
+        }
+
+        self.enqueue_output(FakeNostrRelayOutput::Eose { subscription_id })
+    }
+
+    fn next_replay_event(
+        &self,
+        filters: &[NostrFilter<'_>],
+        emitted: &[bool; EVENT_CAPACITY],
+    ) -> Option<(usize, NostrEvent<'a>)> {
+        let mut best = None;
+        for (index, event) in self.events.iter().enumerate() {
+            if emitted[index] {
+                continue;
+            }
+            let Some(event) = *event else {
+                continue;
+            };
+            if !event_matches_filters(event, filters) {
+                continue;
+            }
+
+            match best {
+                Some((_, current)) if !event_sorts_before(event, current) => {}
+                _ => best = Some((index, event)),
+            }
+        }
+        best
+    }
+}
+
+fn replay_limit(filters: &[NostrFilter<'_>]) -> Option<usize> {
+    let mut limit = Some(0usize);
+    for filter in filters {
+        let Some(filter_limit) = filter.limit else {
+            return None;
+        };
+        if let Some(total) = &mut limit {
+            *total = total.saturating_add(filter_limit);
+        }
+    }
+    limit
+}
+
+fn event_matches_filters(event: NostrEvent<'_>, filters: &[NostrFilter<'_>]) -> bool {
+    let mut p_tags = [NostrPublicKey::from_bytes([0; 32]); EVENT_P_TAG_SCAN_CAPACITY];
+    let p_tag_count = collect_event_p_tags(event, &mut p_tags);
+    matches_any_filter(
+        filters,
+        NostrFilterTarget {
+            kind: event.kind,
+            author: event.pubkey,
+            p_tags: &p_tags[..p_tag_count],
+            created_at: event.created_at,
+        },
+    )
+}
+
+fn collect_event_p_tags(event: NostrEvent<'_>, out: &mut [NostrPublicKey]) -> usize {
+    let mut count = 0;
+    for tag in event.tags.as_slice() {
+        if tag.name() != "p" || count == out.len() {
+            continue;
+        }
+        let Some(value) = tag.value() else {
+            continue;
+        };
+        let Ok(public_key) = NostrPublicKey::from_hex(value) else {
+            continue;
+        };
+        out[count] = public_key;
+        count += 1;
+    }
+    count
+}
+
+fn event_sorts_before(candidate: NostrEvent<'_>, current: NostrEvent<'_>) -> bool {
+    candidate.created_at > current.created_at
+        || (candidate.created_at == current.created_at
+            && candidate.id.as_bytes() < current.id.as_bytes())
 }
 
 const fn empty_status() -> NostrRelayStatus<'static> {
@@ -247,6 +373,9 @@ mod tests {
         HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, encode_envelope,
     };
 
+    const RECIPIENT_A: NostrPublicKey = NostrPublicKey::from_bytes([0x77; 32]);
+    const RECIPIENT_B: NostrPublicKey = NostrPublicKey::from_bytes([0x88; 32]);
+
     #[test]
     fn fake_relay_starts_empty_with_fixed_capacities() {
         let relay = FakeNostrRelay::<2, 3, 4>::new();
@@ -266,6 +395,8 @@ mod tests {
         let filters = [NostrFilter::empty()];
 
         relay.remember_subscription("sub-1", &filters)?;
+        assert_eq!(relay.metrics().active_subscriptions, 1);
+        relay.remember_subscription("sub-1", &[])?;
         assert_eq!(relay.metrics().active_subscriptions, 1);
         assert_eq!(
             relay.remember_subscription("sub-2", &filters),
@@ -304,13 +435,188 @@ mod tests {
     }
 
     #[test]
+    fn fake_relay_subscribe_replays_matching_events_in_deterministic_order()
+    -> Result<(), NostrError> {
+        let author_secret = secret_with_last_byte(3);
+        let author = crate::derive_nostr_public_key(&author_secret)?;
+        let tie_a = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_A)?;
+        let tie_b = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_B)?;
+        let old = signed_static_hyf_event(10, secret_with_last_byte(3), RECIPIENT_A)?;
+        let wrong_author = signed_static_hyf_event(19, secret_with_last_byte(4), RECIPIENT_A)?;
+        let too_new = signed_static_hyf_event(30, secret_with_last_byte(3), RECIPIENT_A)?;
+        let mut relay = FakeNostrRelay::<5, 1, 8>::new();
+        let mut decode = [0; 256];
+
+        relay.publish(old, &mut decode)?;
+        relay.publish(wrong_author, &mut decode)?;
+        relay.publish(tie_b, &mut decode)?;
+        relay.publish(too_new, &mut decode)?;
+        relay.publish(tie_a, &mut decode)?;
+        drain_outputs(&mut relay);
+
+        let kinds = [HYF_NOSTR_ENVELOPE_KIND];
+        let authors = [author];
+        let p_tags = [RECIPIENT_A, RECIPIENT_B];
+        let filters = [NostrFilter {
+            kinds: &kinds,
+            authors: &authors,
+            p_tags: &p_tags,
+            since: Some(10),
+            until: Some(20),
+            limit: Some(2),
+        }];
+        relay.subscribe("sub-1", &filters)?;
+
+        let (first, second) = ordered_pair(tie_a, tie_b);
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Event {
+                subscription_id: "sub-1",
+                event: first,
+            })
+        );
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Event {
+                subscription_id: "sub-1",
+                event: second,
+            })
+        );
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Eose {
+                subscription_id: "sub-1",
+            })
+        );
+        assert_eq!(relay.pop_output(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn fake_relay_subscribe_filters_kind_author_p_and_time_ranges() -> Result<(), NostrError> {
+        let author_secret = secret_with_last_byte(3);
+        let author = crate::derive_nostr_public_key(&author_secret)?;
+        let matching = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_A)?;
+        let wrong_recipient = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_B)?;
+        let old = signed_static_hyf_event(9, secret_with_last_byte(3), RECIPIENT_A)?;
+        let wrong_author = signed_static_hyf_event(20, secret_with_last_byte(4), RECIPIENT_A)?;
+        let mut relay = FakeNostrRelay::<4, 1, 8>::new();
+        let mut decode = [0; 256];
+
+        relay.publish(wrong_recipient, &mut decode)?;
+        relay.publish(old, &mut decode)?;
+        relay.publish(wrong_author, &mut decode)?;
+        relay.publish(matching, &mut decode)?;
+        drain_outputs(&mut relay);
+
+        let kinds = [HYF_NOSTR_ENVELOPE_KIND];
+        let authors = [author];
+        let p_tags = [RECIPIENT_A];
+        let filters = [NostrFilter {
+            kinds: &kinds,
+            authors: &authors,
+            p_tags: &p_tags,
+            since: Some(10),
+            until: Some(20),
+            limit: None,
+        }];
+        relay.subscribe("sub-1", &filters)?;
+
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Event {
+                subscription_id: "sub-1",
+                event: matching,
+            })
+        );
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Eose {
+                subscription_id: "sub-1",
+            })
+        );
+
+        drain_outputs(&mut relay);
+        let wrong_kind = [1];
+        let filters = [NostrFilter {
+            kinds: &wrong_kind,
+            ..NostrFilter::empty()
+        }];
+        relay.subscribe("sub-1", &filters)?;
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Eose {
+                subscription_id: "sub-1",
+            })
+        );
+        assert_eq!(relay.pop_output(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn fake_relay_subscribe_replaces_repeated_subscription_id() -> Result<(), NostrError> {
+        let first = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_A)?;
+        let second = signed_static_hyf_event(21, secret_with_last_byte(3), RECIPIENT_B)?;
+        let mut relay = FakeNostrRelay::<2, 1, 8>::new();
+        let mut decode = [0; 256];
+
+        relay.publish(first, &mut decode)?;
+        relay.publish(second, &mut decode)?;
+        drain_outputs(&mut relay);
+
+        let first_filter_p_tags = [RECIPIENT_A];
+        let first_filters = [NostrFilter {
+            p_tags: &first_filter_p_tags,
+            ..NostrFilter::empty()
+        }];
+        relay.subscribe("sub-1", &first_filters)?;
+        assert_eq!(relay.metrics().active_subscriptions, 1);
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Event {
+                subscription_id: "sub-1",
+                event: first,
+            })
+        );
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Eose {
+                subscription_id: "sub-1",
+            })
+        );
+
+        let second_filter_p_tags = [RECIPIENT_B];
+        let second_filters = [NostrFilter {
+            p_tags: &second_filter_p_tags,
+            ..NostrFilter::empty()
+        }];
+        relay.subscribe("sub-1", &second_filters)?;
+        assert_eq!(relay.metrics().active_subscriptions, 1);
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Event {
+                subscription_id: "sub-1",
+                event: second,
+            })
+        );
+        assert_eq!(
+            relay.pop_output(),
+            Some(FakeNostrRelayOutput::Eose {
+                subscription_id: "sub-1",
+            })
+        );
+        assert_eq!(relay.pop_output(), None);
+        Ok(())
+    }
+
+    #[test]
     fn fake_relay_publish_accepts_valid_events_and_detects_duplicates() -> Result<(), NostrError> {
         let encoded = encoded_sample_envelope()?;
         let mut buffers = publish_buffers()?;
         let event = sign_hyf_nostr_event(
             &encoded,
             &fixture_secret(),
-            NostrPublicKey::from_bytes([0x77; 32]),
+            RECIPIENT_A,
             1720000000,
             buffers.as_event_buffers(),
         )?;
@@ -397,7 +703,7 @@ mod tests {
         let first = sign_hyf_nostr_event(
             &encoded,
             &fixture_secret(),
-            NostrPublicKey::from_bytes([0x77; 32]),
+            RECIPIENT_A,
             1720000000,
             buffers.as_event_buffers(),
         )?;
@@ -468,8 +774,7 @@ mod tests {
     }
 
     fn valid_static_event(created_at: u64) -> Result<NostrEvent<'static>, NostrError> {
-        let content = encoded_content_static()?;
-        signed_static_event_with_created_at(HYF_NOSTR_ENVELOPE_KIND, content, created_at)
+        signed_static_hyf_event(created_at, fixture_secret(), RECIPIENT_A)
     }
 
     fn signed_static_event(
@@ -484,7 +789,9 @@ mod tests {
         content: &'static str,
         created_at: u64,
     ) -> Result<NostrEvent<'static>, NostrError> {
-        let tag_values = Box::leak(Box::new(["p", "77"]));
+        let recipient_hex_buf = Box::leak(Box::new([0; 64]));
+        let recipient_hex = RECIPIENT_A.write_hex(recipient_hex_buf)?;
+        let tag_values = Box::leak(Box::new(["p", recipient_hex]));
         let tag = NostrTagRef::new(tag_values)?;
         let tags = Box::leak(Box::new([tag]));
         sign_event(
@@ -496,6 +803,29 @@ mod tests {
                 content,
             )?,
             &fixture_secret(),
+        )
+    }
+
+    fn signed_static_hyf_event(
+        created_at: u64,
+        secret: NostrSecretKey,
+        recipient: NostrPublicKey,
+    ) -> Result<NostrEvent<'static>, NostrError> {
+        let content = encoded_content_static()?;
+        let recipient_hex_buf = Box::leak(Box::new([0; 64]));
+        let recipient_hex = recipient.write_hex(recipient_hex_buf)?;
+        let tag_values = Box::leak(Box::new(["p", recipient_hex]));
+        let tag = NostrTagRef::new(tag_values)?;
+        let tags = Box::leak(Box::new([tag]));
+        sign_event(
+            NostrUnsignedEvent::new(
+                crate::derive_nostr_public_key(&secret)?,
+                created_at,
+                HYF_NOSTR_ENVELOPE_KIND,
+                NostrTagsRef::new(tags),
+                content,
+            )?,
+            &secret,
         )
     }
 
@@ -531,9 +861,34 @@ mod tests {
     }
 
     fn fixture_secret() -> NostrSecretKey {
+        secret_with_last_byte(3)
+    }
+
+    fn secret_with_last_byte(last_byte: u8) -> NostrSecretKey {
         let mut secret_key = [0; 32];
-        secret_key[31] = 3;
+        secret_key[31] = last_byte;
         NostrSecretKey::from_bytes(secret_key)
+    }
+
+    fn ordered_pair(
+        first: NostrEvent<'static>,
+        second: NostrEvent<'static>,
+    ) -> (NostrEvent<'static>, NostrEvent<'static>) {
+        if first.id.as_bytes() < second.id.as_bytes() {
+            (first, second)
+        } else {
+            (second, first)
+        }
+    }
+
+    fn drain_outputs<
+        const EVENT_CAPACITY: usize,
+        const SUBSCRIPTION_CAPACITY: usize,
+        const OUTPUT_CAPACITY: usize,
+    >(
+        relay: &mut FakeNostrRelay<'_, EVENT_CAPACITY, SUBSCRIPTION_CAPACITY, OUTPUT_CAPACITY>,
+    ) {
+        while relay.pop_output().is_some() {}
     }
 
     const fn empty_test_status() -> NostrRelayStatus<'static> {
