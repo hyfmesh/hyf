@@ -1251,7 +1251,7 @@ mod tests {
                 "-",
                 "--require-oracle",
                 "--reticulum-path",
-                "../refs/Reticulum",
+                "oracle/reticulum",
                 "--report-path-root",
                 "..",
             ]
@@ -1268,10 +1268,7 @@ mod tests {
         );
         assert_eq!(args.output, "-");
         assert!(args.require_oracle);
-        assert_eq!(
-            args.reticulum_path,
-            Some(PathBuf::from("../refs/Reticulum"))
-        );
+        assert_eq!(args.reticulum_path, Some(PathBuf::from("oracle/reticulum")));
         assert_eq!(args.capture_dir, None);
         assert_eq!(args.report_path_root, Some(PathBuf::from("..")));
         assert!(!args.os.is_empty());
@@ -1344,7 +1341,7 @@ mod tests {
                 "--require-final-profile",
                 "profile_2_crypto_ifac",
                 "--expected-oracle-module-path",
-                "refs/Reticulum/RNS/__init__.py",
+                "oracle/reticulum/RNS/__init__.py",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -1353,7 +1350,7 @@ mod tests {
         assert_eq!(args.require_final_profile, Some(ReportProfile::Profile2));
         assert_eq!(
             args.expected_oracle_module_path.as_deref(),
-            Some("refs/Reticulum/RNS/__init__.py")
+            Some("oracle/reticulum/RNS/__init__.py")
         );
         Ok(())
     }
@@ -1368,9 +1365,9 @@ mod tests {
                 "--hyf-repo-path",
                 ".",
                 "--reticulum-path",
-                "../refs/Reticulum",
+                "oracle/reticulum",
                 "--expected-oracle-module-path",
-                "refs/Reticulum/RNS/__init__.py",
+                "oracle/reticulum/RNS/__init__.py",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -1381,13 +1378,10 @@ mod tests {
         assert_eq!(args.require_final_profile, None);
         assert!(args.require_final_provenance);
         assert_eq!(args.hyf_repo_path, Some(PathBuf::from(".")));
-        assert_eq!(
-            args.reticulum_path,
-            Some(PathBuf::from("../refs/Reticulum"))
-        );
+        assert_eq!(args.reticulum_path, Some(PathBuf::from("oracle/reticulum")));
         assert_eq!(
             args.expected_oracle_module_path.as_deref(),
-            Some("refs/Reticulum/RNS/__init__.py")
+            Some("oracle/reticulum/RNS/__init__.py")
         );
         Ok(())
     }
@@ -1419,7 +1413,7 @@ mod tests {
         let input = serde_json::to_vec(&report)?;
 
         assert!(
-            validate_report_bytes(&input, true, Some("refs/Reticulum/RNS/__init__.py")).is_ok()
+            validate_report_bytes(&input, true, Some("oracle/reticulum/RNS/__init__.py")).is_ok()
         );
         assert!(matches!(
             validate_report_bytes(&input, true, Some("RNS/__init__.py")),
@@ -1440,7 +1434,7 @@ mod tests {
             validate_report_bytes(
                 &input,
                 Some(ReportProfile::Profile2),
-                Some("refs/Reticulum/RNS/__init__.py")
+                Some("oracle/reticulum/RNS/__init__.py")
             )
             .is_ok()
         );
@@ -1944,7 +1938,7 @@ mod tests {
         let environment = ConformanceEnvironment::new("macos", "aarch64", "rustc 1.92.0")
             .with_oracle(
                 OracleEnvironment::new(
-                    "refs/Reticulum/RNS/__init__.py",
+                    "oracle/reticulum/RNS/__init__.py",
                     "422dc05549bf28f45e9b9c5172336a1ba4df0ec0",
                     "49.0.0",
                     "3.5",
@@ -2005,7 +1999,7 @@ mod tests {
 
     fn valid_profile2_final_report() -> Result<ConformanceRun, CliError> {
         let oracle = OracleEnvironment::new(
-            "refs/Reticulum/RNS/__init__.py",
+            "oracle/reticulum/RNS/__init__.py",
             EXPECTED_RETICULUM_COMMIT,
             "49.0.0",
             "3.5",

@@ -281,7 +281,7 @@ fn profile_2_final_report_uses_strict_oracle_rows() -> Result<(), Box<dyn std::e
             .oracle
             .as_ref()
             .map(|oracle| oracle.reticulum_module_path.as_str()),
-        Some("refs/Reticulum/RNS/__init__.py")
+        Some("oracle/reticulum/RNS/__init__.py")
     );
     assert_eq!(report.results.len(), REQUIRED_PROFILE_2_RESULTS.len());
     assert!(
@@ -363,7 +363,7 @@ fn profile_2_final_report_rejects_invalid_oracle_metadata() -> Result<(), Box<dy
 
     let mut traversal_path = report;
     oracle_mut(&mut traversal_path)?.reticulum_module_path =
-        "refs/Reticulum/../RNS/__init__.py".to_owned();
+        "oracle/reticulum/../RNS/__init__.py".to_owned();
     assert!(validate_profile_2_final_report(&traversal_path).is_err());
 
     Ok(())
@@ -391,7 +391,7 @@ fn assert_results_cover_required_pairs(
 
 fn profile_2_final_evidence() -> Result<Profile2FinalEvidence, Box<dyn std::error::Error>> {
     let oracle = OracleEnvironment::new(
-        "refs/Reticulum/RNS/__init__.py",
+        "oracle/reticulum/RNS/__init__.py",
         EXPECTED_RETICULUM_COMMIT,
         "49.0.0",
         "3.5",

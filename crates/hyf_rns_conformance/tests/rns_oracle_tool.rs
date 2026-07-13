@@ -856,7 +856,7 @@ fn reticulum_path_for_tool() -> Result<Option<PathBuf>, OracleToolError> {
 
     let default_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
-        .join("refs/Reticulum");
+        .join("oracle/reticulum");
     let resolved = resolve_reticulum_candidate(default_path)?;
     if resolved.is_none() && oracle_strict() {
         return Err(OracleToolError::InvalidEnvironment(
