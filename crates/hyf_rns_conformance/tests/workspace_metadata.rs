@@ -187,7 +187,7 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
         ],
     },
 ];
-const HANDOFF_3_GATEWAY_PACKAGES: &[&str] = &[
+const GATEWAY_FOUNDATION_PACKAGES: &[&str] = &[
     "hyf_core",
     "hyf_wire",
     "hyf_link",
@@ -207,9 +207,15 @@ const FUTURE_PRODUCTION_DEPENDENCY_MARKERS: &[&str] = &[
     "rnode",
     "serialport",
 ];
-const PUBLIC_DOC_FORBIDDEN_SNIPPETS: &[&str] =
-    &["handoff", "rcld", "docs/handoff", "_hyf", "scripts/verify"];
-const REQUIRED_HANDOFF_4_PUBLIC_DOCS: &[PublicDocSpec] = &[
+const PUBLIC_REPO_FORBIDDEN_SNIPPETS: &[&str] = &[
+    concat!("hand", "off"),
+    concat!("rc", "ld"),
+    concat!("docs/", "hand", "off"),
+    concat!("scripts/", "verify"),
+];
+const PRIVATE_ROOT_REFERENCE_SNIPPETS: &[&str] =
+    &[concat!("/", "_", "hyf"), concat!("_", "hyf", "/")];
+const REQUIRED_PUBLIC_DOCS: &[PublicDocSpec] = &[
     PublicDocSpec {
         path: "README.md",
         required: &[
@@ -220,7 +226,7 @@ const REQUIRED_HANDOFF_4_PUBLIC_DOCS: &[PublicDocSpec] = &[
             "HYF_RETICULUM_PATH",
             "not a production",
         ],
-        forbidden: &["Handoff", "RCLD", "docs/handoff", "_hyf", "scripts/verify"],
+        forbidden: PUBLIC_REPO_FORBIDDEN_SNIPPETS,
     },
     PublicDocSpec {
         path: "AGENTS.md",
@@ -231,7 +237,7 @@ const REQUIRED_HANDOFF_4_PUBLIC_DOCS: &[PublicDocSpec] = &[
             "cargo test --workspace",
             "HYF_HIL_RNODE_PORT",
         ],
-        forbidden: &["Handoff", "RCLD", "docs/handoff", "_hyf", "scripts/verify"],
+        forbidden: PUBLIC_REPO_FORBIDDEN_SNIPPETS,
     },
     PublicDocSpec {
         path: "docs/architecture/rnode_gateway_path.md",
@@ -397,7 +403,7 @@ fn crypto_hkdf_is_intentional_dependency_isolation_feature() -> TestResult {
 }
 
 #[test]
-fn handoff_4_gateway_dependencies_preserve_clean_boundaries() -> TestResult {
+fn gateway_dependencies_preserve_clean_boundaries() -> TestResult {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let metadata = metadata_for_manifest(&workspace_root.join("Cargo.toml"))?;
     let packages = workspace_packages(&metadata)?;
@@ -443,7 +449,7 @@ fn handoff_4_gateway_dependencies_preserve_clean_boundaries() -> TestResult {
     )?;
     assert_packages_omit_dependency_markers(
         &packages,
-        HANDOFF_3_GATEWAY_PACKAGES,
+        GATEWAY_FOUNDATION_PACKAGES,
         FUTURE_PRODUCTION_DEPENDENCY_MARKERS,
     )
 }
@@ -476,10 +482,10 @@ fn public_validation_or_workflow_orchestration_is_not_tracked() -> TestResult {
 }
 
 #[test]
-fn handoff_4_public_docs_preserve_current_status() -> TestResult {
+fn public_docs_preserve_current_status() -> TestResult {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
 
-    for doc in REQUIRED_HANDOFF_4_PUBLIC_DOCS {
+    for doc in REQUIRED_PUBLIC_DOCS {
         let path = workspace_root.join(doc.path);
         let content = fs::read_to_string(&path)?;
         assert_snippets_present(&path, &content, doc.required)?;
@@ -506,7 +512,12 @@ fn public_docs_omit_private_process_terms() -> TestResult {
             .to_string_lossy()
             .replace('\\', "/");
         let relative_path_lowercase = relative_path.to_ascii_lowercase();
-        for forbidden in PUBLIC_DOC_FORBIDDEN_SNIPPETS {
+        for forbidden in PUBLIC_REPO_FORBIDDEN_SNIPPETS {
+            if relative_path_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: path contains {forbidden}"));
+            }
+        }
+        for forbidden in PRIVATE_ROOT_REFERENCE_SNIPPETS {
             if relative_path_lowercase.contains(forbidden) {
                 violations.push(format!("{relative_path}: path contains {forbidden}"));
             }
@@ -514,7 +525,12 @@ fn public_docs_omit_private_process_terms() -> TestResult {
 
         let content = fs::read_to_string(&path)?;
         let content_lowercase = content.to_ascii_lowercase();
-        for forbidden in PUBLIC_DOC_FORBIDDEN_SNIPPETS {
+        for forbidden in PUBLIC_REPO_FORBIDDEN_SNIPPETS {
+            if content_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: content contains {forbidden}"));
+            }
+        }
+        for forbidden in PRIVATE_ROOT_REFERENCE_SNIPPETS {
             if content_lowercase.contains(forbidden) {
                 violations.push(format!("{relative_path}: content contains {forbidden}"));
             }
@@ -524,6 +540,50 @@ fn public_docs_omit_private_process_terms() -> TestResult {
     if !violations.is_empty() {
         return Err(std::io::Error::other(format!(
             "public docs contain forbidden private/process terms: {}",
+            violations.join(", ")
+        ))
+        .into());
+    }
+
+    Ok(())
+}
+
+#[test]
+fn tracked_public_files_omit_private_process_terms() -> TestResult {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let tracked = git_ls_files(&workspace_root, &["."])?;
+    let mut violations = Vec::new();
+
+    for relative_path in tracked.lines() {
+        let relative_path_lowercase = relative_path.to_ascii_lowercase();
+        for forbidden in PUBLIC_REPO_FORBIDDEN_SNIPPETS {
+            if relative_path_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: path contains {forbidden}"));
+            }
+        }
+        for forbidden in PRIVATE_ROOT_REFERENCE_SNIPPETS {
+            if relative_path_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: path contains {forbidden}"));
+            }
+        }
+
+        let content = fs::read(workspace_root.join(relative_path))?;
+        let content_lowercase = String::from_utf8_lossy(&content).to_ascii_lowercase();
+        for forbidden in PUBLIC_REPO_FORBIDDEN_SNIPPETS {
+            if content_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: content contains {forbidden}"));
+            }
+        }
+        for forbidden in PRIVATE_ROOT_REFERENCE_SNIPPETS {
+            if content_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: content contains {forbidden}"));
+            }
+        }
+    }
+
+    if !violations.is_empty() {
+        return Err(std::io::Error::other(format!(
+            "tracked public files contain forbidden private/process terms: {}",
             violations.join(", ")
         ))
         .into());
@@ -921,7 +981,7 @@ fn assert_packages_omit_dependency_markers(
     }
 
     Err(std::io::Error::other(format!(
-        "Handoff gateway packages depend on forbidden future production crates: {}",
+        "Gateway foundation packages depend on forbidden future production crates: {}",
         violations.join(", ")
     ))
     .into())

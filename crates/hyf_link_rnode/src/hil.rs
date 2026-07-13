@@ -486,9 +486,8 @@ impl fmt::Display for RNodeHilManifestError {
 impl fmt::Display for RNodeHilReadinessError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::RfTransmissionRequested => {
-                formatter.write_str("rnode hil rf transmission is not supported in Handoff 4")
-            }
+            Self::RfTransmissionRequested => formatter
+                .write_str("rnode hil rf transmission is not supported by this readiness gate"),
             Self::Io(error) => write!(formatter, "rnode hil readiness io error: {error}"),
             Self::Serial(error) => write!(formatter, "rnode hil serial open error: {error}"),
             Self::Kiss(error) => write!(formatter, "rnode hil kiss decode error: {error}"),

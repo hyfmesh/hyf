@@ -16,7 +16,7 @@ use hyf_rns_conformance::report::{
 };
 
 #[test]
-fn profile_1_required_results_match_handoff2_contract() {
+fn profile_1_required_results_match_profile_contract() {
     assert_required_pairs(
         REQUIRED_PROFILE_1_RESULTS,
         &[
@@ -37,7 +37,7 @@ fn profile_1_required_results_match_handoff2_contract() {
 }
 
 #[test]
-fn profile_2_required_results_match_handoff2_contract() {
+fn profile_2_required_results_match_profile_contract() {
     assert_required_pairs(
         REQUIRED_PROFILE_2_RESULTS,
         &[
