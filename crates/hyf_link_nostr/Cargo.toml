@@ -7,6 +7,9 @@ authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[dependencies]
+k256.workspace = true
+
 [features]
 default = []
 alloc = []

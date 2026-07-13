@@ -8,6 +8,7 @@
 
 mod constants;
 mod error;
+mod signing_spike;
 
 pub use constants::{
     HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HYF_NOSTR_MAX_ENVELOPE_BYTES,

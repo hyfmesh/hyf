@@ -57,6 +57,7 @@ criterion = { version = "=0.8.2", default-features = false, features = ["cargo_b
 ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["zeroize"] }
 hkdf = { version = "=0.13.0", default-features = false }
 hmac = { version = "=0.13.0", default-features = false }
+k256 = { version = "=0.14.0", default-features = false, features = ["schnorr"] }
 rand_core = { version = "=0.10.1", default-features = false }
 serde = { version = "1.0.228", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.150", default-features = false, features = ["std"] }
