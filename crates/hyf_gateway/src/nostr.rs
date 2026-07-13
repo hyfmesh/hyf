@@ -1,10 +1,11 @@
 use core::fmt;
 
 use hyf_core::TimestampMs;
-use hyf_link::{Link, LinkClass, LinkDriverErrorKind, LinkId};
+use hyf_link::{Link, LinkClass, LinkDriverErrorKind, LinkFrameRef, LinkId};
 use hyf_link_nostr::{
-    FakeNostrRelay, HYF_NOSTR_MAX_CONTENT_CHARS, HyfNostrEventBuffers, NostrError, NostrPublicKey,
-    NostrPublishOutcome, NostrSecretKey, NostrTagRef, sign_hyf_nostr_event,
+    FakeNostrRelay, FakeNostrRelayOutput, HYF_NOSTR_MAX_CONTENT_CHARS, HyfNostrEventBuffers,
+    NostrError, NostrEvent, NostrPublicKey, NostrPublishOutcome, NostrSecretKey, NostrTagRef,
+    sign_hyf_nostr_event, verify_and_decode_hyf_nostr_event,
 };
 
 use crate::{GatewayError, GatewayLinkExecutor};
@@ -70,6 +71,55 @@ impl<R> NostrGatewayExecutor<R> {
 
     pub fn into_relay(self) -> R {
         self.relay
+    }
+}
+
+impl<
+    'a,
+    const EVENT_CAPACITY: usize,
+    const SUBSCRIPTION_CAPACITY: usize,
+    const OUTPUT_CAPACITY: usize,
+> NostrGatewayExecutor<FakeNostrRelay<'a, EVENT_CAPACITY, SUBSCRIPTION_CAPACITY, OUTPUT_CAPACITY>>
+{
+    pub fn poll_relay_frame<'out>(
+        &mut self,
+        output: &'out mut [u8],
+    ) -> Result<Option<LinkFrameRef<'out>>, GatewayError> {
+        if !self.up {
+            return Err(GatewayError::Driver {
+                link_id: self.link_id,
+                kind: LinkDriverErrorKind::LinkDown,
+            });
+        }
+
+        while let Some(message) = self.relay.pop_output() {
+            if let FakeNostrRelayOutput::Event { event, .. } = message {
+                return self.decode_relay_event(event, output).map(Some);
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn decode_relay_event<'out>(
+        &self,
+        event: NostrEvent<'_>,
+        output: &'out mut [u8],
+    ) -> Result<LinkFrameRef<'out>, GatewayError> {
+        let received_at_ms = event
+            .created_at
+            .checked_mul(1000)
+            .ok_or(GatewayError::Driver {
+                link_id: self.link_id,
+                kind: LinkDriverErrorKind::Protocol,
+            })?;
+        verify_and_decode_hyf_nostr_event(&event, output)
+            .map_err(|error| map_nostr_receive_error(self.link_id, error))?;
+        Ok(LinkFrameRef::new(
+            self.link_id,
+            TimestampMs(received_at_ms),
+            &output[..event.content.len() / 2],
+        ))
     }
 }
 
@@ -184,13 +234,24 @@ fn map_nostr_send_error(link_id: LinkId, error: NostrError) -> GatewayError {
     GatewayError::Driver { link_id, kind }
 }
 
+fn map_nostr_receive_error(link_id: LinkId, error: NostrError) -> GatewayError {
+    let kind = match error {
+        NostrError::OutputTooSmall { .. } => LinkDriverErrorKind::OutputTooSmall,
+        _ => LinkDriverErrorKind::Protocol,
+    };
+    GatewayError::Driver { link_id, kind }
+}
+
 #[cfg(test)]
 mod tests {
     use hyf_core::{MessageId, NodeId, TimestampMs};
     use hyf_link::{Link, LinkDriverErrorKind, LinkId};
     use hyf_link_nostr::{
-        FakeNostrRelay, HYF_NOSTR_ENVELOPE_KIND, NostrFilter, NostrPublicKey, NostrRelayStatus,
-        NostrRelayStatusPrefix, NostrSecretKey, verify_and_decode_hyf_nostr_event,
+        FakeNostrRelay, FakeNostrRelayOutput, HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS,
+        NostrEvent, NostrFilter, NostrPublicKey, NostrRelayStatus, NostrRelayStatusPrefix,
+        NostrSecretKey, NostrSignature, NostrTagRef, NostrTagsRef, NostrUnsignedEvent,
+        derive_nostr_public_key, encode_hyf_envelope_content, sign_event, sign_hyf_nostr_event,
+        verify_and_decode_hyf_nostr_event,
     };
     use hyf_wire::{
         HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, encode_envelope,
@@ -321,6 +382,59 @@ mod tests {
     }
 
     #[test]
+    fn nostr_gateway_executor_polls_verified_relay_events() -> Result<(), GatewayError> {
+        let relay = FakeNostrRelay::<2, 1, 4>::new();
+        let mut executor =
+            NostrGatewayExecutor::new(NOSTR_LINK, 2048, relay, fixture_secret(), RECIPIENT);
+        let mut encoded = [0; 128];
+        let len = encode_envelope(sample_envelope(), &mut encoded)?;
+        let kinds = [HYF_NOSTR_ENVELOPE_KIND];
+        let filters = [NostrFilter {
+            kinds: &kinds,
+            ..NostrFilter::empty()
+        }];
+        let mut frame = [0; 256];
+
+        executor.set_up(true);
+        executor.send_link_bytes(NOSTR_LINK, &encoded[..len], TimestampMs(1_720_000_000_123))?;
+        if executor.relay_mut().subscribe("sub-1", &filters).is_err() {
+            return Err(protocol_error());
+        }
+
+        let inbound = match executor.poll_relay_frame(&mut frame)? {
+            Some(frame) => frame,
+            None => return Err(protocol_error()),
+        };
+
+        assert_eq!(inbound.link_id, NOSTR_LINK);
+        assert_eq!(inbound.received_at_ms, TimestampMs(1_720_000_000_000));
+        assert_eq!(inbound.bytes, &encoded[..len]);
+        Ok(())
+    }
+
+    #[test]
+    fn nostr_gateway_executor_rejects_invalid_inbound_events() -> Result<(), GatewayError> {
+        assert_poll_rejects(tampered_signature_event()?, LinkDriverErrorKind::Protocol)?;
+
+        let wrong_kind = signed_custom_content_event(1, valid_content_static()?, 1_720_000_000)?;
+        assert_poll_rejects(wrong_kind, LinkDriverErrorKind::Protocol)?;
+
+        assert_poll_rejects(
+            signed_custom_content_event(HYF_NOSTR_ENVELOPE_KIND, "zz", 1_720_000_000)?,
+            LinkDriverErrorKind::Protocol,
+        )?;
+        assert_poll_rejects(
+            signed_custom_content_event(HYF_NOSTR_ENVELOPE_KIND, "00", 1_720_000_000)?,
+            LinkDriverErrorKind::Protocol,
+        )?;
+        assert_poll_rejects(signed_valid_event(u64::MAX)?, LinkDriverErrorKind::Protocol)?;
+        assert_poll_rejects_with_short_output(
+            signed_valid_event(1_720_000_000)?,
+            LinkDriverErrorKind::OutputTooSmall,
+        )
+    }
+
+    #[test]
     fn nostr_gateway_executor_maps_full_relay_to_recoverable_backpressure()
     -> Result<(), GatewayError> {
         let relay = FakeNostrRelay::<0, 0, 1>::new();
@@ -358,5 +472,124 @@ mod tests {
         let mut secret_key = [0; 32];
         secret_key[31] = 3;
         NostrSecretKey::from_bytes(secret_key)
+    }
+
+    fn signed_valid_event(created_at: u64) -> Result<NostrEvent<'static>, GatewayError> {
+        let mut encoded = [0; 128];
+        let len = encode_envelope(sample_envelope(), &mut encoded)?;
+        sign_hyf_nostr_event(
+            &encoded[..len],
+            &fixture_secret(),
+            RECIPIENT,
+            created_at,
+            super::leaked_event_buffers(NOSTR_LINK)?,
+        )
+        .map_err(|error| super::map_nostr_send_error(NOSTR_LINK, error))
+    }
+
+    fn tampered_signature_event() -> Result<NostrEvent<'static>, GatewayError> {
+        let event = signed_valid_event(1_720_000_000)?;
+        let mut signature = *event.sig.as_bytes();
+        signature[0] ^= 0x01;
+        Ok(NostrEvent {
+            sig: NostrSignature::from_bytes(signature),
+            ..event
+        })
+    }
+
+    fn signed_custom_content_event(
+        kind: u16,
+        content: &'static str,
+        created_at: u64,
+    ) -> Result<NostrEvent<'static>, GatewayError> {
+        let secret = fixture_secret();
+        let recipient_hex_buf = Box::leak(Box::new([0; 64]));
+        let recipient_hex = RECIPIENT
+            .write_hex(recipient_hex_buf)
+            .map_err(|error| super::map_nostr_send_error(NOSTR_LINK, error))?;
+        let p_tag_values = Box::leak(Box::new(["p", recipient_hex]));
+        let p_tag = NostrTagRef::new(p_tag_values)
+            .map_err(|error| super::map_nostr_send_error(NOSTR_LINK, error))?;
+        let tags = Box::leak(Box::new([p_tag]));
+        let unsigned = NostrUnsignedEvent::new(
+            derive_nostr_public_key(&secret)
+                .map_err(|error| super::map_nostr_send_error(NOSTR_LINK, error))?,
+            created_at,
+            kind,
+            NostrTagsRef::new(tags),
+            content,
+        )
+        .map_err(|error| super::map_nostr_send_error(NOSTR_LINK, error))?;
+        sign_event(unsigned, &secret)
+            .map_err(|error| super::map_nostr_send_error(NOSTR_LINK, error))
+    }
+
+    fn assert_poll_rejects(
+        event: NostrEvent<'static>,
+        kind: LinkDriverErrorKind,
+    ) -> Result<(), GatewayError> {
+        let relay = FakeNostrRelay::<0, 0, 1>::new();
+        let mut executor =
+            NostrGatewayExecutor::new(NOSTR_LINK, 2048, relay, fixture_secret(), RECIPIENT);
+        let mut frame = [0; 256];
+
+        executor.set_up(true);
+        executor
+            .relay_mut()
+            .enqueue_output(FakeNostrRelayOutput::Event {
+                subscription_id: "sub-1",
+                event,
+            })
+            .map_err(|error| super::map_nostr_send_error(NOSTR_LINK, error))?;
+        assert_eq!(
+            executor.poll_relay_frame(&mut frame),
+            Err(GatewayError::Driver {
+                link_id: NOSTR_LINK,
+                kind,
+            })
+        );
+        Ok(())
+    }
+
+    fn assert_poll_rejects_with_short_output(
+        event: NostrEvent<'static>,
+        kind: LinkDriverErrorKind,
+    ) -> Result<(), GatewayError> {
+        let relay = FakeNostrRelay::<0, 0, 1>::new();
+        let mut executor =
+            NostrGatewayExecutor::new(NOSTR_LINK, 2048, relay, fixture_secret(), RECIPIENT);
+        let mut frame = [0; 1];
+
+        executor.set_up(true);
+        executor
+            .relay_mut()
+            .enqueue_output(FakeNostrRelayOutput::Event {
+                subscription_id: "sub-1",
+                event,
+            })
+            .map_err(|error| super::map_nostr_send_error(NOSTR_LINK, error))?;
+        assert_eq!(
+            executor.poll_relay_frame(&mut frame),
+            Err(GatewayError::Driver {
+                link_id: NOSTR_LINK,
+                kind,
+            })
+        );
+        Ok(())
+    }
+
+    fn valid_content_static() -> Result<&'static str, GatewayError> {
+        let mut encoded = [0; 128];
+        let len = encode_envelope(sample_envelope(), &mut encoded)?;
+        let content = Box::leak(Box::new([0; HYF_NOSTR_MAX_CONTENT_CHARS]));
+        encode_hyf_envelope_content(&encoded[..len], content)
+            .map_err(|error| super::map_nostr_send_error(NOSTR_LINK, error))
+    }
+
+    fn protocol_error() -> GatewayError {
+        GatewayError::Driver {
+            link_id: NOSTR_LINK,
+            kind: LinkDriverErrorKind::Protocol,
+        }
     }
 }
