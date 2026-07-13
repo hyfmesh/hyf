@@ -3,12 +3,14 @@ use core::fmt;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NostrError {
     ContentTooLarge { actual: usize, maximum: usize },
+    Crypto,
     HexLength { expected: usize, actual: usize },
     InvalidHexChar { index: usize, byte: u8 },
     InvalidSubscriptionId,
     NonCanonicalHex { index: usize, byte: u8 },
     OddHexLength { len: usize },
     OutputTooSmall { needed: usize, available: usize },
+    PublicKeyMismatch,
     SubscriptionIdTooLong { len: usize, maximum: usize },
     TagEmpty,
     Unsupported,
@@ -24,6 +26,7 @@ impl fmt::Display for NostrError {
                     "nostr content too large: length {actual}, maximum {maximum}"
                 )
             }
+            Self::Crypto => write!(formatter, "nostr cryptographic operation failed"),
             Self::HexLength { expected, actual } => {
                 write!(
                     formatter,
@@ -47,6 +50,7 @@ impl fmt::Display for NostrError {
                     "output too small: needed {needed}, available {available}"
                 )
             }
+            Self::PublicKeyMismatch => write!(formatter, "nostr public key does not match secret"),
             Self::SubscriptionIdTooLong { len, maximum } => {
                 write!(
                     formatter,
@@ -76,6 +80,10 @@ mod tests {
             }
             .to_string(),
             "nostr content too large: length 4097, maximum 4096"
+        );
+        assert_eq!(
+            NostrError::Crypto.to_string(),
+            "nostr cryptographic operation failed"
         );
         assert_eq!(
             NostrError::HexLength {
@@ -116,6 +124,10 @@ mod tests {
             }
             .to_string(),
             "output too small: needed 4, available 3"
+        );
+        assert_eq!(
+            NostrError::PublicKeyMismatch.to_string(),
+            "nostr public key does not match secret"
         );
         assert_eq!(
             NostrError::SubscriptionIdTooLong {

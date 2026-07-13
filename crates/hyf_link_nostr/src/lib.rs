@@ -13,6 +13,7 @@ mod event;
 mod filter;
 mod hex;
 mod keys;
+mod signing;
 mod signing_spike;
 
 pub use canonical::{event_id, write_canonical_event};
@@ -27,6 +28,7 @@ pub use filter::{
 };
 pub use hex::{decode_fixed_lower_hex, decode_lower_hex, encode_lower_hex};
 pub use keys::{NostrEventId, NostrPublicKey, NostrSecretKey, NostrSignature};
+pub use signing::{derive_nostr_public_key, sign_event};
 
 #[cfg(test)]
 mod tests {
