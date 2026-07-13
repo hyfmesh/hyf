@@ -32,6 +32,58 @@ pub enum NostrOwnedClientMessage {
     Auth(NostrOwnedEvent),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NostrRelayMessage<'a> {
+    Event {
+        subscription_id: &'a str,
+        event: NostrEvent<'a>,
+    },
+    Ok {
+        event_id: NostrEventId,
+        accepted: bool,
+        message: &'a str,
+    },
+    Eose {
+        subscription_id: &'a str,
+    },
+    Closed {
+        subscription_id: &'a str,
+        message: &'a str,
+    },
+    Notice {
+        message: &'a str,
+    },
+    Auth {
+        challenge: &'a str,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NostrOwnedRelayMessage {
+    Event {
+        subscription_id: String,
+        event: NostrOwnedEvent,
+    },
+    Ok {
+        event_id: NostrEventId,
+        accepted: bool,
+        message: String,
+    },
+    Eose {
+        subscription_id: String,
+    },
+    Closed {
+        subscription_id: String,
+        message: String,
+    },
+    Notice {
+        message: String,
+    },
+    Auth {
+        challenge: String,
+    },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NostrOwnedEvent {
     pub id: NostrEventId,
@@ -143,6 +195,140 @@ pub fn decode_client_message(input: &str) -> Result<NostrOwnedClientMessage, Nos
     }
 }
 
+pub fn write_relay_message<'out>(
+    message: NostrRelayMessage<'_>,
+    out: &'out mut [u8],
+) -> Result<&'out str, NostrError> {
+    let mut writer = JsonWriter::new(out);
+    writer.push_byte(b'[')?;
+    match message {
+        NostrRelayMessage::Event {
+            subscription_id,
+            event,
+        } => {
+            validate_subscription_id(subscription_id)?;
+            writer.write_json_string("EVENT")?;
+            writer.push_byte(b',')?;
+            writer.write_json_string(subscription_id)?;
+            writer.push_byte(b',')?;
+            writer.write_event(event)?;
+        }
+        NostrRelayMessage::Ok {
+            event_id,
+            accepted,
+            message,
+        } => {
+            let mut event_id_hex = [0; 64];
+            writer.write_json_string("OK")?;
+            writer.push_byte(b',')?;
+            writer.write_json_string(event_id.write_hex(&mut event_id_hex)?)?;
+            writer.push_byte(b',')?;
+            writer.write_bool(accepted)?;
+            writer.push_byte(b',')?;
+            writer.write_json_string(message)?;
+        }
+        NostrRelayMessage::Eose { subscription_id } => {
+            validate_subscription_id(subscription_id)?;
+            writer.write_json_string("EOSE")?;
+            writer.push_byte(b',')?;
+            writer.write_json_string(subscription_id)?;
+        }
+        NostrRelayMessage::Closed {
+            subscription_id,
+            message,
+        } => {
+            validate_subscription_id(subscription_id)?;
+            writer.write_json_string("CLOSED")?;
+            writer.push_byte(b',')?;
+            writer.write_json_string(subscription_id)?;
+            writer.push_byte(b',')?;
+            writer.write_json_string(message)?;
+        }
+        NostrRelayMessage::Notice { message } => {
+            writer.write_json_string("NOTICE")?;
+            writer.push_byte(b',')?;
+            writer.write_json_string(message)?;
+        }
+        NostrRelayMessage::Auth { challenge } => {
+            writer.write_json_string("AUTH")?;
+            writer.push_byte(b',')?;
+            writer.write_json_string(challenge)?;
+        }
+    }
+    writer.push_byte(b']')?;
+    writer.finish()
+}
+
+pub fn decode_relay_message(input: &str) -> Result<NostrOwnedRelayMessage, NostrError> {
+    let value = JsonParser::new(input).parse()?;
+    let JsonValue::Array(items) = value else {
+        return Err(NostrError::MalformedMessage);
+    };
+    let Some(JsonValue::String(kind)) = items.first() else {
+        return Err(NostrError::MalformedMessage);
+    };
+
+    match kind.as_str() {
+        "EVENT" => {
+            if items.len() != 3 {
+                return Err(NostrError::MalformedMessage);
+            }
+            let subscription_id = expect_string(&items[1])?.clone();
+            validate_subscription_id(&subscription_id)?;
+            Ok(NostrOwnedRelayMessage::Event {
+                subscription_id,
+                event: parse_event(&items[2])?,
+            })
+        }
+        "OK" => {
+            if items.len() != 4 {
+                return Err(NostrError::MalformedMessage);
+            }
+            Ok(NostrOwnedRelayMessage::Ok {
+                event_id: NostrEventId::from_hex(expect_string(&items[1])?)?,
+                accepted: expect_bool(&items[2])?,
+                message: expect_string(&items[3])?.clone(),
+            })
+        }
+        "EOSE" => {
+            if items.len() != 2 {
+                return Err(NostrError::MalformedMessage);
+            }
+            let subscription_id = expect_string(&items[1])?.clone();
+            validate_subscription_id(&subscription_id)?;
+            Ok(NostrOwnedRelayMessage::Eose { subscription_id })
+        }
+        "CLOSED" => {
+            if items.len() != 3 {
+                return Err(NostrError::MalformedMessage);
+            }
+            let subscription_id = expect_string(&items[1])?.clone();
+            validate_subscription_id(&subscription_id)?;
+            Ok(NostrOwnedRelayMessage::Closed {
+                subscription_id,
+                message: expect_string(&items[2])?.clone(),
+            })
+        }
+        "NOTICE" => {
+            if items.len() != 2 {
+                return Err(NostrError::MalformedMessage);
+            }
+            Ok(NostrOwnedRelayMessage::Notice {
+                message: expect_string(&items[1])?.clone(),
+            })
+        }
+        "AUTH" => {
+            if items.len() != 2 {
+                return Err(NostrError::MalformedMessage);
+            }
+            Ok(NostrOwnedRelayMessage::Auth {
+                challenge: expect_string(&items[1])?.clone(),
+            })
+        }
+        _ => Err(NostrError::UnsupportedMessage),
+    }
+}
+
 struct JsonWriter<'out> {
     out: &'out mut [u8],
     len: usize,
@@ -178,6 +364,14 @@ impl<'out> JsonWriter<'out> {
 
     fn write_str(&mut self, value: &str) -> Result<(), NostrError> {
         self.write_bytes(value.as_bytes())
+    }
+
+    fn write_bool(&mut self, value: bool) -> Result<(), NostrError> {
+        if value {
+            self.write_str("true")
+        } else {
+            self.write_str("false")
+        }
     }
 
     fn write_json_string(&mut self, value: &str) -> Result<(), NostrError> {
@@ -700,6 +894,13 @@ fn expect_number(value: &JsonValue) -> Result<u64, NostrError> {
     Ok(*value)
 }
 
+fn expect_bool(value: &JsonValue) -> Result<bool, NostrError> {
+    let JsonValue::Bool(value) = value else {
+        return Err(NostrError::MalformedMessage);
+    };
+    Ok(*value)
+}
+
 fn required_field<'a>(
     fields: &'a [(String, JsonValue)],
     name: &str,
@@ -737,7 +938,8 @@ fn hex_value(value: u8) -> Result<u8, NostrError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        NostrClientMessage, NostrOwnedClientMessage, decode_client_message, write_client_message,
+        NostrClientMessage, NostrOwnedClientMessage, NostrOwnedRelayMessage, NostrRelayMessage,
+        decode_client_message, decode_relay_message, write_client_message, write_relay_message,
     };
     use crate::{
         HYF_NOSTR_ENVELOPE_KIND, NostrError, NostrEvent, NostrEventId, NostrFilter, NostrPublicKey,
@@ -870,6 +1072,160 @@ mod tests {
         assert_eq!(
             write_client_message(
                 NostrClientMessage::Close {
+                    subscription_id: "",
+                },
+                &mut [0; 64],
+            ),
+            Err(NostrError::InvalidSubscriptionId)
+        );
+    }
+
+    #[test]
+    fn event_ok_eose_and_closed_relay_messages_roundtrip() -> Result<(), NostrError> {
+        let event = fixture_event(NostrTagsRef::new(&[]), "abcd")?;
+
+        let mut event_out = [0; 768];
+        let event_json = write_relay_message(
+            NostrRelayMessage::Event {
+                subscription_id: "sub-1",
+                event,
+            },
+            &mut event_out,
+        )?;
+        let NostrOwnedRelayMessage::Event {
+            subscription_id,
+            event: decoded_event,
+        } = decode_relay_message(event_json)?
+        else {
+            return Err(NostrError::MalformedMessage);
+        };
+        assert_eq!(subscription_id, "sub-1");
+        assert_eq!(decoded_event.id, EVENT_ID);
+        assert_eq!(decoded_event.content, "abcd");
+
+        let mut ok_out = [0; 160];
+        let ok_json = write_relay_message(
+            NostrRelayMessage::Ok {
+                event_id: EVENT_ID,
+                accepted: true,
+                message: "duplicate: already stored",
+            },
+            &mut ok_out,
+        )?;
+        assert_eq!(
+            decode_relay_message(ok_json)?,
+            NostrOwnedRelayMessage::Ok {
+                event_id: EVENT_ID,
+                accepted: true,
+                message: String::from("duplicate: already stored"),
+            }
+        );
+
+        let mut eose_out = [0; 64];
+        let eose_json = write_relay_message(
+            NostrRelayMessage::Eose {
+                subscription_id: "sub-1",
+            },
+            &mut eose_out,
+        )?;
+        assert_eq!(
+            decode_relay_message(eose_json)?,
+            NostrOwnedRelayMessage::Eose {
+                subscription_id: String::from("sub-1"),
+            }
+        );
+
+        let mut closed_out = [0; 96];
+        let closed_json = write_relay_message(
+            NostrRelayMessage::Closed {
+                subscription_id: "sub-1",
+                message: "blocked: policy",
+            },
+            &mut closed_out,
+        )?;
+        assert_eq!(
+            decode_relay_message(closed_json)?,
+            NostrOwnedRelayMessage::Closed {
+                subscription_id: String::from("sub-1"),
+                message: String::from("blocked: policy"),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn notice_and_auth_relay_messages_roundtrip() -> Result<(), NostrError> {
+        let mut notice_out = [0; 96];
+        let notice_json = write_relay_message(
+            NostrRelayMessage::Notice {
+                message: "relay maintenance",
+            },
+            &mut notice_out,
+        )?;
+        assert_eq!(
+            decode_relay_message(notice_json)?,
+            NostrOwnedRelayMessage::Notice {
+                message: String::from("relay maintenance"),
+            }
+        );
+
+        let mut auth_out = [0; 96];
+        let auth_json = write_relay_message(
+            NostrRelayMessage::Auth {
+                challenge: "challenge-1",
+            },
+            &mut auth_out,
+        )?;
+        assert_eq!(
+            decode_relay_message(auth_json)?,
+            NostrOwnedRelayMessage::Auth {
+                challenge: String::from("challenge-1"),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn relay_message_codec_rejects_malformed_arrays_and_subscriptions() {
+        assert_eq!(
+            decode_relay_message("{}"),
+            Err(NostrError::MalformedMessage)
+        );
+        assert_eq!(
+            decode_relay_message(r#"["EVENT","sub"]"#),
+            Err(NostrError::MalformedMessage)
+        );
+        assert_eq!(
+            decode_relay_message(r#"["OK","22",true]"#),
+            Err(NostrError::MalformedMessage)
+        );
+        assert_eq!(
+            decode_relay_message(r#"["EOSE",""]"#),
+            Err(NostrError::InvalidSubscriptionId)
+        );
+        assert_eq!(
+            decode_relay_message(r#"["NOPE"]"#),
+            Err(NostrError::UnsupportedMessage)
+        );
+    }
+
+    #[test]
+    fn relay_message_writer_rejects_short_output_and_invalid_subscription() {
+        assert!(matches!(
+            write_relay_message(
+                NostrRelayMessage::Notice {
+                    message: "relay maintenance",
+                },
+                &mut [0; 4],
+            ),
+            Err(NostrError::OutputTooSmall {
+                needed: _,
+                available: 4,
+            })
+        ));
+        assert_eq!(
+            write_relay_message(
+                NostrRelayMessage::Eose {
                     subscription_id: "",
                 },
                 &mut [0; 64],

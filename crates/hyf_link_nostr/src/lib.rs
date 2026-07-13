@@ -43,7 +43,8 @@ pub use keys::{NostrEventId, NostrPublicKey, NostrSecretKey, NostrSignature};
 #[cfg(any(test, feature = "alloc"))]
 pub use messages::{
     NostrClientMessage, NostrOwnedClientMessage, NostrOwnedEvent, NostrOwnedFilter,
-    decode_client_message, write_client_message,
+    NostrOwnedRelayMessage, NostrRelayMessage, decode_client_message, decode_relay_message,
+    write_client_message, write_relay_message,
 };
 pub use signing::{derive_nostr_public_key, sign_event, verify_event};
 
