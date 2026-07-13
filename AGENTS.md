@@ -21,23 +21,30 @@ machine-specific assumptions.
 - Do not add GitHub Actions or workflow files under `.github/workflows`.
 - Do not add `.act` workflows to this public repository.
 
-## Handoff 3 Boundary
+## Handoff 4 Boundary
 
-Allowed Handoff 3 work includes the owned frame store, pure router state
-machine, deterministic loopback link, typed gateway config, gateway runtime
-shell, public docs, local verification script, and local evidence.
+Allowed Handoff 4 work includes:
 
-Handoff 3 must not implement FIPS runtime code, Nostr, LXMF, BitChat, bridge
-rooms, live RNS/RNode I/O, Reticulum path tables, Reticulum link sessions,
-firmware, mobile apps, or production persistence.
+- generic synchronous link-driver contracts;
+- loopback driver integration;
+- opaque RNS packet wrapping as `PayloadKind::ForeignRnsPacket`;
+- fake-serial-first RNode/KISS serial gateway link behavior;
+- feature-gated serialport open-gate support;
+- gateway core/executor separation;
+- fake RNode serial smoke tests;
+- public docs, ADRs, and local verification scripts.
+
+Handoff 4 must not implement FIPS runtime code, Nostr, LXMF, BitChat, bridge
+rooms, full Reticulum path tables, Reticulum link sessions, resources, channels,
+firmware, mobile apps, production persistence, or RF transmission by default.
 
 ## Verification
 
 Before claiming a source change is complete, run the narrowest relevant checks.
-For full Handoff 3 validation, run:
+For full Handoff 4 validation, run:
 
 ```bash
-scripts/verify_handoff3.sh
+scripts/verify_handoff4.sh
 ```
 
 For focused Rust work, prefer:
@@ -47,3 +54,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+Optional `HYF_RETICULUM_PATH` and `HYF_HIL_RNODE_PORT` lanes may skip when the
+environment is not configured. Report skips explicitly and do not overclaim
+hardware validation.
