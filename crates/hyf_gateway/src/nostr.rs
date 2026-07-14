@@ -118,10 +118,7 @@ impl<
 
         let Some(is_event) = self
             .relay
-            .with_next_output(|message| match message {
-                FakeNostrRelayOutput::Event { .. } => true,
-                _ => false,
-            })
+            .with_next_output(|message| matches!(message, FakeNostrRelayOutput::Event { .. }))
             .map_err(|error| map_nostr_receive_error(self.link_id, error))?
         else {
             return Ok(None);
@@ -639,7 +636,7 @@ mod tests {
     #[test]
     fn nostr_gateway_executor_rejects_invalid_inbound_events() -> Result<(), GatewayError> {
         assert_poll_rejects_with(
-            |executor| enqueue_tampered_signature_event(executor),
+            enqueue_tampered_signature_event,
             LinkDriverErrorKind::Protocol,
         )?;
         assert_poll_rejects_with(

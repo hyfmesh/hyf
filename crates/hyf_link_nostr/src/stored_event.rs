@@ -87,11 +87,13 @@ impl FakeNostrEventRecord {
             let Some(tag) = self.tags.tag(tag_index) else {
                 break;
             };
-            for value_index in 0..tag.len() {
+            for (value_index, value_slot) in
+                tag_values[tag_index].iter_mut().enumerate().take(tag.len())
+            {
                 let Some(value) = tag.value(value_index)? else {
                     break;
                 };
-                tag_values[tag_index][value_index] = value;
+                *value_slot = value;
             }
             tag_value_counts[tag_index] = tag.len();
         }

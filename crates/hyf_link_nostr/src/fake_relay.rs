@@ -83,7 +83,7 @@ enum FakeNostrRelayOutputRecord<'a> {
     },
     OwnedEvent {
         subscription_id: &'a str,
-        event: FakeNostrEventRecord,
+        output_event_index: usize,
     },
     Eose {
         subscription_id: &'a str,
@@ -101,40 +101,10 @@ enum FakeNostrRelayOutputRecord<'a> {
 }
 
 impl<'a> FakeNostrRelayOutputRecord<'a> {
-    fn from_output(output: FakeNostrRelayOutput<'a>) -> Result<Self, NostrError> {
-        Ok(match output {
-            FakeNostrRelayOutput::Ok {
-                event_id,
-                accepted,
-                status,
-            } => Self::Ok {
-                event_id,
-                accepted,
-                status,
-            },
-            FakeNostrRelayOutput::Event {
-                subscription_id,
-                event,
-            } => Self::OwnedEvent {
-                subscription_id,
-                event: FakeNostrEventRecord::from_event(&event)?,
-            },
-            FakeNostrRelayOutput::Eose { subscription_id } => Self::Eose { subscription_id },
-            FakeNostrRelayOutput::Closed {
-                subscription_id,
-                status,
-            } => Self::Closed {
-                subscription_id,
-                status,
-            },
-            FakeNostrRelayOutput::Notice { message } => Self::Notice { message },
-            FakeNostrRelayOutput::Auth { challenge } => Self::Auth { challenge },
-        })
-    }
-
-    fn with_view<T, const EVENT_CAPACITY: usize>(
+    fn with_view<T, const EVENT_CAPACITY: usize, const OUTPUT_CAPACITY: usize>(
         &self,
         events: &[Option<FakeNostrEventRecord>; EVENT_CAPACITY],
+        output_events: &[Option<FakeNostrEventRecord>; OUTPUT_CAPACITY],
         f: impl for<'output> FnOnce(FakeNostrRelayOutput<'output>) -> T,
     ) -> Result<T, NostrError> {
         match self {
@@ -164,13 +134,19 @@ impl<'a> FakeNostrRelayOutputRecord<'a> {
             }
             Self::OwnedEvent {
                 subscription_id,
-                event,
-            } => event.with_event(|event| {
-                Ok(f(FakeNostrRelayOutput::Event {
-                    subscription_id,
-                    event,
-                }))
-            }),
+                output_event_index,
+            } => {
+                let event = output_events
+                    .get(*output_event_index)
+                    .and_then(Option::as_ref)
+                    .ok_or(NostrError::Unsupported)?;
+                event.with_event(|event| {
+                    Ok(f(FakeNostrRelayOutput::Event {
+                        subscription_id,
+                        event,
+                    }))
+                })
+            }
             Self::Eose { subscription_id } => Ok(f(FakeNostrRelayOutput::Eose { subscription_id })),
             Self::Closed {
                 subscription_id,
@@ -194,6 +170,7 @@ pub struct FakeNostrRelay<
     events: [Option<FakeNostrEventRecord>; EVENT_CAPACITY],
     subscriptions: [Option<FakeNostrSubscription<'a>>; SUBSCRIPTION_CAPACITY],
     outputs: [Option<FakeNostrRelayOutputRecord<'a>>; OUTPUT_CAPACITY],
+    output_events: [Option<FakeNostrEventRecord>; OUTPUT_CAPACITY],
     next_publish_rejection: Option<NostrRelayStatus<'a>>,
     metrics: FakeNostrRelayMetrics,
 }
@@ -210,6 +187,7 @@ impl<
             events: [const { None }; EVENT_CAPACITY],
             subscriptions: [None; SUBSCRIPTION_CAPACITY],
             outputs: [const { None }; OUTPUT_CAPACITY],
+            output_events: [const { None }; OUTPUT_CAPACITY],
             next_publish_rejection: None,
             metrics: FakeNostrRelayMetrics {
                 stored_events: 0,
@@ -369,7 +347,37 @@ impl<
     }
 
     pub fn enqueue_output(&mut self, output: FakeNostrRelayOutput<'a>) -> Result<(), NostrError> {
-        self.enqueue_output_record(FakeNostrRelayOutputRecord::from_output(output)?)
+        match output {
+            FakeNostrRelayOutput::Ok {
+                event_id,
+                accepted,
+                status,
+            } => self.enqueue_output_record(FakeNostrRelayOutputRecord::Ok {
+                event_id,
+                accepted,
+                status,
+            }),
+            FakeNostrRelayOutput::Event {
+                subscription_id,
+                event,
+            } => self.enqueue_event_output(subscription_id, event),
+            FakeNostrRelayOutput::Eose { subscription_id } => {
+                self.enqueue_output_record(FakeNostrRelayOutputRecord::Eose { subscription_id })
+            }
+            FakeNostrRelayOutput::Closed {
+                subscription_id,
+                status,
+            } => self.enqueue_output_record(FakeNostrRelayOutputRecord::Closed {
+                subscription_id,
+                status,
+            }),
+            FakeNostrRelayOutput::Notice { message } => {
+                self.enqueue_output_record(FakeNostrRelayOutputRecord::Notice { message })
+            }
+            FakeNostrRelayOutput::Auth { challenge } => {
+                self.enqueue_output_record(FakeNostrRelayOutputRecord::Auth { challenge })
+            }
+        }
     }
 
     pub fn enqueue_event_output(
@@ -377,10 +385,20 @@ impl<
         subscription_id: &'a str,
         event: NostrEvent<'_>,
     ) -> Result<(), NostrError> {
-        self.enqueue_output_record(FakeNostrRelayOutputRecord::OwnedEvent {
+        let record = FakeNostrEventRecord::from_event(&event)?;
+        let Some(output_event_index) = self.output_events.iter().position(Option::is_none) else {
+            self.metrics.output_overflows += 1;
+            return Err(NostrError::RelayOutputFull {
+                capacity: OUTPUT_CAPACITY,
+            });
+        };
+        let output = FakeNostrRelayOutputRecord::OwnedEvent {
             subscription_id,
-            event: FakeNostrEventRecord::from_event(&event)?,
-        })
+            output_event_index,
+        };
+        self.enqueue_output_record(output)?;
+        self.output_events[output_event_index] = Some(record);
+        Ok(())
     }
 
     fn enqueue_output_record(
@@ -405,7 +423,9 @@ impl<
         let Some(output) = self.outputs.first().and_then(Option::as_ref) else {
             return Ok(None);
         };
-        output.with_view(&self.events, f).map(Some)
+        output
+            .with_view(&self.events, &self.output_events, f)
+            .map(Some)
     }
 
     pub fn next_control_output(&self) -> Option<FakeNostrRelayControlOutput<'a>> {
@@ -446,6 +466,12 @@ impl<
         };
         if output.is_none() {
             return false;
+        }
+        if let Some(FakeNostrRelayOutputRecord::OwnedEvent {
+            output_event_index, ..
+        }) = output.as_ref()
+        {
+            self.output_events[*output_event_index] = None;
         }
         *output = None;
         if OUTPUT_CAPACITY > 1 {
