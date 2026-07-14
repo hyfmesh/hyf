@@ -8,9 +8,11 @@
 
 mod error;
 mod params;
+mod wrap;
 
 pub use error::HyfLinkLxmfError;
 pub use params::LxmfWrapParams;
+pub use wrap::{unwrap_lxmf_message, validate_lxmf_message, wrap_lxmf_message};
 
 #[cfg(test)]
 mod tests {
