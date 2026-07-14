@@ -584,6 +584,7 @@ fn gateway_dependencies_preserve_clean_boundaries() -> TestResult {
         "dev",
         &[
             "hyf_link_kiss",
+            "hyf_link_lxmf",
             "hyf_link_rnode_serial",
             "hyf_link_rns",
             "hyf_wire",

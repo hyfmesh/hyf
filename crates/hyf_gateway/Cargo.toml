@@ -20,6 +20,7 @@ hyf_wire.workspace = true
 
 [dev-dependencies]
 hyf_link_kiss = { workspace = true, features = ["std"] }
+hyf_link_lxmf = { workspace = true, features = ["std"] }
 hyf_link_rnode_serial = { workspace = true, features = ["std"] }
 hyf_link_rns = { workspace = true, features = ["std"] }
 hyf_wire = { workspace = true, features = ["std"] }

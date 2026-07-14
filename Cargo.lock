@@ -519,6 +519,7 @@ dependencies = [
  "hyf_link_fips",
  "hyf_link_kiss",
  "hyf_link_loopback",
+ "hyf_link_lxmf",
  "hyf_link_nostr",
  "hyf_link_rnode_serial",
  "hyf_link_rns",
