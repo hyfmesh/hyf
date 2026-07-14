@@ -8,7 +8,9 @@ or live public relay default.
 ## Components
 
 - `hyf_link_nostr`: Nostr event, key, signature, filter, message, fake relay,
-  content-codec, and gateway-executor crate.
+  and content-codec crate.
+- `hyf_gateway::NostrGatewayExecutor`: synchronous gateway executor for the
+  fake-relay-backed Nostr path.
 - `hyf_gateway::GatewayLinkExecutor`: outbound gateway send boundary used by
   the Nostr executor.
 - `hyf_link::LinkFrameRef`: inbound verified relay events are decoded back into
@@ -34,23 +36,43 @@ characters, and oversized content.
 The event ID is the NIP-01 SHA-256 hash of canonical serialized event data.
 Events are signed and verified with Schnorr signatures over secp256k1.
 
+The Nostr path signs events for integrity. It does not provide payload privacy
+or end-to-end encryption.
+
 ## Fake Relay First
 
 Normal tests use `FakeNostrRelay`. It must provide bounded storage,
 deterministic replay order, duplicate detection, typed publish outcomes,
 subscription filters, EOSE, and surfaced NOTICE, CLOSED, and AUTH messages.
 
+Accepted events are copied into relay-owned bounded records. Replays borrow
+views from those records, so callers can reuse or drop signing scratch after
+publish.
+
 No default test may require a live relay or network service.
 
 ## Gateway Behavior
 
-Outbound gateway sends produce signed Nostr events and publish them to the fake
-relay. Inbound relay EVENT messages are verified, decoded into HYF envelope
-bytes, and returned as `LinkFrameRef` for normal gateway ingestion.
+Outbound gateway sends use `HyfNostrEventScratch` to produce signed Nostr
+events without leaked static buffers. The event is immediately published into
+relay-owned storage.
+
+Inbound relay polling returns `NostrGatewayRelayOutput`:
+
+- `Frame(LinkFrameRef)` for valid EVENT messages.
+- `Ok` for relay publish acknowledgements.
+- `Eose` for end-of-stored-events markers.
+- `Closed` for subscription closure messages.
+- `Notice` for relay notices.
+- `Auth` for authentication challenges.
 
 Relay rejections must be typed. Temporary failures such as rate limiting can be
 recoverable send failures; invalid events must fail closed. Duplicate OK
 responses are accepted duplicate outcomes, not fresh publishes.
+
+If a valid EVENT does not fit the caller output buffer, polling returns
+`OutputTooSmall` and leaves that EVENT pending for retry. Invalid EVENT outputs
+are consumed and fail closed with a protocol error.
 
 ## Non-Goals
 

@@ -265,6 +265,28 @@ const REQUIRED_PUBLIC_DOCS: &[PublicDocSpec] = &[
         forbidden: &[],
     },
     PublicDocSpec {
+        path: "docs/architecture/nostr_uplink.md",
+        required: &[
+            "HyfNostrEventScratch",
+            "relay-owned bounded records",
+            "NostrGatewayRelayOutput",
+            "OutputTooSmall",
+            "does not provide payload privacy",
+        ],
+        forbidden: PUBLIC_REPO_FORBIDDEN_SNIPPETS,
+    },
+    PublicDocSpec {
+        path: "docs/verification/nostr_uplink.md",
+        required: &[
+            "Nostr Uplink Verification",
+            "cargo test -p hyf_link_nostr",
+            "cargo test -p hyf_gateway --test nostr_uplink_smoke",
+            "cargo test -p hyf_rns_conformance --test workspace_metadata",
+            "No live relay",
+        ],
+        forbidden: PUBLIC_REPO_FORBIDDEN_SNIPPETS,
+    },
+    PublicDocSpec {
         path: "docs/evidence/gateway_foundation.md",
         required: &[
             "Gateway Foundation Evidence",
