@@ -9,18 +9,17 @@ const LXMF_PAYLOAD_ARRAY_LEN: usize = 4;
 const LXMF_PAYLOAD_ARRAY_WITH_STAMP_LEN: usize = 5;
 const FIXED_ARRAY4_MARKER: u8 = 0x90 | LXMF_PAYLOAD_ARRAY_LEN as u8;
 
-pub fn lxmf_message_id(message: LxmfMessageRef<'_>) -> LxmfMessageId {
-    match SigningPayload::parse(message.packed_payload) {
-        Ok(signing_payload) => message_id_with_signing_payload(message, &signing_payload),
-        Err(_) => message_id_with_bytes(message, message.packed_payload),
-    }
+pub fn lxmf_message_id(message: LxmfMessageRef<'_>) -> Result<LxmfMessageId, LxmfError> {
+    let signing_payload = SigningPayload::parse(message.packed_payload)?;
+    Ok(message_id_with_signing_payload(message, &signing_payload))
 }
 
-pub fn lxmf_signature_input_len(message: LxmfMessageRef<'_>) -> usize {
-    let signing_payload_len = SigningPayload::parse(message.packed_payload)
-        .map(|signing_payload| signing_payload.len())
-        .unwrap_or(message.packed_payload.len());
-    LXMF_DESTINATION_HASH_LEN + LXMF_SOURCE_HASH_LEN + signing_payload_len + LXMF_MESSAGE_ID_LEN
+pub fn lxmf_signature_input_len(message: LxmfMessageRef<'_>) -> Result<usize, LxmfError> {
+    let signing_payload = SigningPayload::parse(message.packed_payload)?;
+    Ok(LXMF_DESTINATION_HASH_LEN
+        + LXMF_SOURCE_HASH_LEN
+        + signing_payload.len()
+        + LXMF_MESSAGE_ID_LEN)
 }
 
 pub fn write_lxmf_signature_input(
@@ -58,12 +57,6 @@ fn message_id_with_signing_payload(
 ) -> LxmfMessageId {
     let mut hasher = message_id_hasher(message);
     signing_payload.update_hasher(&mut hasher);
-    finish_message_id(hasher)
-}
-
-fn message_id_with_bytes(message: LxmfMessageRef<'_>, signing_payload: &[u8]) -> LxmfMessageId {
-    let mut hasher = message_id_hasher(message);
-    hasher.update(signing_payload);
     finish_message_id(hasher)
 }
 
@@ -260,8 +253,8 @@ mod tests {
         let message5 = decode_lxmf_message(&full_message5)?;
         let expected = LxmfMessageId::from_bytes(EXPECTED_MESSAGE_ID);
 
-        assert_eq!(lxmf_message_id(message4), expected);
-        assert_eq!(lxmf_message_id(message5), expected);
+        assert_eq!(lxmf_message_id(message4)?, expected);
+        assert_eq!(lxmf_message_id(message5)?, expected);
         Ok(())
     }
 
@@ -281,8 +274,8 @@ mod tests {
 
         assert_eq!(len4, SIGNATURE_INPUT_LEN);
         assert_eq!(len5, SIGNATURE_INPUT_LEN);
-        assert_eq!(lxmf_signature_input_len(message4), SIGNATURE_INPUT_LEN);
-        assert_eq!(lxmf_signature_input_len(message5), SIGNATURE_INPUT_LEN);
+        assert_eq!(lxmf_signature_input_len(message4)?, SIGNATURE_INPUT_LEN);
+        assert_eq!(lxmf_signature_input_len(message5)?, SIGNATURE_INPUT_LEN);
         assert_eq!(output4, output5);
         assert_eq!(&output4[..16], &DESTINATION_HASH);
         assert_eq!(&output4[16..32], &SOURCE_HASH);
@@ -309,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn signature_input_rejects_malformed_array5_payload() {
+    fn message_id_and_signature_input_reject_malformed_signing_payload() {
         let message = LxmfMessageRef {
             destination_hash: LxmfDestinationHash::from_bytes(DESTINATION_HASH),
             source_hash: LxmfSourceHash::from_bytes(SOURCE_HASH),
@@ -325,6 +318,11 @@ mod tests {
         };
         let mut output = [0; 128];
 
+        assert_eq!(lxmf_message_id(message), Err(LxmfError::MsgpackTruncated));
+        assert_eq!(
+            lxmf_signature_input_len(message),
+            Err(LxmfError::MsgpackTruncated)
+        );
         assert_eq!(
             write_lxmf_signature_input(message, &mut output),
             Err(LxmfError::MsgpackTruncated)
