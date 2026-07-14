@@ -3,9 +3,10 @@ use crate::{FipsIpv6Addr, FipsNodeAddr};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FipsTunState {
     Unknown,
-    Up,
-    Down,
     Disabled,
+    Configured,
+    Active,
+    Failed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,9 +21,10 @@ pub struct FipsStatus {
 impl FipsTunState {
     pub const fn from_control_str(value: &str) -> Self {
         match value.as_bytes() {
-            b"up" => Self::Up,
-            b"down" => Self::Down,
             b"disabled" => Self::Disabled,
+            b"configured" => Self::Configured,
+            b"active" => Self::Active,
+            b"failed" => Self::Failed,
             _ => Self::Unknown,
         }
     }
@@ -192,6 +194,33 @@ mod json {
         }
 
         #[test]
+        fn control_status_parses_reference_tun_states() -> Result<(), FipsError> {
+            for (tun_state, expected) in [
+                ("disabled", FipsTunState::Disabled),
+                ("configured", FipsTunState::Configured),
+                ("active", FipsTunState::Active),
+                ("failed", FipsTunState::Failed),
+            ] {
+                let input = format!(
+                    r#"{{
+  "status": "ok",
+  "data": {{
+    "node_addr": "1b4788b7ab7a436a611fc59fb1e34c6e",
+    "ipv6_addr": "fd1b:4788:b7ab:7a43:6a61:1fc5:9fb1:e34c",
+    "tun_state": "{tun_state}"
+  }}
+}}"#
+                );
+
+                let status = parse_show_status_response(input.as_bytes())?;
+                assert_eq!(status.tun_state, expected);
+                assert_eq!(status.effective_ipv6_mtu, None);
+                assert_eq!(status.peer_count, None);
+            }
+            Ok(())
+        }
+
+        #[test]
         fn control_status_rejects_oversized_response() {
             let oversized = [b' '; HYF_FIPS_CONTROL_MAX_RESPONSE_BYTES + 1];
 
@@ -215,7 +244,7 @@ mod json {
         #[test]
         fn control_status_rejects_missing_required_fields() {
             assert_eq!(
-                parse_show_status_response(br#"{"status":"ok","data":{"tun_state":"up"}}"#),
+                parse_show_status_response(br#"{"status":"ok","data":{"tun_state":"active"}}"#),
                 Err(FipsError::MalformedControlStatus)
             );
         }
@@ -223,7 +252,7 @@ mod json {
         #[test]
         fn control_status_rejects_bad_node_address() {
             assert_eq!(
-                parse_show_status_response(br#"{"status":"ok","data":{"node_addr":"ZZ4788b7ab7a436a611fc59fb1e34c6e","ipv6_addr":"fd1b:4788:b7ab:7a43:6a61:1fc5:9fb1:e34c","tun_state":"up"}}"#),
+                parse_show_status_response(br#"{"status":"ok","data":{"node_addr":"ZZ4788b7ab7a436a611fc59fb1e34c6e","ipv6_addr":"fd1b:4788:b7ab:7a43:6a61:1fc5:9fb1:e34c","tun_state":"active"}}"#),
                 Err(FipsError::MalformedControlStatus)
             );
         }
@@ -231,7 +260,7 @@ mod json {
         #[test]
         fn control_status_rejects_bad_ipv6_address() {
             assert_eq!(
-                parse_show_status_response(br#"{"status":"ok","data":{"node_addr":"1b4788b7ab7a436a611fc59fb1e34c6e","ipv6_addr":"fd1b:4788:b7ab:7a43:6a61:1fc5:9fb1:e34d","tun_state":"up"}}"#),
+                parse_show_status_response(br#"{"status":"ok","data":{"node_addr":"1b4788b7ab7a436a611fc59fb1e34c6e","ipv6_addr":"fd1b:4788:b7ab:7a43:6a61:1fc5:9fb1:e34d","tun_state":"active"}}"#),
                 Err(FipsError::MalformedControlStatus)
             );
         }
@@ -239,7 +268,7 @@ mod json {
         #[test]
         fn control_status_rejects_bad_optional_numeric_field() {
             assert_eq!(
-                parse_show_status_response(br#"{"status":"ok","data":{"node_addr":"1b4788b7ab7a436a611fc59fb1e34c6e","ipv6_addr":"fd1b:4788:b7ab:7a43:6a61:1fc5:9fb1:e34c","tun_state":"up","peer_count":70000}}"#),
+                parse_show_status_response(br#"{"status":"ok","data":{"node_addr":"1b4788b7ab7a436a611fc59fb1e34c6e","ipv6_addr":"fd1b:4788:b7ab:7a43:6a61:1fc5:9fb1:e34c","tun_state":"active","peer_count":70000}}"#),
                 Err(FipsError::MalformedControlStatus)
             );
         }
