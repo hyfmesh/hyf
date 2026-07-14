@@ -534,6 +534,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyf_link_fips"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "hyf_link_kiss"
 version = "0.1.0"
 

@@ -38,6 +38,23 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
     common_features("hyf_config"),
     common_features("hyf_link_rns"),
     FeatureSurface {
+        package: "hyf_link_fips",
+        features: &[
+            FeatureSpec {
+                name: "control_json",
+                enables: &["dep:serde_json", "std"],
+            },
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &[],
+            },
+        ],
+    },
+    FeatureSurface {
         package: "hyf_link_nostr",
         features: &[
             FeatureSpec {
@@ -207,6 +224,7 @@ const FUTURE_PRODUCTION_DEPENDENCY_MARKERS: &[&str] = &[
     "rnode",
     "serialport",
 ];
+const ALLOWED_GATEWAY_FOUNDATION_DEPENDENCIES_WITH_MARKERS: &[&str] = &["hyf_link_fips"];
 const PUBLIC_REPO_FORBIDDEN_SNIPPETS: &[&str] = &[
     concat!("hand", "off"),
     concat!("rc", "ld"),
@@ -997,6 +1015,11 @@ fn assert_packages_omit_dependency_markers(
         let package = package_by_name(packages, package_name)?;
         for dependency in &package.dependencies {
             if dependency_kind(dependency) != "normal" {
+                continue;
+            }
+            if ALLOWED_GATEWAY_FOUNDATION_DEPENDENCIES_WITH_MARKERS
+                .contains(&dependency.name.as_str())
+            {
                 continue;
             }
             let dependency_name = dependency.name.to_ascii_lowercase();

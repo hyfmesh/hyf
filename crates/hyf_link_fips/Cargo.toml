@@ -1,0 +1,19 @@
+[package]
+name = "hyf_link_fips"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde_json = { workspace = true, optional = true }
+
+[features]
+default = []
+std = []
+control_json = ["dep:serde_json", "std"]
+
+[lints]
+workspace = true
