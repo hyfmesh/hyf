@@ -7,6 +7,7 @@
 #![deny(clippy::unwrap_used)]
 
 mod constants;
+mod control;
 mod datagram;
 mod error;
 mod fake_sidecar;
@@ -16,6 +17,9 @@ pub use constants::{
     HYF_FIPS_CONTROL_MAX_RESPONSE_BYTES, HYF_FIPS_DEFAULT_FRAME_MAX, HYF_FIPS_DEFAULT_MTU,
     HYF_FIPS_DEFAULT_PEERS, HYF_FIPS_DEFAULT_QUEUE,
 };
+#[cfg(feature = "control_json")]
+pub use control::parse_show_status_response;
+pub use control::{FipsStatus, FipsTunState};
 pub use datagram::{FipsDatagramRecord, FipsDatagramRef};
 pub use error::FipsError;
 pub use fake_sidecar::FakeFipsSidecar;
