@@ -49,6 +49,28 @@ pub enum FakeNostrRelayOutput<'a> {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FakeNostrRelayControlOutput<'a> {
+    Ok {
+        event_id: NostrEventId,
+        accepted: bool,
+        status: NostrRelayStatus<'a>,
+    },
+    Eose {
+        subscription_id: &'a str,
+    },
+    Closed {
+        subscription_id: &'a str,
+        status: NostrRelayStatus<'a>,
+    },
+    Notice {
+        message: &'a str,
+    },
+    Auth {
+        challenge: &'a str,
+    },
+}
+
 enum FakeNostrRelayOutputRecord<'a> {
     Ok {
         event_id: NostrEventId,
@@ -384,6 +406,38 @@ impl<
             return Ok(None);
         };
         output.with_view(&self.events, f).map(Some)
+    }
+
+    pub fn next_control_output(&self) -> Option<FakeNostrRelayControlOutput<'a>> {
+        match self.outputs.first().and_then(Option::as_ref)? {
+            FakeNostrRelayOutputRecord::Ok {
+                event_id,
+                accepted,
+                status,
+            } => Some(FakeNostrRelayControlOutput::Ok {
+                event_id: *event_id,
+                accepted: *accepted,
+                status: *status,
+            }),
+            FakeNostrRelayOutputRecord::StoredEvent { .. }
+            | FakeNostrRelayOutputRecord::OwnedEvent { .. } => None,
+            FakeNostrRelayOutputRecord::Eose { subscription_id } => {
+                Some(FakeNostrRelayControlOutput::Eose { subscription_id })
+            }
+            FakeNostrRelayOutputRecord::Closed {
+                subscription_id,
+                status,
+            } => Some(FakeNostrRelayControlOutput::Closed {
+                subscription_id,
+                status: *status,
+            }),
+            FakeNostrRelayOutputRecord::Notice { message } => {
+                Some(FakeNostrRelayControlOutput::Notice { message })
+            }
+            FakeNostrRelayOutputRecord::Auth { challenge } => {
+                Some(FakeNostrRelayControlOutput::Auth { challenge })
+            }
+        }
     }
 
     pub fn consume_output(&mut self) -> bool {

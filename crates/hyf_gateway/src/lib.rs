@@ -14,7 +14,7 @@ mod runtime;
 pub use core::{GATEWAY_FRAME_BUFFER_LEN, GatewayCore, GatewayLinkExecutor};
 pub use error::GatewayError;
 pub use metrics::GatewayMetrics;
-pub use nostr::NostrGatewayExecutor;
+pub use nostr::{NostrGatewayExecutor, NostrGatewayRelayOutput};
 pub use runtime::GatewayRuntime;
 
 #[cfg(test)]

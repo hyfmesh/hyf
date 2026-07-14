@@ -37,7 +37,8 @@ pub use content::{decode_hyf_envelope_content, encode_hyf_envelope_content};
 pub use error::NostrError;
 pub use event::{NostrEvent, NostrUnsignedEvent, validate_content_len};
 pub use fake_relay::{
-    FakeNostrRelay, FakeNostrRelayMetrics, FakeNostrRelayOutput, FakeNostrSubscription,
+    FakeNostrRelay, FakeNostrRelayControlOutput, FakeNostrRelayMetrics, FakeNostrRelayOutput,
+    FakeNostrSubscription,
 };
 pub use filter::{
     NOSTR_SUBSCRIPTION_ID_MAX_LEN, NostrFilter, NostrFilterTarget, NostrTagRef, NostrTagsRef,

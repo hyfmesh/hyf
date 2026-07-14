@@ -2,7 +2,9 @@ use hyf_config::{
     GatewayConfig, GatewayPolicyConfig, LinkConfig, LinkConfigSet, RouterConfig, StoreConfig,
 };
 use hyf_core::{MessageId, NodeId, TimestampMs};
-use hyf_gateway::{GatewayCore, GatewayError, GatewayLinkExecutor, NostrGatewayExecutor};
+use hyf_gateway::{
+    GatewayCore, GatewayError, GatewayLinkExecutor, NostrGatewayExecutor, NostrGatewayRelayOutput,
+};
 use hyf_link::{LinkDriverErrorKind, LinkEvent, LinkId};
 use hyf_link_nostr::{
     FakeNostrRelay, HYF_NOSTR_ENVELOPE_KIND, HyfNostrEventScratch, NostrError, NostrFilter,
@@ -53,6 +55,12 @@ fn smoke_gateway_outbound_hyf_envelope_publishes_to_fake_nostr_relay() -> Result
     assert_no_payload_leak(&format!("{:?}", executor.relay()));
     assert_no_payload_leak(&format!("{:?}", executor.relay().metrics()));
 
+    let mut frame = [0; 256];
+    assert!(matches!(
+        executor.poll_relay_output(&mut frame)?,
+        Some(NostrGatewayRelayOutput::Ok { accepted: true, .. })
+    ));
+
     let kinds = [HYF_NOSTR_ENVELOPE_KIND];
     let filters = [NostrFilter {
         kinds: &kinds,
@@ -62,10 +70,10 @@ fn smoke_gateway_outbound_hyf_envelope_publishes_to_fake_nostr_relay() -> Result
         return Err(protocol_error());
     }
 
-    let mut frame = [0; 256];
-    let frame = match executor.poll_relay_frame(&mut frame)? {
-        Some(frame) => frame,
+    let frame = match executor.poll_relay_output(&mut frame)? {
+        Some(NostrGatewayRelayOutput::Frame(frame)) => frame,
         None => return Err(protocol_error()),
+        _ => return Err(protocol_error()),
     };
     let decoded = decode_envelope(frame.bytes)?;
 
@@ -98,12 +106,17 @@ fn smoke_gateway_inbound_fake_nostr_event_delivers_to_core() -> Result<(), Gatew
 
     executor.set_up(true);
     executor.send_link_bytes(NOSTR_LINK, &encoded[..len], TimestampMs(1_720_000_010_000))?;
+    assert!(matches!(
+        executor.poll_relay_output(&mut frame)?,
+        Some(NostrGatewayRelayOutput::Ok { accepted: true, .. })
+    ));
     if executor.relay_mut().subscribe("inbound", &filters).is_err() {
         return Err(protocol_error());
     }
-    let frame = match executor.poll_relay_frame(&mut frame)? {
-        Some(frame) => frame,
+    let frame = match executor.poll_relay_output(&mut frame)? {
+        Some(NostrGatewayRelayOutput::Frame(frame)) => frame,
         None => return Err(protocol_error()),
+        _ => return Err(protocol_error()),
     };
     core.ingest_link_frame(frame, &mut executor)?;
 
@@ -136,7 +149,7 @@ fn smoke_gateway_rejects_malformed_nostr_before_core_ingest() -> Result<(), Gate
     enqueue_tampered_event(&mut executor, &encoded[..len])?;
 
     assert_eq!(
-        executor.poll_relay_frame(&mut frame),
+        executor.poll_relay_output(&mut frame),
         Err(GatewayError::Driver {
             link_id: NOSTR_LINK,
             kind: LinkDriverErrorKind::Protocol,
