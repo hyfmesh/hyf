@@ -3,6 +3,9 @@
 This is the dedicated verification guide for the fake-relay-first Nostr uplink
 surface. Run commands from the repository root.
 
+No live relay, public relay account, network service, async daemon, or payload
+privacy claim is required for these checks.
+
 ```bash
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
