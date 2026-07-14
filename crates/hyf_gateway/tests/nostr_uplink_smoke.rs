@@ -7,9 +7,9 @@ use hyf_gateway::{
 };
 use hyf_link::{LinkDriverErrorKind, LinkEvent, LinkId};
 use hyf_link_nostr::{
-    FakeNostrRelay, HYF_NOSTR_ENVELOPE_KIND, HyfNostrEventScratch, NostrError, NostrFilter,
-    NostrPublicKey, NostrRelayStatus, NostrRelayStatusPrefix, NostrSecretKey, NostrSignature,
-    with_signed_hyf_nostr_event,
+    FakeNostrRelay, FakeNostrRelayOutput, HYF_NOSTR_ENVELOPE_KIND, HyfNostrEventScratch,
+    NostrError, NostrFilter, NostrPublicKey, NostrRelayStatus, NostrRelayStatusPrefix,
+    NostrSecretKey, NostrSignature, with_signed_hyf_nostr_event,
 };
 use hyf_store::StorePolicy;
 use hyf_wire::{
@@ -157,6 +157,138 @@ fn smoke_gateway_rejects_malformed_nostr_before_core_ingest() -> Result<(), Gate
     );
     assert_eq!(core.metrics().received, 0);
     assert_eq!(core.last_delivered_message_id(), None);
+    assert_eq!(executor.poll_relay_output(&mut frame)?, None);
+    Ok(())
+}
+
+#[test]
+fn smoke_gateway_typed_relay_controls_surface_in_order() -> Result<(), GatewayError> {
+    let mut executor = NostrGatewayExecutor::new(
+        NOSTR_LINK,
+        2048,
+        SmokeRelay::new(),
+        fixture_secret(),
+        RECIPIENT,
+    );
+    let mut encoded = [0; 256];
+    let len = encode_envelope(sample_envelope(), &mut encoded)?;
+    let closed_status = auth_required_status();
+    let mut frame = [0; 256];
+
+    executor.set_up(true);
+    executor.send_link_bytes(NOSTR_LINK, &encoded[..len], sample_envelope().created_at_ms)?;
+    executor.send_link_bytes(NOSTR_LINK, &encoded[..len], sample_envelope().created_at_ms)?;
+    executor
+        .relay_mut()
+        .enqueue_output(FakeNostrRelayOutput::Eose {
+            subscription_id: "controls",
+        })
+        .map_err(map_nostr_error)?;
+    executor
+        .relay_mut()
+        .inject_closed("controls", closed_status)
+        .map_err(map_nostr_error)?;
+    executor
+        .relay_mut()
+        .enqueue_notice("relay notice")
+        .map_err(map_nostr_error)?;
+    executor
+        .relay_mut()
+        .inject_auth_challenge("challenge-token")
+        .map_err(map_nostr_error)?;
+
+    assert!(matches!(
+        executor.poll_relay_output(&mut frame)?,
+        Some(NostrGatewayRelayOutput::Ok { accepted: true, .. })
+    ));
+    assert!(matches!(
+        executor.poll_relay_output(&mut frame)?,
+        Some(NostrGatewayRelayOutput::Ok {
+            accepted: true,
+            status: NostrRelayStatus {
+                prefix: NostrRelayStatusPrefix::Duplicate,
+                ..
+            },
+            ..
+        })
+    ));
+    assert_eq!(
+        executor.poll_relay_output(&mut frame)?,
+        Some(NostrGatewayRelayOutput::Eose {
+            subscription_id: "controls",
+        })
+    );
+    assert_eq!(
+        executor.poll_relay_output(&mut frame)?,
+        Some(NostrGatewayRelayOutput::Closed {
+            subscription_id: "controls",
+            status: closed_status,
+        })
+    );
+    assert_eq!(
+        executor.poll_relay_output(&mut frame)?,
+        Some(NostrGatewayRelayOutput::Notice {
+            message: "relay notice",
+        })
+    );
+    assert_eq!(
+        executor.poll_relay_output(&mut frame)?,
+        Some(NostrGatewayRelayOutput::Auth {
+            challenge: "challenge-token",
+        })
+    );
+    assert_eq!(executor.poll_relay_output(&mut frame)?, None);
+    Ok(())
+}
+
+#[test]
+fn smoke_gateway_short_output_buffer_retries_pending_event() -> Result<(), GatewayError> {
+    let mut executor = NostrGatewayExecutor::new(
+        NOSTR_LINK,
+        2048,
+        SmokeRelay::new(),
+        fixture_secret(),
+        RECIPIENT,
+    );
+    let mut encoded = [0; 256];
+    let len = encode_envelope(inbound_envelope(), &mut encoded)?;
+    let kinds = [HYF_NOSTR_ENVELOPE_KIND];
+    let filters = [NostrFilter {
+        kinds: &kinds,
+        ..NostrFilter::empty()
+    }];
+    let mut short_frame = [0; 1];
+    let mut frame = [0; 256];
+
+    executor.set_up(true);
+    executor.send_link_bytes(NOSTR_LINK, &encoded[..len], TimestampMs(1_720_000_010_000))?;
+    assert!(matches!(
+        executor.poll_relay_output(&mut frame)?,
+        Some(NostrGatewayRelayOutput::Ok { accepted: true, .. })
+    ));
+    if executor.relay_mut().subscribe("short", &filters).is_err() {
+        return Err(protocol_error());
+    }
+
+    assert_eq!(
+        executor.poll_relay_output(&mut short_frame),
+        Err(GatewayError::Driver {
+            link_id: NOSTR_LINK,
+            kind: LinkDriverErrorKind::OutputTooSmall,
+        })
+    );
+
+    let frame = match executor.poll_relay_output(&mut frame)? {
+        Some(NostrGatewayRelayOutput::Frame(frame)) => frame,
+        _ => return Err(protocol_error()),
+    };
+    assert_eq!(frame.bytes, &encoded[..len]);
+    assert_eq!(
+        executor.poll_relay_output(&mut [0; 1])?,
+        Some(NostrGatewayRelayOutput::Eose {
+            subscription_id: "short",
+        })
+    );
     Ok(())
 }
 
