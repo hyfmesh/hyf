@@ -128,7 +128,7 @@ where
             .map_err(|error| map_fips_send_error(self.link_id, error))?;
         if self.mtu == 0
             || self.sidecar.local_endpoint() != self.local_endpoint
-            || self.sidecar.mtu() != self.mtu
+            || self.mtu > self.sidecar.mtu()
             || !self.sidecar.has_peer(self.remote_endpoint)
         {
             return Err(gateway_protocol_error(self.link_id));
@@ -417,7 +417,23 @@ mod tests {
     }
 
     #[test]
-    fn fips_gateway_executor_rejects_mtu_mismatch_and_zero_mtu() -> Result<(), GatewayError> {
+    fn fips_gateway_executor_accepts_mtu_below_sidecar_mtu() -> Result<(), GatewayError> {
+        let mut sidecar = FakeFipsSidecar::<1, 1, 16>::new(endpoint(1), 16)
+            .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
+        sidecar
+            .register_peer(endpoint(2))
+            .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
+
+        let executor = FipsGatewayExecutor::new(FIPS_LINK, endpoint(1), endpoint(2), sidecar, 8)?;
+
+        assert_eq!(executor.mtu(), 8);
+        assert_eq!(executor.sidecar().mtu(), 16);
+        Ok(())
+    }
+
+    #[test]
+    fn fips_gateway_executor_rejects_mtu_above_sidecar_mtu_and_zero_mtu() -> Result<(), GatewayError>
+    {
         let mut sidecar = FakeFipsSidecar::<1, 1, 16>::new(endpoint(1), 8)
             .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
         sidecar
