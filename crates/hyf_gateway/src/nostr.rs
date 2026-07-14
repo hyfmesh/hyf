@@ -1,9 +1,10 @@
-use core::fmt;
+use core::{fmt, str};
 
 use hyf_core::TimestampMs;
 use hyf_link::{Link, LinkClass, LinkDriverErrorKind, LinkFrameRef, LinkId};
 use hyf_link_nostr::{
-    FakeNostrRelay, FakeNostrRelayControlOutput, FakeNostrRelayOutput, HyfNostrEventScratch,
+    FakeNostrRelay, FakeNostrRelayControlOutput, FakeNostrRelayOutput,
+    HYF_NOSTR_MAX_RELAY_STATUS_CHARS, HyfNostrEventScratch, NOSTR_SUBSCRIPTION_ID_MAX_LEN,
     NostrError, NostrEvent, NostrPublicKey, NostrPublishOutcome, NostrRelayStatus,
     NostrRelayStatusPrefix, NostrSecretKey, verify_and_decode_hyf_nostr_event,
     with_signed_hyf_nostr_event,
@@ -20,27 +21,118 @@ pub struct NostrGatewayExecutor<R> {
     relay: R,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct BoundedGatewayText<const N: usize> {
+    bytes: [u8; N],
+    len: usize,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NostrGatewayRelayOutput<'frame, 'control> {
+pub struct NostrGatewayControlText(BoundedGatewayText<HYF_NOSTR_MAX_RELAY_STATUS_CHARS>);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NostrGatewaySubscriptionId(BoundedGatewayText<NOSTR_SUBSCRIPTION_ID_MAX_LEN>);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NostrGatewayRelayStatus {
+    pub prefix: NostrRelayStatusPrefix,
+    pub raw_prefix: NostrGatewayControlText,
+    pub detail: NostrGatewayControlText,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NostrGatewayRelayOutput<'frame> {
     Frame(LinkFrameRef<'frame>),
     Ok {
         event_id: hyf_link_nostr::NostrEventId,
         accepted: bool,
-        status: NostrRelayStatus<'control>,
+        status: NostrGatewayRelayStatus,
     },
     Eose {
-        subscription_id: &'control str,
+        subscription_id: NostrGatewaySubscriptionId,
     },
     Closed {
-        subscription_id: &'control str,
-        status: NostrRelayStatus<'control>,
+        subscription_id: NostrGatewaySubscriptionId,
+        status: NostrGatewayRelayStatus,
     },
     Notice {
-        message: &'control str,
+        message: NostrGatewayControlText,
     },
     Auth {
-        challenge: &'control str,
+        challenge: NostrGatewayControlText,
     },
+}
+
+impl<const N: usize> BoundedGatewayText<N> {
+    fn from_str(value: &str) -> Result<Self, NostrError> {
+        let bytes = value.as_bytes();
+        if bytes.len() > N {
+            return Err(NostrError::StoredStringTooLarge {
+                actual: bytes.len(),
+                maximum: N,
+            });
+        }
+
+        let mut text = Self {
+            bytes: [0; N],
+            len: 0,
+        };
+        text.bytes[..bytes.len()].copy_from_slice(bytes);
+        text.len = bytes.len();
+        Ok(text)
+    }
+
+    fn as_str(&self) -> Result<&str, NostrError> {
+        str::from_utf8(&self.bytes[..self.len]).map_err(|_| NostrError::Utf8)
+    }
+}
+
+impl<const N: usize> fmt::Debug for BoundedGatewayText<N> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BoundedGatewayText")
+            .field("capacity", &N)
+            .field("len", &self.len)
+            .finish()
+    }
+}
+
+impl NostrGatewayControlText {
+    pub fn try_from_str(value: &str) -> Result<Self, NostrError> {
+        BoundedGatewayText::from_str(value).map(Self)
+    }
+
+    pub fn as_str(&self) -> Result<&str, NostrError> {
+        self.0.as_str()
+    }
+}
+
+impl NostrGatewaySubscriptionId {
+    pub fn try_from_str(value: &str) -> Result<Self, NostrError> {
+        BoundedGatewayText::from_str(value).map(Self)
+    }
+
+    pub fn as_str(&self) -> Result<&str, NostrError> {
+        self.0.as_str()
+    }
+}
+
+impl NostrGatewayRelayStatus {
+    pub fn from_status(status: NostrRelayStatus<'_>) -> Result<Self, NostrError> {
+        Ok(Self {
+            prefix: status.prefix,
+            raw_prefix: NostrGatewayControlText::try_from_str(status.raw_prefix)?,
+            detail: NostrGatewayControlText::try_from_str(status.detail)?,
+        })
+    }
+
+    pub fn as_status(&self) -> Result<NostrRelayStatus<'_>, NostrError> {
+        Ok(NostrRelayStatus {
+            prefix: self.prefix,
+            raw_prefix: self.raw_prefix.as_str()?,
+            detail: self.detail.as_str()?,
+        })
+    }
 }
 
 impl<R> NostrGatewayExecutor<R> {
@@ -108,7 +200,7 @@ impl<
     pub fn poll_relay_output<'out>(
         &mut self,
         output: &'out mut [u8],
-    ) -> Result<Option<NostrGatewayRelayOutput<'out, 'a>>, GatewayError> {
+    ) -> Result<Option<NostrGatewayRelayOutput<'out>>, GatewayError> {
         if !self.up {
             return Err(GatewayError::Driver {
                 link_id: self.link_id,
@@ -162,10 +254,11 @@ impl<
         }
     }
 
-    fn next_control_output(&self) -> Result<NostrGatewayRelayOutput<'static, 'a>, GatewayError> {
+    fn next_control_output(&self) -> Result<NostrGatewayRelayOutput<'static>, GatewayError> {
         match self
             .relay
             .next_control_output()
+            .map_err(|error| map_nostr_receive_error(self.link_id, error))?
             .ok_or(GatewayError::Driver {
                 link_id: self.link_id,
                 kind: LinkDriverErrorKind::Protocol,
@@ -177,24 +270,34 @@ impl<
             } => Ok(NostrGatewayRelayOutput::Ok {
                 event_id,
                 accepted,
-                status,
+                status: NostrGatewayRelayStatus::from_status(status)
+                    .map_err(|error| map_nostr_receive_error(self.link_id, error))?,
             }),
             FakeNostrRelayControlOutput::Eose { subscription_id } => {
-                Ok(NostrGatewayRelayOutput::Eose { subscription_id })
+                Ok(NostrGatewayRelayOutput::Eose {
+                    subscription_id: NostrGatewaySubscriptionId::try_from_str(subscription_id)
+                        .map_err(|error| map_nostr_receive_error(self.link_id, error))?,
+                })
             }
             FakeNostrRelayControlOutput::Closed {
                 subscription_id,
                 status,
             } => Ok(NostrGatewayRelayOutput::Closed {
-                subscription_id,
-                status,
+                subscription_id: NostrGatewaySubscriptionId::try_from_str(subscription_id)
+                    .map_err(|error| map_nostr_receive_error(self.link_id, error))?,
+                status: NostrGatewayRelayStatus::from_status(status)
+                    .map_err(|error| map_nostr_receive_error(self.link_id, error))?,
             }),
             FakeNostrRelayControlOutput::Notice { message } => {
-                Ok(NostrGatewayRelayOutput::Notice { message })
+                Ok(NostrGatewayRelayOutput::Notice {
+                    message: NostrGatewayControlText::try_from_str(message)
+                        .map_err(|error| map_nostr_receive_error(self.link_id, error))?,
+                })
             }
-            FakeNostrRelayControlOutput::Auth { challenge } => {
-                Ok(NostrGatewayRelayOutput::Auth { challenge })
-            }
+            FakeNostrRelayControlOutput::Auth { challenge } => Ok(NostrGatewayRelayOutput::Auth {
+                challenge: NostrGatewayControlText::try_from_str(challenge)
+                    .map_err(|error| map_nostr_receive_error(self.link_id, error))?,
+            }),
         }
     }
 }
@@ -363,7 +466,10 @@ mod tests {
         HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, encode_envelope,
     };
 
-    use super::{NostrGatewayExecutor, NostrGatewayRelayOutput};
+    use super::{
+        NostrGatewayControlText, NostrGatewayExecutor, NostrGatewayRelayOutput,
+        NostrGatewayRelayStatus, NostrGatewaySubscriptionId,
+    };
     use crate::{GatewayError, GatewayLinkExecutor};
 
     const NOSTR_LINK: LinkId = LinkId([0x51; 16]);
@@ -601,34 +707,37 @@ mod tests {
             Some(NostrGatewayRelayOutput::Ok {
                 event_id,
                 accepted: true,
-                status,
+                status: gateway_status(status)?,
             })
         );
-        assert_eq!(
-            executor.poll_relay_output(&mut frame)?,
-            Some(NostrGatewayRelayOutput::Eose {
-                subscription_id: "sub-1",
-            })
-        );
-        assert_eq!(
-            executor.poll_relay_output(&mut frame)?,
+        match executor.poll_relay_output(&mut frame)? {
+            Some(NostrGatewayRelayOutput::Eose { subscription_id }) => {
+                assert_subscription_id_eq(subscription_id, "sub-1")?;
+            }
+            _ => return Err(protocol_error()),
+        }
+        match executor.poll_relay_output(&mut frame)? {
             Some(NostrGatewayRelayOutput::Closed {
-                subscription_id: "sub-1",
-                status,
-            })
-        );
-        assert_eq!(
-            executor.poll_relay_output(&mut frame)?,
-            Some(NostrGatewayRelayOutput::Notice {
-                message: "relay notice",
-            })
-        );
-        assert_eq!(
-            executor.poll_relay_output(&mut frame)?,
-            Some(NostrGatewayRelayOutput::Auth {
-                challenge: "challenge-token",
-            })
-        );
+                subscription_id,
+                status: actual_status,
+            }) => {
+                assert_subscription_id_eq(subscription_id, "sub-1")?;
+                assert_gateway_status_eq(actual_status, status)?;
+            }
+            _ => return Err(protocol_error()),
+        }
+        match executor.poll_relay_output(&mut frame)? {
+            Some(NostrGatewayRelayOutput::Notice { message }) => {
+                assert_control_text_eq(message, "relay notice")?;
+            }
+            _ => return Err(protocol_error()),
+        }
+        match executor.poll_relay_output(&mut frame)? {
+            Some(NostrGatewayRelayOutput::Auth { challenge }) => {
+                assert_control_text_eq(challenge, "challenge-token")?;
+            }
+            _ => return Err(protocol_error()),
+        }
         assert_eq!(executor.poll_relay_output(&mut frame)?, None);
         Ok(())
     }
@@ -857,6 +966,51 @@ mod tests {
             Some(NostrGatewayRelayOutput::Frame(_))
         ));
         assert_eq!(executor.poll_relay_output(&mut retry_frame)?, None);
+        Ok(())
+    }
+
+    fn gateway_status(
+        status: NostrRelayStatus<'_>,
+    ) -> Result<NostrGatewayRelayStatus, GatewayError> {
+        NostrGatewayRelayStatus::from_status(status)
+            .map_err(|error| super::map_nostr_receive_error(NOSTR_LINK, error))
+    }
+
+    fn assert_gateway_status_eq(
+        status: NostrGatewayRelayStatus,
+        expected: NostrRelayStatus<'_>,
+    ) -> Result<(), GatewayError> {
+        assert_eq!(
+            status
+                .as_status()
+                .map_err(|error| super::map_nostr_receive_error(NOSTR_LINK, error))?,
+            expected
+        );
+        Ok(())
+    }
+
+    fn assert_control_text_eq(
+        text: NostrGatewayControlText,
+        expected: &str,
+    ) -> Result<(), GatewayError> {
+        assert_eq!(
+            text.as_str()
+                .map_err(|error| super::map_nostr_receive_error(NOSTR_LINK, error))?,
+            expected
+        );
+        Ok(())
+    }
+
+    fn assert_subscription_id_eq(
+        subscription_id: NostrGatewaySubscriptionId,
+        expected: &str,
+    ) -> Result<(), GatewayError> {
+        assert_eq!(
+            subscription_id
+                .as_str()
+                .map_err(|error| super::map_nostr_receive_error(NOSTR_LINK, error))?,
+            expected
+        );
         Ok(())
     }
 

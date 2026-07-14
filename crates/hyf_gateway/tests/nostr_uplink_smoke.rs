@@ -3,13 +3,14 @@ use hyf_config::{
 };
 use hyf_core::{MessageId, NodeId, TimestampMs};
 use hyf_gateway::{
-    GatewayCore, GatewayError, GatewayLinkExecutor, NostrGatewayExecutor, NostrGatewayRelayOutput,
+    GatewayCore, GatewayError, GatewayLinkExecutor, NostrGatewayControlText, NostrGatewayExecutor,
+    NostrGatewayRelayOutput, NostrGatewayRelayStatus, NostrGatewaySubscriptionId,
 };
 use hyf_link::{LinkDriverErrorKind, LinkEvent, LinkId};
 use hyf_link_nostr::{
-    FakeNostrRelay, FakeNostrRelayOutput, HYF_NOSTR_ENVELOPE_KIND, HyfNostrEventScratch,
-    NostrError, NostrFilter, NostrPublicKey, NostrRelayStatus, NostrRelayStatusPrefix,
-    NostrSecretKey, NostrSignature, with_signed_hyf_nostr_event,
+    FakeNostrRelay, HYF_NOSTR_ENVELOPE_KIND, HyfNostrEventScratch, NostrError, NostrFilter,
+    NostrPublicKey, NostrRelayStatus, NostrRelayStatusPrefix, NostrSecretKey, NostrSignature,
+    with_signed_hyf_nostr_event,
 };
 use hyf_store::StorePolicy;
 use hyf_wire::{
@@ -178,65 +179,79 @@ fn smoke_gateway_typed_relay_controls_surface_in_order() -> Result<(), GatewayEr
     executor.set_up(true);
     executor.send_link_bytes(NOSTR_LINK, &encoded[..len], sample_envelope().created_at_ms)?;
     executor.send_link_bytes(NOSTR_LINK, &encoded[..len], sample_envelope().created_at_ms)?;
-    executor
-        .relay_mut()
-        .enqueue_output(FakeNostrRelayOutput::Eose {
-            subscription_id: "controls",
-        })
-        .map_err(map_nostr_error)?;
-    executor
-        .relay_mut()
-        .inject_closed("controls", closed_status)
-        .map_err(map_nostr_error)?;
-    executor
-        .relay_mut()
-        .enqueue_notice("relay notice")
-        .map_err(map_nostr_error)?;
-    executor
-        .relay_mut()
-        .inject_auth_challenge("challenge-token")
-        .map_err(map_nostr_error)?;
+    {
+        let subscription_id = String::from("controls");
+        let raw_prefix = String::from("auth-required");
+        let detail = String::from("challenge first");
+        let notice = String::from("relay notice");
+        let challenge = String::from("challenge-token");
+        let injected_status = NostrRelayStatus {
+            prefix: NostrRelayStatusPrefix::AuthRequired,
+            raw_prefix: &raw_prefix,
+            detail: &detail,
+        };
+
+        executor
+            .relay_mut()
+            .inject_eose(&subscription_id)
+            .map_err(map_nostr_error)?;
+        executor
+            .relay_mut()
+            .inject_closed(&subscription_id, injected_status)
+            .map_err(map_nostr_error)?;
+        executor
+            .relay_mut()
+            .enqueue_notice(&notice)
+            .map_err(map_nostr_error)?;
+        executor
+            .relay_mut()
+            .inject_auth_challenge(&challenge)
+            .map_err(map_nostr_error)?;
+    }
 
     assert!(matches!(
         executor.poll_relay_output(&mut frame)?,
         Some(NostrGatewayRelayOutput::Ok { accepted: true, .. })
     ));
-    assert!(matches!(
-        executor.poll_relay_output(&mut frame)?,
+    match executor.poll_relay_output(&mut frame)? {
         Some(NostrGatewayRelayOutput::Ok {
             accepted: true,
-            status: NostrRelayStatus {
-                prefix: NostrRelayStatusPrefix::Duplicate,
-                ..
-            },
+            status,
             ..
-        })
-    ));
-    assert_eq!(
-        executor.poll_relay_output(&mut frame)?,
-        Some(NostrGatewayRelayOutput::Eose {
-            subscription_id: "controls",
-        })
-    );
-    assert_eq!(
-        executor.poll_relay_output(&mut frame)?,
+        }) => assert_eq!(
+            status.as_status().map_err(map_nostr_error)?.prefix,
+            NostrRelayStatusPrefix::Duplicate
+        ),
+        _ => return Err(protocol_error()),
+    }
+    match executor.poll_relay_output(&mut frame)? {
+        Some(NostrGatewayRelayOutput::Eose { subscription_id }) => {
+            assert_subscription_id_eq(subscription_id, "controls")?;
+        }
+        _ => return Err(protocol_error()),
+    }
+    match executor.poll_relay_output(&mut frame)? {
         Some(NostrGatewayRelayOutput::Closed {
-            subscription_id: "controls",
-            status: closed_status,
-        })
-    );
-    assert_eq!(
-        executor.poll_relay_output(&mut frame)?,
-        Some(NostrGatewayRelayOutput::Notice {
-            message: "relay notice",
-        })
-    );
-    assert_eq!(
-        executor.poll_relay_output(&mut frame)?,
-        Some(NostrGatewayRelayOutput::Auth {
-            challenge: "challenge-token",
-        })
-    );
+            subscription_id,
+            status,
+        }) => {
+            assert_subscription_id_eq(subscription_id, "controls")?;
+            assert_gateway_status_eq(status, closed_status)?;
+        }
+        _ => return Err(protocol_error()),
+    }
+    match executor.poll_relay_output(&mut frame)? {
+        Some(NostrGatewayRelayOutput::Notice { message }) => {
+            assert_control_text_eq(message, "relay notice")?;
+        }
+        _ => return Err(protocol_error()),
+    }
+    match executor.poll_relay_output(&mut frame)? {
+        Some(NostrGatewayRelayOutput::Auth { challenge }) => {
+            assert_control_text_eq(challenge, "challenge-token")?;
+        }
+        _ => return Err(protocol_error()),
+    }
     assert_eq!(executor.poll_relay_output(&mut frame)?, None);
     Ok(())
 }
@@ -283,12 +298,12 @@ fn smoke_gateway_short_output_buffer_retries_pending_event() -> Result<(), Gatew
         _ => return Err(protocol_error()),
     };
     assert_eq!(frame.bytes, &encoded[..len]);
-    assert_eq!(
-        executor.poll_relay_output(&mut [0; 1])?,
-        Some(NostrGatewayRelayOutput::Eose {
-            subscription_id: "short",
-        })
-    );
+    match executor.poll_relay_output(&mut [0; 1])? {
+        Some(NostrGatewayRelayOutput::Eose { subscription_id }) => {
+            assert_subscription_id_eq(subscription_id, "short")?;
+        }
+        _ => return Err(protocol_error()),
+    }
     Ok(())
 }
 
@@ -468,6 +483,30 @@ fn map_nostr_error(_error: NostrError) -> GatewayError {
     protocol_error()
 }
 
+fn assert_gateway_status_eq(
+    status: NostrGatewayRelayStatus,
+    expected: NostrRelayStatus<'_>,
+) -> Result<(), GatewayError> {
+    assert_eq!(status.as_status().map_err(map_nostr_error)?, expected);
+    Ok(())
+}
+
+fn assert_control_text_eq(
+    text: NostrGatewayControlText,
+    expected: &str,
+) -> Result<(), GatewayError> {
+    assert_eq!(text.as_str().map_err(map_nostr_error)?, expected);
+    Ok(())
+}
+
+fn assert_subscription_id_eq(
+    subscription_id: NostrGatewaySubscriptionId,
+    expected: &str,
+) -> Result<(), GatewayError> {
+    assert_eq!(subscription_id.as_str().map_err(map_nostr_error)?, expected);
+    Ok(())
+}
+
 fn assert_rejection_keeps_pending(
     status: NostrRelayStatus<'static>,
     kind: LinkDriverErrorKind,
@@ -484,7 +523,10 @@ fn assert_rejection_keeps_pending(
 
     core.submit(sample_envelope(), &mut executor)?;
     executor.set_up(true);
-    executor.relay_mut().reject_next_publish(status);
+    executor
+        .relay_mut()
+        .reject_next_publish(status)
+        .map_err(map_nostr_error)?;
 
     let result = core.handle_link_event(
         LinkEvent::Up {
