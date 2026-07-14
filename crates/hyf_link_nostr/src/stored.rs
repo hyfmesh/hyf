@@ -51,10 +51,6 @@ impl<const N: usize> StoredString<N> {
         self.len
     }
 
-    pub(crate) const fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
     pub(crate) fn as_str(&self) -> Result<&str, NostrError> {
         str::from_utf8(&self.bytes[..self.len]).map_err(|_| NostrError::Utf8)
     }
@@ -109,10 +105,6 @@ impl<const VALUES_MAX: usize, const VALUE_MAX: usize> StoredNostrTag<VALUES_MAX,
 
     pub(crate) const fn len(&self) -> usize {
         self.len
-    }
-
-    pub(crate) const fn is_empty(&self) -> bool {
-        self.len == 0
     }
 
     pub(crate) fn value(&self, index: usize) -> Result<Option<&str>, NostrError> {
@@ -175,10 +167,6 @@ impl<const TAGS_MAX: usize, const VALUES_MAX: usize, const VALUE_MAX: usize>
         self.len
     }
 
-    pub(crate) const fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
     pub(crate) fn tag(&self, index: usize) -> Option<&StoredNostrTag<VALUES_MAX, VALUE_MAX>> {
         if index >= self.len {
             return None;
@@ -222,7 +210,6 @@ mod tests {
         let stored = StoredString::<16>::from_str("hyf")?;
 
         assert_eq!(stored.len(), 3);
-        assert!(!stored.is_empty());
         assert_eq!(stored.as_str()?, "hyf");
         assert!(!format!("{stored:?}").contains("hyf"));
         Ok(())
@@ -248,7 +235,6 @@ mod tests {
             )?;
 
         assert_eq!(tag.len(), 2);
-        assert!(!tag.is_empty());
         assert_eq!(tag.value(0)?, Some("p"));
         assert_eq!(tag.value(1)?, Some("abc"));
         assert_eq!(tag.value(2)?, None);
@@ -299,7 +285,6 @@ mod tests {
         >::from_ref(NostrTagsRef::new(&tags))?;
 
         assert_eq!(stored.len(), 2);
-        assert!(!stored.is_empty());
         assert_eq!(
             stored.tag(0).and_then(|tag| tag.value(0).ok()).flatten(),
             Some("p")

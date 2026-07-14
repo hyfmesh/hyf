@@ -93,35 +93,85 @@ impl<
             });
         }
 
-        while let Some(message) = self.relay.pop_output() {
-            if let FakeNostrRelayOutput::Event { event, .. } = message {
-                return self.decode_relay_event(event, output).map(Some);
+        loop {
+            let Some(is_event) = self
+                .relay
+                .with_next_output(|message| match message {
+                    FakeNostrRelayOutput::Event { .. } => true,
+                    _ => false,
+                })
+                .map_err(|error| map_nostr_receive_error(self.link_id, error))?
+            else {
+                return Ok(None);
+            };
+
+            if is_event {
+                break;
             }
+            self.relay.consume_output();
         }
 
-        Ok(None)
-    }
-
-    fn decode_relay_event<'out>(
-        &self,
-        event: NostrEvent<'_>,
-        output: &'out mut [u8],
-    ) -> Result<LinkFrameRef<'out>, GatewayError> {
-        let received_at_ms = event
-            .created_at
-            .checked_mul(1000)
+        let frame = self
+            .relay
+            .with_next_output(|message| match message {
+                FakeNostrRelayOutput::Event { event, .. } => {
+                    decode_relay_event(self.link_id, event, output)
+                }
+                _ => Err(GatewayError::Driver {
+                    link_id: self.link_id,
+                    kind: LinkDriverErrorKind::Protocol,
+                }),
+            })
+            .map_err(|error| map_nostr_receive_error(self.link_id, error))?
             .ok_or(GatewayError::Driver {
                 link_id: self.link_id,
                 kind: LinkDriverErrorKind::Protocol,
             })?;
-        verify_and_decode_hyf_nostr_event(&event, output)
-            .map_err(|error| map_nostr_receive_error(self.link_id, error))?;
-        Ok(LinkFrameRef::new(
-            self.link_id,
-            TimestampMs(received_at_ms),
-            &output[..event.content.len() / 2],
-        ))
+
+        match frame {
+            Ok(frame) => {
+                self.relay.consume_output();
+                Ok(Some(frame))
+            }
+            Err(error) => {
+                if !is_output_too_small(error) {
+                    self.relay.consume_output();
+                }
+                Err(error)
+            }
+        }
     }
+}
+
+fn decode_relay_event<'out>(
+    link_id: LinkId,
+    event: NostrEvent<'_>,
+    output: &'out mut [u8],
+) -> Result<LinkFrameRef<'out>, GatewayError> {
+    let received_at_ms = event
+        .created_at
+        .checked_mul(1000)
+        .ok_or(GatewayError::Driver {
+            link_id,
+            kind: LinkDriverErrorKind::Protocol,
+        })?;
+    verify_and_decode_hyf_nostr_event(&event, output)
+        .map_err(|error| map_nostr_receive_error(link_id, error))?;
+    Ok(LinkFrameRef::new(
+        link_id,
+        TimestampMs(received_at_ms),
+        &output[..event.content.len() / 2],
+    ))
+}
+
+fn is_output_too_small(error: GatewayError) -> bool {
+    matches!(
+        error,
+        GatewayError::Driver {
+            kind: LinkDriverErrorKind::OutputTooSmall,
+            ..
+        }
+    )
 }
 
 impl<R> fmt::Debug for NostrGatewayExecutor<R> {
@@ -353,17 +403,23 @@ mod tests {
         executor.send_link_bytes(NOSTR_LINK, &encoded[..len], TimestampMs(1_720_000_000_123))?;
 
         assert_eq!(executor.relay().stored_event_count(), 1);
-        assert!(matches!(
-            executor.relay_mut().pop_output(),
-            Some(hyf_link_nostr::FakeNostrRelayOutput::Ok {
-                accepted: true,
-                status: NostrRelayStatus {
-                    prefix: NostrRelayStatusPrefix::Unknown,
-                    ..
-                },
-                ..
-            })
-        ));
+        assert_eq!(
+            executor
+                .relay_mut()
+                .pop_next_output(|output| matches!(
+                    output,
+                    hyf_link_nostr::FakeNostrRelayOutput::Ok {
+                        accepted: true,
+                        status: NostrRelayStatus {
+                            prefix: NostrRelayStatusPrefix::Unknown,
+                            ..
+                        },
+                        ..
+                    }
+                ))
+                .map_err(|error| super::map_nostr_receive_error(NOSTR_LINK, error))?,
+            Some(true)
+        );
 
         let kinds = [HYF_NOSTR_ENVELOPE_KIND];
         let filters = [NostrFilter {
@@ -376,17 +432,17 @@ mod tests {
                 kind: LinkDriverErrorKind::Protocol,
             });
         }
-        let event = match executor.relay_mut().pop_output() {
-            Some(hyf_link_nostr::FakeNostrRelayOutput::Event { event, .. }) => event,
-            _ => {
-                return Err(GatewayError::Driver {
-                    link_id: NOSTR_LINK,
-                    kind: LinkDriverErrorKind::Protocol,
-                });
-            }
-        };
-        assert_eq!(event.created_at, 1_720_000_000);
-        assert!(verify_and_decode_hyf_nostr_event(&event, &mut [0; 256]).is_ok());
+        let replay_valid = executor
+            .relay_mut()
+            .pop_next_output(|output| match output {
+                hyf_link_nostr::FakeNostrRelayOutput::Event { event, .. } => {
+                    event.created_at == 1_720_000_000
+                        && verify_and_decode_hyf_nostr_event(&event, &mut [0; 256]).is_ok()
+                }
+                _ => false,
+            })
+            .map_err(|error| super::map_nostr_receive_error(NOSTR_LINK, error))?;
+        assert_eq!(replay_valid, Some(true));
         Ok(())
     }
 

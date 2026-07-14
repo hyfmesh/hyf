@@ -1,5 +1,6 @@
 use core::fmt;
 
+use crate::stored_event::FakeNostrEventRecord;
 use crate::{
     NostrError, NostrEvent, NostrEventId, NostrFilter, NostrFilterTarget, NostrPublicKey,
     NostrPublishOutcome, NostrRelayStatus, NostrRelayStatusPrefix, matches_any_filter,
@@ -48,15 +49,129 @@ pub enum FakeNostrRelayOutput<'a> {
     },
 }
 
+enum FakeNostrRelayOutputRecord<'a> {
+    Ok {
+        event_id: NostrEventId,
+        accepted: bool,
+        status: NostrRelayStatus<'a>,
+    },
+    StoredEvent {
+        subscription_id: &'a str,
+        event_index: usize,
+    },
+    OwnedEvent {
+        subscription_id: &'a str,
+        event: FakeNostrEventRecord,
+    },
+    Eose {
+        subscription_id: &'a str,
+    },
+    Closed {
+        subscription_id: &'a str,
+        status: NostrRelayStatus<'a>,
+    },
+    Notice {
+        message: &'a str,
+    },
+    Auth {
+        challenge: &'a str,
+    },
+}
+
+impl<'a> FakeNostrRelayOutputRecord<'a> {
+    fn from_output(output: FakeNostrRelayOutput<'a>) -> Result<Self, NostrError> {
+        Ok(match output {
+            FakeNostrRelayOutput::Ok {
+                event_id,
+                accepted,
+                status,
+            } => Self::Ok {
+                event_id,
+                accepted,
+                status,
+            },
+            FakeNostrRelayOutput::Event {
+                subscription_id,
+                event,
+            } => Self::OwnedEvent {
+                subscription_id,
+                event: FakeNostrEventRecord::from_event(&event)?,
+            },
+            FakeNostrRelayOutput::Eose { subscription_id } => Self::Eose { subscription_id },
+            FakeNostrRelayOutput::Closed {
+                subscription_id,
+                status,
+            } => Self::Closed {
+                subscription_id,
+                status,
+            },
+            FakeNostrRelayOutput::Notice { message } => Self::Notice { message },
+            FakeNostrRelayOutput::Auth { challenge } => Self::Auth { challenge },
+        })
+    }
+
+    fn with_view<T, const EVENT_CAPACITY: usize>(
+        &self,
+        events: &[Option<FakeNostrEventRecord>; EVENT_CAPACITY],
+        f: impl for<'output> FnOnce(FakeNostrRelayOutput<'output>) -> T,
+    ) -> Result<T, NostrError> {
+        match self {
+            Self::Ok {
+                event_id,
+                accepted,
+                status,
+            } => Ok(f(FakeNostrRelayOutput::Ok {
+                event_id: *event_id,
+                accepted: *accepted,
+                status: *status,
+            })),
+            Self::StoredEvent {
+                subscription_id,
+                event_index,
+            } => {
+                let event = events
+                    .get(*event_index)
+                    .and_then(Option::as_ref)
+                    .ok_or(NostrError::Unsupported)?;
+                event.with_event(|event| {
+                    Ok(f(FakeNostrRelayOutput::Event {
+                        subscription_id,
+                        event,
+                    }))
+                })
+            }
+            Self::OwnedEvent {
+                subscription_id,
+                event,
+            } => event.with_event(|event| {
+                Ok(f(FakeNostrRelayOutput::Event {
+                    subscription_id,
+                    event,
+                }))
+            }),
+            Self::Eose { subscription_id } => Ok(f(FakeNostrRelayOutput::Eose { subscription_id })),
+            Self::Closed {
+                subscription_id,
+                status,
+            } => Ok(f(FakeNostrRelayOutput::Closed {
+                subscription_id,
+                status: *status,
+            })),
+            Self::Notice { message } => Ok(f(FakeNostrRelayOutput::Notice { message })),
+            Self::Auth { challenge } => Ok(f(FakeNostrRelayOutput::Auth { challenge })),
+        }
+    }
+}
+
 pub struct FakeNostrRelay<
     'a,
     const EVENT_CAPACITY: usize,
     const SUBSCRIPTION_CAPACITY: usize,
     const OUTPUT_CAPACITY: usize,
 > {
-    events: [Option<NostrEvent<'a>>; EVENT_CAPACITY],
+    events: [Option<FakeNostrEventRecord>; EVENT_CAPACITY],
     subscriptions: [Option<FakeNostrSubscription<'a>>; SUBSCRIPTION_CAPACITY],
-    outputs: [Option<FakeNostrRelayOutput<'a>>; OUTPUT_CAPACITY],
+    outputs: [Option<FakeNostrRelayOutputRecord<'a>>; OUTPUT_CAPACITY],
     next_publish_rejection: Option<NostrRelayStatus<'a>>,
     metrics: FakeNostrRelayMetrics,
 }
@@ -70,9 +185,9 @@ impl<
 {
     pub const fn new() -> Self {
         Self {
-            events: [None; EVENT_CAPACITY],
+            events: [const { None }; EVENT_CAPACITY],
             subscriptions: [None; SUBSCRIPTION_CAPACITY],
-            outputs: [None; OUTPUT_CAPACITY],
+            outputs: [const { None }; OUTPUT_CAPACITY],
             next_publish_rejection: None,
             metrics: FakeNostrRelayMetrics {
                 stored_events: 0,
@@ -173,7 +288,7 @@ impl<
     ) -> Result<NostrPublishOutcome<'a>, NostrError> {
         if verify_and_decode_hyf_nostr_event(&event, decode_buffer).is_err() {
             let status = invalid_status();
-            self.enqueue_output(FakeNostrRelayOutput::Ok {
+            self.enqueue_output_record(FakeNostrRelayOutputRecord::Ok {
                 event_id: event.id,
                 accepted: false,
                 status,
@@ -183,7 +298,7 @@ impl<
 
         if self.contains_event(event.id) {
             let status = duplicate_status();
-            self.enqueue_output(FakeNostrRelayOutput::Ok {
+            self.enqueue_output_record(FakeNostrRelayOutputRecord::Ok {
                 event_id: event.id,
                 accepted: true,
                 status,
@@ -193,7 +308,7 @@ impl<
 
         if let Some(status) = self.next_publish_rejection {
             self.next_publish_rejection = None;
-            self.enqueue_output(FakeNostrRelayOutput::Ok {
+            self.enqueue_output_record(FakeNostrRelayOutputRecord::Ok {
                 event_id: event.id,
                 accepted: false,
                 status,
@@ -201,9 +316,9 @@ impl<
             return Ok(NostrPublishOutcome::Rejected { status });
         }
 
-        self.store_event(event)?;
+        self.store_event(&event)?;
         let status = empty_status();
-        self.enqueue_output(FakeNostrRelayOutput::Ok {
+        self.enqueue_output_record(FakeNostrRelayOutputRecord::Ok {
             event_id: event.id,
             accepted: true,
             status,
@@ -212,7 +327,7 @@ impl<
     }
 
     pub fn enqueue_notice(&mut self, message: &'a str) -> Result<(), NostrError> {
-        self.enqueue_output(FakeNostrRelayOutput::Notice { message })
+        self.enqueue_output_record(FakeNostrRelayOutputRecord::Notice { message })
     }
 
     pub fn inject_closed(
@@ -221,17 +336,24 @@ impl<
         status: NostrRelayStatus<'a>,
     ) -> Result<(), NostrError> {
         validate_subscription_id(subscription_id)?;
-        self.enqueue_output(FakeNostrRelayOutput::Closed {
+        self.enqueue_output_record(FakeNostrRelayOutputRecord::Closed {
             subscription_id,
             status,
         })
     }
 
     pub fn inject_auth_challenge(&mut self, challenge: &'a str) -> Result<(), NostrError> {
-        self.enqueue_output(FakeNostrRelayOutput::Auth { challenge })
+        self.enqueue_output_record(FakeNostrRelayOutputRecord::Auth { challenge })
     }
 
     pub fn enqueue_output(&mut self, output: FakeNostrRelayOutput<'a>) -> Result<(), NostrError> {
+        self.enqueue_output_record(FakeNostrRelayOutputRecord::from_output(output)?)
+    }
+
+    fn enqueue_output_record(
+        &mut self,
+        output: FakeNostrRelayOutputRecord<'a>,
+    ) -> Result<(), NostrError> {
         let Some(slot) = self.outputs.iter_mut().find(|slot| slot.is_none()) else {
             self.metrics.output_overflows += 1;
             return Err(NostrError::RelayOutputFull {
@@ -243,30 +365,58 @@ impl<
         Ok(())
     }
 
-    pub fn pop_output(&mut self) -> Option<FakeNostrRelayOutput<'a>> {
-        let output = self.outputs.first_mut()?.take()?;
+    pub fn with_next_output<T>(
+        &self,
+        f: impl for<'output> FnOnce(FakeNostrRelayOutput<'output>) -> T,
+    ) -> Result<Option<T>, NostrError> {
+        let Some(output) = self.outputs.first().and_then(Option::as_ref) else {
+            return Ok(None);
+        };
+        output.with_view(&self.events, f).map(Some)
+    }
+
+    pub fn consume_output(&mut self) -> bool {
+        let Some(output) = self.outputs.first_mut() else {
+            return false;
+        };
+        if output.is_none() {
+            return false;
+        }
+        *output = None;
         if OUTPUT_CAPACITY > 1 {
             self.outputs.rotate_left(1);
             self.outputs[OUTPUT_CAPACITY - 1] = None;
         }
         self.metrics.queued_outputs -= 1;
-        Some(output)
+        true
+    }
+
+    pub fn pop_next_output<T>(
+        &mut self,
+        f: impl for<'output> FnOnce(FakeNostrRelayOutput<'output>) -> T,
+    ) -> Result<Option<T>, NostrError> {
+        let output = self.with_next_output(f)?;
+        if output.is_some() {
+            self.consume_output();
+        }
+        Ok(output)
     }
 
     fn contains_event(&self, event_id: NostrEventId) -> bool {
         self.events
             .iter()
             .flatten()
-            .any(|event| event.id == event_id)
+            .any(|event| event.id() == event_id)
     }
 
-    fn store_event(&mut self, event: NostrEvent<'a>) -> Result<(), NostrError> {
+    fn store_event(&mut self, event: &NostrEvent<'_>) -> Result<(), NostrError> {
+        let record = FakeNostrEventRecord::from_event(event)?;
         let slot = self.events.iter_mut().find(|slot| slot.is_none()).ok_or(
             NostrError::RelayEventStoreFull {
                 capacity: EVENT_CAPACITY,
             },
         )?;
-        *slot = Some(event);
+        *slot = Some(record);
         self.metrics.stored_events += 1;
         Ok(())
     }
@@ -281,43 +431,50 @@ impl<
         let mut emitted_count = 0;
 
         while replay_limit.is_none_or(|limit| emitted_count < limit) {
-            let Some((index, event)) = self.next_replay_event(filters, &emitted) else {
+            let Some(index) = self.next_replay_event(filters, &emitted)? else {
                 break;
             };
-            self.enqueue_output(FakeNostrRelayOutput::Event {
+            self.enqueue_output_record(FakeNostrRelayOutputRecord::StoredEvent {
                 subscription_id,
-                event,
+                event_index: index,
             })?;
             emitted[index] = true;
             emitted_count += 1;
         }
 
-        self.enqueue_output(FakeNostrRelayOutput::Eose { subscription_id })
+        self.enqueue_output_record(FakeNostrRelayOutputRecord::Eose { subscription_id })
     }
 
     fn next_replay_event(
         &self,
         filters: &[NostrFilter<'_>],
         emitted: &[bool; EVENT_CAPACITY],
-    ) -> Option<(usize, NostrEvent<'a>)> {
-        let mut best = None;
+    ) -> Result<Option<usize>, NostrError> {
+        let mut best: Option<usize> = None;
         for (index, event) in self.events.iter().enumerate() {
             if emitted[index] {
                 continue;
             }
-            let Some(event) = *event else {
+            let Some(event) = event else {
                 continue;
             };
-            if !event_matches_filters(event, filters) {
+            if !event_matches_filters(event, filters)? {
                 continue;
             }
 
             match best {
-                Some((_, current)) if !event_sorts_before(event, current) => {}
-                _ => best = Some((index, event)),
+                Some(current_index) => {
+                    let current = self.events[current_index]
+                        .as_ref()
+                        .ok_or(NostrError::Unsupported)?;
+                    if event_sorts_before(event, current) {
+                        best = Some(index);
+                    }
+                }
+                _ => best = Some(index),
             }
         }
-        best
+        Ok(best)
     }
 }
 
@@ -355,42 +512,27 @@ fn replay_limit(filters: &[NostrFilter<'_>]) -> Option<usize> {
     limit
 }
 
-fn event_matches_filters(event: NostrEvent<'_>, filters: &[NostrFilter<'_>]) -> bool {
+fn event_matches_filters(
+    event: &FakeNostrEventRecord,
+    filters: &[NostrFilter<'_>],
+) -> Result<bool, NostrError> {
     let mut p_tags = [NostrPublicKey::from_bytes([0; 32]); EVENT_P_TAG_SCAN_CAPACITY];
-    let p_tag_count = collect_event_p_tags(event, &mut p_tags);
-    matches_any_filter(
+    let p_tag_count = event.collect_p_tags(&mut p_tags)?;
+    Ok(matches_any_filter(
         filters,
         NostrFilterTarget {
-            kind: event.kind,
-            author: event.pubkey,
+            kind: event.kind(),
+            author: event.pubkey(),
             p_tags: &p_tags[..p_tag_count],
-            created_at: event.created_at,
+            created_at: event.created_at(),
         },
-    )
+    ))
 }
 
-fn collect_event_p_tags(event: NostrEvent<'_>, out: &mut [NostrPublicKey]) -> usize {
-    let mut count = 0;
-    for tag in event.tags.as_slice() {
-        if tag.name() != "p" || count == out.len() {
-            continue;
-        }
-        let Some(value) = tag.value() else {
-            continue;
-        };
-        let Ok(public_key) = NostrPublicKey::from_hex(value) else {
-            continue;
-        };
-        out[count] = public_key;
-        count += 1;
-    }
-    count
-}
-
-fn event_sorts_before(candidate: NostrEvent<'_>, current: NostrEvent<'_>) -> bool {
-    candidate.created_at > current.created_at
-        || (candidate.created_at == current.created_at
-            && candidate.id.as_bytes() < current.id.as_bytes())
+fn event_sorts_before(candidate: &FakeNostrEventRecord, current: &FakeNostrEventRecord) -> bool {
+    candidate.created_at() > current.created_at()
+        || (candidate.created_at() == current.created_at()
+            && candidate.id().as_bytes() < current.id().as_bytes())
 }
 
 const fn empty_status() -> NostrRelayStatus<'static> {
@@ -431,6 +573,8 @@ impl<
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::{String, ToString};
+
     use super::{FakeNostrRelay, FakeNostrRelayOutput};
     use crate::{
         HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HyfNostrEventBuffers, NostrError,
@@ -446,6 +590,39 @@ mod tests {
 
     const RECIPIENT_A: NostrPublicKey = NostrPublicKey::from_bytes([0x77; 32]);
     const RECIPIENT_B: NostrPublicKey = NostrPublicKey::from_bytes([0x88; 32]);
+
+    #[derive(Debug, Eq, PartialEq)]
+    enum OutputSnapshot {
+        Ok {
+            event_id: NostrEventId,
+            accepted: bool,
+            status: StatusSnapshot,
+        },
+        Event {
+            subscription_id: String,
+            event_id: NostrEventId,
+        },
+        Eose {
+            subscription_id: String,
+        },
+        Closed {
+            subscription_id: String,
+            status: StatusSnapshot,
+        },
+        Notice {
+            message: String,
+        },
+        Auth {
+            challenge: String,
+        },
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct StatusSnapshot {
+        prefix: NostrRelayStatusPrefix,
+        raw_prefix: String,
+        detail: String,
+    }
 
     #[test]
     fn fake_relay_starts_empty_with_fixed_capacities() {
@@ -513,14 +690,18 @@ mod tests {
         );
         assert_eq!(relay.metrics().output_overflows, 1);
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Notice { message: "first" })
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Notice {
+                message: "first".to_string()
+            })
         );
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Notice { message: "second" })
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Notice {
+                message: "second".to_string()
+            })
         );
-        assert_eq!(relay.pop_output(), None);
+        assert_eq!(pop_output(&mut relay)?, None);
         assert_eq!(relay.metrics().queued_outputs, 0);
         Ok(())
     }
@@ -539,25 +720,25 @@ mod tests {
         relay.inject_auth_challenge("challenge-token")?;
 
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Notice {
-                message: "relay notice",
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Notice {
+                message: "relay notice".to_string(),
             })
         );
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Closed {
-                subscription_id: "sub-1",
-                status,
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Closed {
+                subscription_id: "sub-1".to_string(),
+                status: status_snapshot(status),
             })
         );
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Auth {
-                challenge: "challenge-token",
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Auth {
+                challenge: "challenge-token".to_string(),
             })
         );
-        assert_eq!(relay.pop_output(), None);
+        assert_eq!(pop_output(&mut relay)?, None);
         assert_eq!(
             relay.inject_closed("", status),
             Err(NostrError::InvalidSubscriptionId)
@@ -615,7 +796,7 @@ mod tests {
         relay.publish(tie_b, &mut decode)?;
         relay.publish(too_new, &mut decode)?;
         relay.publish(tie_a, &mut decode)?;
-        drain_outputs(&mut relay);
+        drain_outputs(&mut relay)?;
 
         let kinds = [HYF_NOSTR_ENVELOPE_KIND];
         let authors = [author];
@@ -632,26 +813,26 @@ mod tests {
 
         let (first, second) = ordered_pair(tie_a, tie_b);
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Event {
-                subscription_id: "sub-1",
-                event: first,
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Event {
+                subscription_id: "sub-1".to_string(),
+                event_id: first.id,
             })
         );
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Event {
-                subscription_id: "sub-1",
-                event: second,
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Event {
+                subscription_id: "sub-1".to_string(),
+                event_id: second.id,
             })
         );
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Eose {
-                subscription_id: "sub-1",
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Eose {
+                subscription_id: "sub-1".to_string(),
             })
         );
-        assert_eq!(relay.pop_output(), None);
+        assert_eq!(pop_output(&mut relay)?, None);
         Ok(())
     }
 
@@ -670,7 +851,7 @@ mod tests {
         relay.publish(old, &mut decode)?;
         relay.publish(wrong_author, &mut decode)?;
         relay.publish(matching, &mut decode)?;
-        drain_outputs(&mut relay);
+        drain_outputs(&mut relay)?;
 
         let kinds = [HYF_NOSTR_ENVELOPE_KIND];
         let authors = [author];
@@ -686,20 +867,20 @@ mod tests {
         relay.subscribe("sub-1", &filters)?;
 
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Event {
-                subscription_id: "sub-1",
-                event: matching,
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Event {
+                subscription_id: "sub-1".to_string(),
+                event_id: matching.id,
             })
         );
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Eose {
-                subscription_id: "sub-1",
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Eose {
+                subscription_id: "sub-1".to_string(),
             })
         );
 
-        drain_outputs(&mut relay);
+        drain_outputs(&mut relay)?;
         let wrong_kind = [1];
         let filters = [NostrFilter {
             kinds: &wrong_kind,
@@ -707,12 +888,12 @@ mod tests {
         }];
         relay.subscribe("sub-1", &filters)?;
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Eose {
-                subscription_id: "sub-1",
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Eose {
+                subscription_id: "sub-1".to_string(),
             })
         );
-        assert_eq!(relay.pop_output(), None);
+        assert_eq!(pop_output(&mut relay)?, None);
         Ok(())
     }
 
@@ -725,7 +906,7 @@ mod tests {
 
         relay.publish(first, &mut decode)?;
         relay.publish(second, &mut decode)?;
-        drain_outputs(&mut relay);
+        drain_outputs(&mut relay)?;
 
         let first_filter_p_tags = [RECIPIENT_A];
         let first_filters = [NostrFilter {
@@ -735,16 +916,16 @@ mod tests {
         relay.subscribe("sub-1", &first_filters)?;
         assert_eq!(relay.metrics().active_subscriptions, 1);
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Event {
-                subscription_id: "sub-1",
-                event: first,
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Event {
+                subscription_id: "sub-1".to_string(),
+                event_id: first.id,
             })
         );
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Eose {
-                subscription_id: "sub-1",
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Eose {
+                subscription_id: "sub-1".to_string(),
             })
         );
 
@@ -756,19 +937,19 @@ mod tests {
         relay.subscribe("sub-1", &second_filters)?;
         assert_eq!(relay.metrics().active_subscriptions, 1);
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Event {
-                subscription_id: "sub-1",
-                event: second,
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Event {
+                subscription_id: "sub-1".to_string(),
+                event_id: second.id,
             })
         );
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Eose {
-                subscription_id: "sub-1",
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Eose {
+                subscription_id: "sub-1".to_string(),
             })
         );
-        assert_eq!(relay.pop_output(), None);
+        assert_eq!(pop_output(&mut relay)?, None);
         Ok(())
     }
 
@@ -793,11 +974,11 @@ mod tests {
         assert_eq!(relay.stored_event_count(), 1);
         assert_eq!(relay.metrics().stored_events, 1);
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Ok {
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Ok {
                 event_id: event.id,
                 accepted: true,
-                status: empty_test_status(),
+                status: status_snapshot(empty_test_status()),
             })
         );
 
@@ -809,11 +990,11 @@ mod tests {
         );
         assert_eq!(relay.stored_event_count(), 1);
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Ok {
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Ok {
                 event_id: event.id,
                 accepted: true,
-                status: duplicate_test_status(),
+                status: status_snapshot(duplicate_test_status()),
             })
         );
         Ok(())
@@ -833,11 +1014,11 @@ mod tests {
         );
         assert_eq!(relay.stored_event_count(), 0);
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Ok {
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Ok {
                 event_id: bad_signature.id,
                 accepted: false,
-                status: invalid_test_status(),
+                status: status_snapshot(invalid_test_status()),
             })
         );
 
@@ -896,11 +1077,11 @@ mod tests {
         );
         assert_eq!(relay.stored_event_count(), 0);
         assert_eq!(
-            relay.pop_output(),
-            Some(FakeNostrRelayOutput::Ok {
+            pop_output(&mut relay)?,
+            Some(OutputSnapshot::Ok {
                 event_id: event.id,
                 accepted: false,
-                status,
+                status: status_snapshot(status),
             })
         );
 
@@ -1080,8 +1261,61 @@ mod tests {
         const OUTPUT_CAPACITY: usize,
     >(
         relay: &mut FakeNostrRelay<'_, EVENT_CAPACITY, SUBSCRIPTION_CAPACITY, OUTPUT_CAPACITY>,
-    ) {
-        while relay.pop_output().is_some() {}
+    ) -> Result<(), NostrError> {
+        while relay.pop_next_output(|_| ())?.is_some() {}
+        Ok(())
+    }
+
+    fn pop_output<
+        'a,
+        const EVENT_CAPACITY: usize,
+        const SUBSCRIPTION_CAPACITY: usize,
+        const OUTPUT_CAPACITY: usize,
+    >(
+        relay: &mut FakeNostrRelay<'a, EVENT_CAPACITY, SUBSCRIPTION_CAPACITY, OUTPUT_CAPACITY>,
+    ) -> Result<Option<OutputSnapshot>, NostrError> {
+        relay.pop_next_output(|output| match output {
+            FakeNostrRelayOutput::Ok {
+                event_id,
+                accepted,
+                status,
+            } => OutputSnapshot::Ok {
+                event_id,
+                accepted,
+                status: status_snapshot(status),
+            },
+            FakeNostrRelayOutput::Event {
+                subscription_id,
+                event,
+            } => OutputSnapshot::Event {
+                subscription_id: subscription_id.to_string(),
+                event_id: event.id,
+            },
+            FakeNostrRelayOutput::Eose { subscription_id } => OutputSnapshot::Eose {
+                subscription_id: subscription_id.to_string(),
+            },
+            FakeNostrRelayOutput::Closed {
+                subscription_id,
+                status,
+            } => OutputSnapshot::Closed {
+                subscription_id: subscription_id.to_string(),
+                status: status_snapshot(status),
+            },
+            FakeNostrRelayOutput::Notice { message } => OutputSnapshot::Notice {
+                message: message.to_string(),
+            },
+            FakeNostrRelayOutput::Auth { challenge } => OutputSnapshot::Auth {
+                challenge: challenge.to_string(),
+            },
+        })
+    }
+
+    fn status_snapshot(status: NostrRelayStatus<'_>) -> StatusSnapshot {
+        StatusSnapshot {
+            prefix: status.prefix,
+            raw_prefix: status.raw_prefix.to_string(),
+            detail: status.detail.to_string(),
+        }
     }
 
     const fn empty_test_status() -> NostrRelayStatus<'static> {

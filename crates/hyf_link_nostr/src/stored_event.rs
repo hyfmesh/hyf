@@ -9,7 +9,7 @@ use crate::{
 
 const DUMMY_TAG_VALUES: [&str; 1] = ["_"];
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) struct FakeNostrEventRecord {
     id: NostrEventId,
     pubkey: NostrPublicKey,
