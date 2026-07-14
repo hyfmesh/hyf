@@ -1,5 +1,5 @@
-use hyf_core::{ForeignEndpointId, ForeignNetworkKind};
-use hyf_lxmf_core::{LxmfMessageRef, decode_lxmf_message};
+use hyf_core::{ForeignEndpointId, ForeignNetworkKind, MessageId};
+use hyf_lxmf_core::{LxmfMessageId, LxmfMessageRef, decode_lxmf_message, lxmf_message_id};
 use hyf_wire::{
     HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, validate_envelope,
 };
@@ -15,10 +15,11 @@ pub fn wrap_lxmf_message<'a>(
     params: LxmfWrapParams,
 ) -> Result<HyfEnvelopeRef<'a>, HyfLinkLxmfError> {
     let message = validate_lxmf_message(raw)?;
+    let message_id = hyf_message_id(lxmf_message_id(message)?);
     let destination_hash = *message.destination_hash.as_bytes();
     let envelope = HyfEnvelopeRef {
         version: HYF_WIRE_VERSION_0,
-        message_id: params.message_id,
+        message_id,
         source: params.source_node,
         destination: HyfDestination::Foreign(ForeignEndpointId::from_fixed_16(
             ForeignNetworkKind::Lxmf,
@@ -32,6 +33,10 @@ pub fn wrap_lxmf_message<'a>(
     };
     validate_envelope(envelope)?;
     Ok(envelope)
+}
+
+fn hyf_message_id(message_id: LxmfMessageId) -> MessageId {
+    MessageId(message_id.into_bytes())
 }
 
 pub fn unwrap_lxmf_message<'a>(envelope: HyfEnvelopeRef<'a>) -> Result<&'a [u8], HyfLinkLxmfError> {
@@ -59,6 +64,11 @@ mod tests {
         0x94, 0xcb, 0x3f, 0xf8, 0, 0, 0, 0, 0, 0, 0xc4, 0x05, b't', b'i', b't', b'l', b'e', 0xc4,
         0x05, b'h', b'e', b'l', b'l', b'o', 0x80,
     ];
+    const EXPECTED_MESSAGE_ID: MessageId = MessageId([
+        0x18, 0x93, 0xa6, 0xcf, 0x0c, 0xca, 0x60, 0x56, 0x8b, 0x39, 0xf7, 0xa7, 0x00, 0xa1, 0x7a,
+        0x67, 0xc0, 0x1c, 0x05, 0xb1, 0xc1, 0xea, 0xbc, 0x6b, 0xa5, 0xf5, 0xd9, 0xf6, 0xfa, 0x17,
+        0xe3, 0xe3,
+    ]);
 
     #[test]
     fn validate_accepts_valid_lxmf_message() -> Result<(), HyfLinkLxmfError> {
@@ -94,7 +104,7 @@ mod tests {
         let envelope = wrap_lxmf_message(&raw, params())?;
 
         assert_eq!(envelope.version, HYF_WIRE_VERSION_0);
-        assert_eq!(envelope.message_id, MessageId([3; 32]));
+        assert_eq!(envelope.message_id, EXPECTED_MESSAGE_ID);
         assert_eq!(envelope.source, NodeId([1; 32]));
         assert_eq!(envelope.payload_kind, PayloadKind::ForeignLxmfMessage);
         assert_eq!(envelope.payload, raw);
@@ -176,7 +186,6 @@ mod tests {
             created_at_ms: TimestampMs(10),
             expires_at_ms: TimestampMs(20),
             hop_limit: 4,
-            message_id: MessageId([3; 32]),
         }
     }
 

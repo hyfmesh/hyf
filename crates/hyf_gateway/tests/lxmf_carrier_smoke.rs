@@ -16,6 +16,10 @@ const LOCAL_NODE: NodeId = NodeId([0x11; 32]);
 const DESTINATION_HASH: [u8; 16] = [0x01; 16];
 const SOURCE_HASH: [u8; 16] = [0x02; 16];
 const SIGNATURE: [u8; 64] = [0x03; 64];
+const EXPECTED_MESSAGE_ID: MessageId = MessageId([
+    0x18, 0x93, 0xa6, 0xcf, 0x0c, 0xca, 0x60, 0x56, 0x8b, 0x39, 0xf7, 0xa7, 0x00, 0xa1, 0x7a, 0x67,
+    0xc0, 0x1c, 0x05, 0xb1, 0xc1, 0xea, 0xbc, 0x6b, 0xa5, 0xf5, 0xd9, 0xf6, 0xfa, 0x17, 0xe3, 0xe3,
+]);
 const PAYLOAD4: &[u8] = &[
     0x94, 0xcb, 0x3f, 0xf8, 0, 0, 0, 0, 0, 0, 0xc4, 0x05, b't', b'i', b't', b'l', b'e', 0xc4, 0x05,
     b'h', b'e', b'l', b'l', b'o', 0x80,
@@ -41,7 +45,7 @@ fn gateway_carries_foreign_lxmf_message_bytes_over_loopback() -> TestResult {
     let decoded = decode_envelope(frame.bytes)?;
     let raw_lxmf = unwrap_lxmf_message(decoded)?;
 
-    assert_eq!(decoded.message_id, MessageId([0x44; 32]));
+    assert_eq!(decoded.message_id, EXPECTED_MESSAGE_ID);
     assert_eq!(decoded.source, LOCAL_NODE);
     assert_eq!(decoded.payload_kind, PayloadKind::ForeignLxmfMessage);
     assert_eq!(decoded.payload, &raw);
@@ -60,7 +64,6 @@ fn params() -> LxmfWrapParams {
         created_at_ms: TimestampMs(1_720_000_000_123),
         expires_at_ms: TimestampMs(1_720_000_100_000),
         hop_limit: 4,
-        message_id: MessageId([0x44; 32]),
     }
 }
 

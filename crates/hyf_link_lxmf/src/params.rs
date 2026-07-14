@@ -1,4 +1,4 @@
-use hyf_core::{MessageId, NodeId, TimestampMs};
+use hyf_core::{NodeId, TimestampMs};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LxmfWrapParams {
@@ -6,12 +6,11 @@ pub struct LxmfWrapParams {
     pub created_at_ms: TimestampMs,
     pub expires_at_ms: TimestampMs,
     pub hop_limit: u8,
-    pub message_id: MessageId,
 }
 
 #[cfg(test)]
 mod tests {
-    use hyf_core::{MessageId, NodeId, TimestampMs};
+    use hyf_core::{NodeId, TimestampMs};
 
     use super::LxmfWrapParams;
 
@@ -22,7 +21,6 @@ mod tests {
             created_at_ms: TimestampMs(10),
             expires_at_ms: TimestampMs(20),
             hop_limit: 4,
-            message_id: MessageId([3; 32]),
         };
 
         assert_eq!(params, params);
