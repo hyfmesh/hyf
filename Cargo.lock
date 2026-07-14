@@ -597,6 +597,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyf_lxmf_core"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "hyf_rns_conformance"
 version = "0.1.0"
 dependencies = [

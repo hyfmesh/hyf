@@ -36,6 +36,7 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
     common_features("hyf_router"),
     common_features("hyf_link_loopback"),
     common_features("hyf_config"),
+    common_features("hyf_lxmf_core"),
     common_features("hyf_link_rns"),
     FeatureSurface {
         package: "hyf_link_fips",
