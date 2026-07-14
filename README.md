@@ -73,6 +73,9 @@ cargo test -p hyf_gateway --test nostr_uplink_smoke
 cargo build --manifest-path fuzz/Cargo.toml --bins
 ```
 
+For the complete Nostr uplink verification bundle, see
+`docs/verification/nostr_uplink.md`.
+
 Optional Reticulum oracle tests require `HYF_RETICULUM_PATH` to point at a
 compatible Reticulum source checkout. Optional RNode serial tests require
 `HYF_HIL_RNODE_PORT` and an explicitly connected device. No default check
