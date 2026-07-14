@@ -45,8 +45,8 @@ pub use filter::{
 };
 pub use hex::{decode_fixed_lower_hex, decode_lower_hex, encode_lower_hex};
 pub use hyf::{
-    HYF_NOSTR_ALT_TAG, HYF_NOSTR_TOPIC_TAG, HyfNostrEventBuffers, sign_hyf_nostr_event,
-    verify_and_decode_hyf_nostr_event,
+    HYF_NOSTR_ALT_TAG, HYF_NOSTR_TOPIC_TAG, HyfNostrEventScratch,
+    verify_and_decode_hyf_nostr_event, with_signed_hyf_nostr_event,
 };
 pub use keys::{NostrEventId, NostrPublicKey, NostrSecretKey, NostrSignature};
 #[cfg(any(test, feature = "alloc"))]

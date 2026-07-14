@@ -5,9 +5,9 @@ use hyf_core::{MessageId, NodeId, TimestampMs};
 use hyf_gateway::{GatewayCore, GatewayError, GatewayLinkExecutor, NostrGatewayExecutor};
 use hyf_link::{LinkDriverErrorKind, LinkEvent, LinkId};
 use hyf_link_nostr::{
-    FakeNostrRelay, FakeNostrRelayOutput, HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS,
-    HyfNostrEventBuffers, NostrError, NostrEvent, NostrFilter, NostrPublicKey, NostrRelayStatus,
-    NostrRelayStatusPrefix, NostrSecretKey, NostrSignature, NostrTagRef, sign_hyf_nostr_event,
+    FakeNostrRelay, HYF_NOSTR_ENVELOPE_KIND, HyfNostrEventScratch, NostrError, NostrFilter,
+    NostrPublicKey, NostrRelayStatus, NostrRelayStatusPrefix, NostrSecretKey, NostrSignature,
+    with_signed_hyf_nostr_event,
 };
 use hyf_store::StorePolicy;
 use hyf_wire::{
@@ -130,17 +130,10 @@ fn smoke_gateway_rejects_malformed_nostr_before_core_ingest() -> Result<(), Gate
     );
     let mut encoded = [0; 256];
     let len = encode_envelope(inbound_envelope(), &mut encoded)?;
-    let bad_event = tampered_event(&encoded[..len])?;
     let mut frame = [0; 256];
 
     executor.set_up(true);
-    executor
-        .relay_mut()
-        .enqueue_output(FakeNostrRelayOutput::Event {
-            subscription_id: "bad",
-            event: bad_event,
-        })
-        .map_err(map_nostr_error)?;
+    enqueue_tampered_event(&mut executor, &encoded[..len])?;
 
     assert_eq!(
         executor.poll_relay_frame(&mut frame),
@@ -299,34 +292,31 @@ fn fixture_secret() -> NostrSecretKey {
     NostrSecretKey::from_bytes(secret_key)
 }
 
-fn tampered_event(encoded: &[u8]) -> Result<NostrEvent<'static>, GatewayError> {
-    let event = sign_hyf_nostr_event(
+fn enqueue_tampered_event(
+    executor: &mut NostrGatewayExecutor<SmokeRelay>,
+    encoded: &[u8],
+) -> Result<(), GatewayError> {
+    let mut scratch = HyfNostrEventScratch::new();
+    with_signed_hyf_nostr_event(
         encoded,
         &fixture_secret(),
         RECIPIENT,
         1_720_000_010,
-        leaked_event_buffers()?,
+        &mut scratch,
+        |event| {
+            let mut signature = *event.sig.as_bytes();
+            signature[0] ^= 0x01;
+            executor.relay_mut().enqueue_event_output(
+                "bad",
+                hyf_link_nostr::NostrEvent {
+                    sig: NostrSignature::from_bytes(signature),
+                    ..event
+                },
+            )
+        },
     )
-    .map_err(map_nostr_error)?;
-    let mut signature = *event.sig.as_bytes();
-    signature[0] ^= 0x01;
-    Ok(NostrEvent {
-        sig: NostrSignature::from_bytes(signature),
-        ..event
-    })
-}
-
-fn leaked_event_buffers() -> Result<HyfNostrEventBuffers<'static>, GatewayError> {
-    let dummy_values = Box::leak(Box::new(["_"]));
-    let dummy = NostrTagRef::new(dummy_values).map_err(map_nostr_error)?;
-    Ok(HyfNostrEventBuffers {
-        content: Box::leak(Box::new([0; HYF_NOSTR_MAX_CONTENT_CHARS])),
-        recipient_hex: Box::leak(Box::new([0; 64])),
-        p_tag_values: Box::leak(Box::new(["", ""])),
-        t_tag_values: Box::leak(Box::new(["", ""])),
-        alt_tag_values: Box::leak(Box::new(["", ""])),
-        tags: Box::leak(Box::new([dummy; 3])),
-    })
+    .map_err(map_nostr_error)?
+    .map_err(map_nostr_error)
 }
 
 fn map_nostr_error(_error: NostrError) -> GatewayError {

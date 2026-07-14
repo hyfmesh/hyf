@@ -283,7 +283,7 @@ impl<
 
     pub fn publish(
         &mut self,
-        event: NostrEvent<'a>,
+        event: NostrEvent<'_>,
         decode_buffer: &mut [u8],
     ) -> Result<NostrPublishOutcome<'a>, NostrError> {
         if verify_and_decode_hyf_nostr_event(&event, decode_buffer).is_err() {
@@ -348,6 +348,17 @@ impl<
 
     pub fn enqueue_output(&mut self, output: FakeNostrRelayOutput<'a>) -> Result<(), NostrError> {
         self.enqueue_output_record(FakeNostrRelayOutputRecord::from_output(output)?)
+    }
+
+    pub fn enqueue_event_output(
+        &mut self,
+        subscription_id: &'a str,
+        event: NostrEvent<'_>,
+    ) -> Result<(), NostrError> {
+        self.enqueue_output_record(FakeNostrRelayOutputRecord::OwnedEvent {
+            subscription_id,
+            event: FakeNostrEventRecord::from_event(&event)?,
+        })
     }
 
     fn enqueue_output_record(
@@ -576,12 +587,13 @@ mod tests {
     use alloc::string::{String, ToString};
 
     use super::{FakeNostrRelay, FakeNostrRelayOutput};
+    use crate::stored_event::FakeNostrEventRecord;
     use crate::{
-        HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HyfNostrEventBuffers, NostrError,
+        HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, HyfNostrEventScratch, NostrError,
         NostrEvent, NostrEventId, NostrFilter, NostrPublicKey, NostrPublishOutcome,
         NostrRelayStatus, NostrRelayStatusPrefix, NostrSecretKey, NostrSignature, NostrTagRef,
         NostrTagsRef, NostrUnsignedEvent, encode_hyf_envelope_content, sign_event,
-        sign_hyf_nostr_event,
+        with_signed_hyf_nostr_event,
     };
     use hyf_core::{MessageId, NodeId, TimestampMs};
     use hyf_wire::{
@@ -783,19 +795,19 @@ mod tests {
     -> Result<(), NostrError> {
         let author_secret = secret_with_last_byte(3);
         let author = crate::derive_nostr_public_key(&author_secret)?;
-        let tie_a = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_A)?;
-        let tie_b = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_B)?;
-        let old = signed_static_hyf_event(10, secret_with_last_byte(3), RECIPIENT_A)?;
-        let wrong_author = signed_static_hyf_event(19, secret_with_last_byte(4), RECIPIENT_A)?;
-        let too_new = signed_static_hyf_event(30, secret_with_last_byte(3), RECIPIENT_A)?;
+        let tie_a = signed_hyf_event_record(20, secret_with_last_byte(3), RECIPIENT_A)?;
+        let tie_b = signed_hyf_event_record(20, secret_with_last_byte(3), RECIPIENT_B)?;
+        let old = signed_hyf_event_record(10, secret_with_last_byte(3), RECIPIENT_A)?;
+        let wrong_author = signed_hyf_event_record(19, secret_with_last_byte(4), RECIPIENT_A)?;
+        let too_new = signed_hyf_event_record(30, secret_with_last_byte(3), RECIPIENT_A)?;
         let mut relay = FakeNostrRelay::<5, 1, 8>::new();
         let mut decode = [0; 256];
 
-        relay.publish(old, &mut decode)?;
-        relay.publish(wrong_author, &mut decode)?;
-        relay.publish(tie_b, &mut decode)?;
-        relay.publish(too_new, &mut decode)?;
-        relay.publish(tie_a, &mut decode)?;
+        publish_record(&mut relay, &old, &mut decode)?;
+        publish_record(&mut relay, &wrong_author, &mut decode)?;
+        publish_record(&mut relay, &tie_b, &mut decode)?;
+        publish_record(&mut relay, &too_new, &mut decode)?;
+        publish_record(&mut relay, &tie_a, &mut decode)?;
         drain_outputs(&mut relay)?;
 
         let kinds = [HYF_NOSTR_ENVELOPE_KIND];
@@ -811,19 +823,19 @@ mod tests {
         }];
         relay.subscribe("sub-1", &filters)?;
 
-        let (first, second) = ordered_pair(tie_a, tie_b);
+        let (first, second) = ordered_pair(&tie_a, &tie_b);
         assert_eq!(
             pop_output(&mut relay)?,
             Some(OutputSnapshot::Event {
                 subscription_id: "sub-1".to_string(),
-                event_id: first.id,
+                event_id: first,
             })
         );
         assert_eq!(
             pop_output(&mut relay)?,
             Some(OutputSnapshot::Event {
                 subscription_id: "sub-1".to_string(),
-                event_id: second.id,
+                event_id: second,
             })
         );
         assert_eq!(
@@ -840,17 +852,17 @@ mod tests {
     fn fake_relay_subscribe_filters_kind_author_p_and_time_ranges() -> Result<(), NostrError> {
         let author_secret = secret_with_last_byte(3);
         let author = crate::derive_nostr_public_key(&author_secret)?;
-        let matching = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_A)?;
-        let wrong_recipient = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_B)?;
-        let old = signed_static_hyf_event(9, secret_with_last_byte(3), RECIPIENT_A)?;
-        let wrong_author = signed_static_hyf_event(20, secret_with_last_byte(4), RECIPIENT_A)?;
+        let matching = signed_hyf_event_record(20, secret_with_last_byte(3), RECIPIENT_A)?;
+        let wrong_recipient = signed_hyf_event_record(20, secret_with_last_byte(3), RECIPIENT_B)?;
+        let old = signed_hyf_event_record(9, secret_with_last_byte(3), RECIPIENT_A)?;
+        let wrong_author = signed_hyf_event_record(20, secret_with_last_byte(4), RECIPIENT_A)?;
         let mut relay = FakeNostrRelay::<4, 1, 8>::new();
         let mut decode = [0; 256];
 
-        relay.publish(wrong_recipient, &mut decode)?;
-        relay.publish(old, &mut decode)?;
-        relay.publish(wrong_author, &mut decode)?;
-        relay.publish(matching, &mut decode)?;
+        publish_record(&mut relay, &wrong_recipient, &mut decode)?;
+        publish_record(&mut relay, &old, &mut decode)?;
+        publish_record(&mut relay, &wrong_author, &mut decode)?;
+        publish_record(&mut relay, &matching, &mut decode)?;
         drain_outputs(&mut relay)?;
 
         let kinds = [HYF_NOSTR_ENVELOPE_KIND];
@@ -870,7 +882,7 @@ mod tests {
             pop_output(&mut relay)?,
             Some(OutputSnapshot::Event {
                 subscription_id: "sub-1".to_string(),
-                event_id: matching.id,
+                event_id: matching.id(),
             })
         );
         assert_eq!(
@@ -899,13 +911,13 @@ mod tests {
 
     #[test]
     fn fake_relay_subscribe_replaces_repeated_subscription_id() -> Result<(), NostrError> {
-        let first = signed_static_hyf_event(20, secret_with_last_byte(3), RECIPIENT_A)?;
-        let second = signed_static_hyf_event(21, secret_with_last_byte(3), RECIPIENT_B)?;
+        let first = signed_hyf_event_record(20, secret_with_last_byte(3), RECIPIENT_A)?;
+        let second = signed_hyf_event_record(21, secret_with_last_byte(3), RECIPIENT_B)?;
         let mut relay = FakeNostrRelay::<2, 1, 8>::new();
         let mut decode = [0; 256];
 
-        relay.publish(first, &mut decode)?;
-        relay.publish(second, &mut decode)?;
+        publish_record(&mut relay, &first, &mut decode)?;
+        publish_record(&mut relay, &second, &mut decode)?;
         drain_outputs(&mut relay)?;
 
         let first_filter_p_tags = [RECIPIENT_A];
@@ -919,7 +931,7 @@ mod tests {
             pop_output(&mut relay)?,
             Some(OutputSnapshot::Event {
                 subscription_id: "sub-1".to_string(),
-                event_id: first.id,
+                event_id: first.id(),
             })
         );
         assert_eq!(
@@ -940,7 +952,7 @@ mod tests {
             pop_output(&mut relay)?,
             Some(OutputSnapshot::Event {
                 subscription_id: "sub-1".to_string(),
-                event_id: second.id,
+                event_id: second.id(),
             })
         );
         assert_eq!(
@@ -955,20 +967,12 @@ mod tests {
 
     #[test]
     fn fake_relay_publish_accepts_valid_events_and_detects_duplicates() -> Result<(), NostrError> {
-        let encoded = encoded_sample_envelope()?;
-        let mut buffers = publish_buffers()?;
-        let event = sign_hyf_nostr_event(
-            &encoded,
-            &fixture_secret(),
-            RECIPIENT_A,
-            1720000000,
-            buffers.as_event_buffers(),
-        )?;
+        let event = signed_hyf_event_record(1720000000, fixture_secret(), RECIPIENT_A)?;
         let mut relay = FakeNostrRelay::<2, 0, 4>::new();
         let mut decode = [0; 256];
 
         assert_eq!(
-            relay.publish(event, &mut decode)?,
+            publish_record(&mut relay, &event, &mut decode)?,
             NostrPublishOutcome::Accepted { message: "" }
         );
         assert_eq!(relay.stored_event_count(), 1);
@@ -976,14 +980,14 @@ mod tests {
         assert_eq!(
             pop_output(&mut relay)?,
             Some(OutputSnapshot::Ok {
-                event_id: event.id,
+                event_id: event.id(),
                 accepted: true,
                 status: status_snapshot(empty_test_status()),
             })
         );
 
         assert_eq!(
-            relay.publish(event, &mut decode)?,
+            publish_record(&mut relay, &event, &mut decode)?,
             NostrPublishOutcome::AcceptedDuplicate {
                 status: duplicate_test_status(),
             }
@@ -992,7 +996,7 @@ mod tests {
         assert_eq!(
             pop_output(&mut relay)?,
             Some(OutputSnapshot::Ok {
-                event_id: event.id,
+                event_id: event.id(),
                 accepted: true,
                 status: status_snapshot(duplicate_test_status()),
             })
@@ -1007,7 +1011,7 @@ mod tests {
         let bad_signature = tampered_signature_event()?;
 
         assert_eq!(
-            relay.publish(bad_signature, &mut decode)?,
+            publish_record(&mut relay, &bad_signature, &mut decode)?,
             NostrPublishOutcome::Rejected {
                 status: invalid_test_status(),
             }
@@ -1016,7 +1020,7 @@ mod tests {
         assert_eq!(
             pop_output(&mut relay)?,
             Some(OutputSnapshot::Ok {
-                event_id: bad_signature.id,
+                event_id: bad_signature.id(),
                 accepted: false,
                 status: status_snapshot(invalid_test_status()),
             })
@@ -1024,7 +1028,7 @@ mod tests {
 
         let wrong_kind = wrong_kind_event()?;
         assert_eq!(
-            relay.publish(wrong_kind, &mut decode)?,
+            publish_record(&mut relay, &wrong_kind, &mut decode)?,
             NostrPublishOutcome::Rejected {
                 status: invalid_test_status(),
             }
@@ -1032,7 +1036,7 @@ mod tests {
 
         let malformed_content = malformed_content_event()?;
         assert_eq!(
-            relay.publish(malformed_content, &mut decode)?,
+            publish_record(&mut relay, &malformed_content, &mut decode)?,
             NostrPublishOutcome::Rejected {
                 status: invalid_test_status(),
             }
@@ -1042,22 +1046,14 @@ mod tests {
 
     #[test]
     fn fake_relay_publish_reports_full_event_store() -> Result<(), NostrError> {
-        let encoded = encoded_sample_envelope()?;
-        let mut buffers = publish_buffers()?;
-        let first = sign_hyf_nostr_event(
-            &encoded,
-            &fixture_secret(),
-            RECIPIENT_A,
-            1720000000,
-            buffers.as_event_buffers(),
-        )?;
-        let second = valid_static_event(1720000001)?;
+        let first = signed_hyf_event_record(1720000000, fixture_secret(), RECIPIENT_A)?;
+        let second = valid_event_record(1720000001)?;
         let mut relay = FakeNostrRelay::<1, 0, 4>::new();
         let mut decode = [0; 256];
 
-        relay.publish(first, &mut decode)?;
+        publish_record(&mut relay, &first, &mut decode)?;
         assert_eq!(
-            relay.publish(second, &mut decode),
+            publish_record(&mut relay, &second, &mut decode),
             Err(NostrError::RelayEventStoreFull { capacity: 1 })
         );
         Ok(())
@@ -1065,150 +1061,113 @@ mod tests {
 
     #[test]
     fn fake_relay_can_reject_next_valid_publish() -> Result<(), NostrError> {
-        let event = valid_static_event(1720000000)?;
+        let event = valid_event_record(1720000000)?;
         let status = rate_limited_test_status();
         let mut relay = FakeNostrRelay::<1, 0, 2>::new();
         let mut decode = [0; 256];
 
         relay.reject_next_publish(status);
         assert_eq!(
-            relay.publish(event, &mut decode)?,
+            publish_record(&mut relay, &event, &mut decode)?,
             NostrPublishOutcome::Rejected { status }
         );
         assert_eq!(relay.stored_event_count(), 0);
         assert_eq!(
             pop_output(&mut relay)?,
             Some(OutputSnapshot::Ok {
-                event_id: event.id,
+                event_id: event.id(),
                 accepted: false,
                 status: status_snapshot(status),
             })
         );
 
         assert_eq!(
-            relay.publish(event, &mut decode)?,
+            publish_record(&mut relay, &event, &mut decode)?,
             NostrPublishOutcome::Accepted { message: "" }
         );
         assert_eq!(relay.stored_event_count(), 1);
         Ok(())
     }
 
-    struct PublishBuffers<'a> {
-        content: [u8; HYF_NOSTR_MAX_CONTENT_CHARS],
-        recipient_hex: [u8; 64],
-        p_tag_values: [&'a str; 2],
-        t_tag_values: [&'a str; 2],
-        alt_tag_values: [&'a str; 2],
-        tags: [NostrTagRef<'a>; 3],
+    fn wrong_kind_event() -> Result<FakeNostrEventRecord, NostrError> {
+        let encoded = encoded_sample_envelope()?;
+        let mut content = [0; HYF_NOSTR_MAX_CONTENT_CHARS];
+        let content = encode_hyf_envelope_content(&encoded, &mut content)?;
+        signed_event_record(1, content, 1720000000)
     }
 
-    impl<'a> PublishBuffers<'a> {
-        fn as_event_buffers(&'a mut self) -> HyfNostrEventBuffers<'a> {
-            HyfNostrEventBuffers {
-                content: &mut self.content,
-                recipient_hex: &mut self.recipient_hex,
-                p_tag_values: &mut self.p_tag_values,
-                t_tag_values: &mut self.t_tag_values,
-                alt_tag_values: &mut self.alt_tag_values,
-                tags: &mut self.tags,
-            }
-        }
+    fn malformed_content_event() -> Result<FakeNostrEventRecord, NostrError> {
+        signed_event_record(HYF_NOSTR_ENVELOPE_KIND, "zz", 1720000000)
     }
 
-    fn publish_buffers<'a>() -> Result<PublishBuffers<'a>, NostrError> {
-        static DUMMY_VALUES: [&str; 1] = ["_"];
-        let dummy = NostrTagRef::new(&DUMMY_VALUES)?;
-        Ok(PublishBuffers {
-            content: [0; HYF_NOSTR_MAX_CONTENT_CHARS],
-            recipient_hex: [0; 64],
-            p_tag_values: ["", ""],
-            t_tag_values: ["", ""],
-            alt_tag_values: ["", ""],
-            tags: [dummy; 3],
+    fn tampered_signature_event() -> Result<FakeNostrEventRecord, NostrError> {
+        let event = valid_event_record(1720000000)?;
+        event.with_event(|event| {
+            let mut signature = *event.sig.as_bytes();
+            signature[0] ^= 0x01;
+            let event = NostrEvent {
+                sig: NostrSignature::from_bytes(signature),
+                ..event
+            };
+            FakeNostrEventRecord::from_event(&event)
         })
     }
 
-    fn wrong_kind_event() -> Result<NostrEvent<'static>, NostrError> {
-        let content = encoded_content_static()?;
-        signed_static_event(1, content)
+    fn valid_event_record(created_at: u64) -> Result<FakeNostrEventRecord, NostrError> {
+        signed_hyf_event_record(created_at, fixture_secret(), RECIPIENT_A)
     }
 
-    fn malformed_content_event() -> Result<NostrEvent<'static>, NostrError> {
-        signed_static_event(HYF_NOSTR_ENVELOPE_KIND, "zz")
-    }
-
-    fn tampered_signature_event() -> Result<NostrEvent<'static>, NostrError> {
-        let event = valid_static_event(1720000000)?;
-        let mut signature = *event.sig.as_bytes();
-        signature[0] ^= 0x01;
-        Ok(NostrEvent {
-            sig: NostrSignature::from_bytes(signature),
-            ..event
-        })
-    }
-
-    fn valid_static_event(created_at: u64) -> Result<NostrEvent<'static>, NostrError> {
-        signed_static_hyf_event(created_at, fixture_secret(), RECIPIENT_A)
-    }
-
-    fn signed_static_event(
+    fn signed_event_record(
         kind: u16,
-        content: &'static str,
-    ) -> Result<NostrEvent<'static>, NostrError> {
-        signed_static_event_with_created_at(kind, content, 1720000000)
-    }
-
-    fn signed_static_event_with_created_at(
-        kind: u16,
-        content: &'static str,
+        content: &str,
         created_at: u64,
-    ) -> Result<NostrEvent<'static>, NostrError> {
-        let recipient_hex_buf = Box::leak(Box::new([0; 64]));
-        let recipient_hex = RECIPIENT_A.write_hex(recipient_hex_buf)?;
-        let tag_values = Box::leak(Box::new(["p", recipient_hex]));
-        let tag = NostrTagRef::new(tag_values)?;
-        let tags = Box::leak(Box::new([tag]));
-        sign_event(
+    ) -> Result<FakeNostrEventRecord, NostrError> {
+        let mut recipient_hex_buf = [0; 64];
+        let recipient_hex = RECIPIENT_A.write_hex(&mut recipient_hex_buf)?;
+        let tag_values = ["p", recipient_hex];
+        let tag = NostrTagRef::new(&tag_values)?;
+        let tags = [tag];
+        let event = sign_event(
             NostrUnsignedEvent::new(
                 crate::derive_nostr_public_key(&fixture_secret())?,
                 created_at,
                 kind,
-                NostrTagsRef::new(tags),
+                NostrTagsRef::new(&tags),
                 content,
             )?,
             &fixture_secret(),
-        )
+        )?;
+        FakeNostrEventRecord::from_event(&event)
     }
 
-    fn signed_static_hyf_event(
+    fn signed_hyf_event_record(
         created_at: u64,
         secret: NostrSecretKey,
         recipient: NostrPublicKey,
-    ) -> Result<NostrEvent<'static>, NostrError> {
-        let content = encoded_content_static()?;
-        let recipient_hex_buf = Box::leak(Box::new([0; 64]));
-        let recipient_hex = recipient.write_hex(recipient_hex_buf)?;
-        let tag_values = Box::leak(Box::new(["p", recipient_hex]));
-        let tag = NostrTagRef::new(tag_values)?;
-        let tags = Box::leak(Box::new([tag]));
-        sign_event(
-            NostrUnsignedEvent::new(
-                crate::derive_nostr_public_key(&secret)?,
-                created_at,
-                HYF_NOSTR_ENVELOPE_KIND,
-                NostrTagsRef::new(tags),
-                content,
-            )?,
+    ) -> Result<FakeNostrEventRecord, NostrError> {
+        let encoded = encoded_sample_envelope()?;
+        let mut scratch = HyfNostrEventScratch::new();
+        with_signed_hyf_nostr_event(
+            &encoded,
             &secret,
-        )
+            recipient,
+            created_at,
+            &mut scratch,
+            |event| FakeNostrEventRecord::from_event(&event),
+        )?
     }
 
-    fn encoded_content_static() -> Result<&'static str, NostrError> {
-        let encoded = encoded_sample_envelope()?;
-        let mut content = [0; HYF_NOSTR_MAX_CONTENT_CHARS];
-        let content_len = encode_hyf_envelope_content(&encoded, &mut content)?.len();
-        let leaked = Box::leak(Box::new(content));
-        core::str::from_utf8(&leaked[..content_len]).map_err(|_| NostrError::Utf8)
+    fn publish_record<
+        'a,
+        const EVENT_CAPACITY: usize,
+        const SUBSCRIPTION_CAPACITY: usize,
+        const OUTPUT_CAPACITY: usize,
+    >(
+        relay: &mut FakeNostrRelay<'a, EVENT_CAPACITY, SUBSCRIPTION_CAPACITY, OUTPUT_CAPACITY>,
+        record: &FakeNostrEventRecord,
+        decode: &mut [u8],
+    ) -> Result<NostrPublishOutcome<'a>, NostrError> {
+        record.with_event(|event| relay.publish(event, decode))
     }
 
     fn encoded_sample_envelope() -> Result<[u8; 123], NostrError> {
@@ -1245,13 +1204,13 @@ mod tests {
     }
 
     fn ordered_pair(
-        first: NostrEvent<'static>,
-        second: NostrEvent<'static>,
-    ) -> (NostrEvent<'static>, NostrEvent<'static>) {
-        if first.id.as_bytes() < second.id.as_bytes() {
-            (first, second)
+        first: &FakeNostrEventRecord,
+        second: &FakeNostrEventRecord,
+    ) -> (NostrEventId, NostrEventId) {
+        if first.id().as_bytes() < second.id().as_bytes() {
+            (first.id(), second.id())
         } else {
-            (second, first)
+            (second.id(), first.id())
         }
     }
 

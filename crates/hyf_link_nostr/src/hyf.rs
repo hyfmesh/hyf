@@ -9,45 +9,55 @@ use crate::{
 pub const HYF_NOSTR_TOPIC_TAG: &str = "hyf";
 pub const HYF_NOSTR_ALT_TAG: &str = "hyf gateway envelope";
 
-pub struct HyfNostrEventBuffers<'a> {
-    pub content: &'a mut [u8],
-    pub recipient_hex: &'a mut [u8; 64],
-    pub p_tag_values: &'a mut [&'a str; 2],
-    pub t_tag_values: &'a mut [&'a str; 2],
-    pub alt_tag_values: &'a mut [&'a str; 2],
-    pub tags: &'a mut [NostrTagRef<'a>; 3],
+pub struct HyfNostrEventScratch {
+    content: [u8; crate::HYF_NOSTR_MAX_CONTENT_CHARS],
+    recipient_hex: [u8; 64],
 }
 
-pub fn sign_hyf_nostr_event<'a>(
+impl HyfNostrEventScratch {
+    pub const fn new() -> Self {
+        Self {
+            content: [0; crate::HYF_NOSTR_MAX_CONTENT_CHARS],
+            recipient_hex: [0; 64],
+        }
+    }
+}
+
+impl Default for HyfNostrEventScratch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub fn with_signed_hyf_nostr_event<T>(
     encoded_envelope: &[u8],
     author_secret: &NostrSecretKey,
     recipient_pubkey: NostrPublicKey,
     created_at: u64,
-    buffers: HyfNostrEventBuffers<'a>,
-) -> Result<NostrEvent<'a>, NostrError> {
-    let content = encode_hyf_envelope_content(encoded_envelope, buffers.content)?;
-    let recipient_hex = recipient_pubkey.write_hex(buffers.recipient_hex)?;
+    scratch: &mut HyfNostrEventScratch,
+    f: impl for<'event> FnOnce(NostrEvent<'event>) -> T,
+) -> Result<T, NostrError> {
+    let content = encode_hyf_envelope_content(encoded_envelope, &mut scratch.content)?;
+    let recipient_hex = recipient_pubkey.write_hex(&mut scratch.recipient_hex)?;
 
-    buffers.p_tag_values[0] = "p";
-    buffers.p_tag_values[1] = recipient_hex;
-    buffers.t_tag_values[0] = "t";
-    buffers.t_tag_values[1] = HYF_NOSTR_TOPIC_TAG;
-    buffers.alt_tag_values[0] = "alt";
-    buffers.alt_tag_values[1] = HYF_NOSTR_ALT_TAG;
-
-    buffers.tags[0] = NostrTagRef::new(buffers.p_tag_values)?;
-    buffers.tags[1] = NostrTagRef::new(buffers.t_tag_values)?;
-    buffers.tags[2] = NostrTagRef::new(buffers.alt_tag_values)?;
+    let p_tag_values = ["p", recipient_hex];
+    let t_tag_values = ["t", HYF_NOSTR_TOPIC_TAG];
+    let alt_tag_values = ["alt", HYF_NOSTR_ALT_TAG];
+    let tags = [
+        NostrTagRef::new(&p_tag_values)?,
+        NostrTagRef::new(&t_tag_values)?,
+        NostrTagRef::new(&alt_tag_values)?,
+    ];
 
     let author_pubkey = derive_nostr_public_key(author_secret)?;
     let unsigned = NostrUnsignedEvent::new(
         author_pubkey,
         created_at,
         HYF_NOSTR_ENVELOPE_KIND,
-        NostrTagsRef::new(buffers.tags),
+        NostrTagsRef::new(&tags),
         content,
     )?;
-    sign_event(unsigned, author_secret)
+    Ok(f(sign_event(unsigned, author_secret)?))
 }
 
 pub fn verify_and_decode_hyf_nostr_event<'out>(
@@ -83,8 +93,8 @@ mod tests {
     };
 
     use super::{
-        HYF_NOSTR_ALT_TAG, HYF_NOSTR_TOPIC_TAG, HyfNostrEventBuffers, sign_hyf_nostr_event,
-        verify_and_decode_hyf_nostr_event,
+        HYF_NOSTR_ALT_TAG, HYF_NOSTR_TOPIC_TAG, HyfNostrEventScratch,
+        verify_and_decode_hyf_nostr_event, with_signed_hyf_nostr_event,
     };
     use crate::{
         HYF_NOSTR_ENVELOPE_KIND, HYF_NOSTR_MAX_CONTENT_CHARS, NostrError, NostrEvent,
@@ -97,45 +107,32 @@ mod tests {
         let encoded = encoded_sample_envelope()?;
         let author_secret = fixture_secret();
         let recipient = NostrPublicKey::from_bytes([0x77; 32]);
-        let dummy_values = ["_"];
-        let dummy = NostrTagRef::new(&dummy_values)?;
-        let mut content = [0; HYF_NOSTR_MAX_CONTENT_CHARS];
-        let mut recipient_hex = [0; 64];
-        let mut p_tag_values = ["", ""];
-        let mut t_tag_values = ["", ""];
-        let mut alt_tag_values = ["", ""];
-        let mut tags = [dummy; 3];
+        let mut scratch = HyfNostrEventScratch::new();
 
-        let event = sign_hyf_nostr_event(
+        with_signed_hyf_nostr_event(
             &encoded,
             &author_secret,
             recipient,
             1720000000,
-            HyfNostrEventBuffers {
-                content: &mut content,
-                recipient_hex: &mut recipient_hex,
-                p_tag_values: &mut p_tag_values,
-                t_tag_values: &mut t_tag_values,
-                alt_tag_values: &mut alt_tag_values,
-                tags: &mut tags,
+            &mut scratch,
+            |event| {
+                assert_eq!(event.kind, HYF_NOSTR_ENVELOPE_KIND);
+                assert_eq!(event.tags.as_slice()[0].name(), "p");
+                assert_eq!(
+                    event.tags.as_slice()[1].values(),
+                    &["t", HYF_NOSTR_TOPIC_TAG]
+                );
+                assert_eq!(
+                    event.tags.as_slice()[2].values(),
+                    &["alt", HYF_NOSTR_ALT_TAG]
+                );
+
+                let mut decoded = [0; 256];
+                let envelope = verify_and_decode_hyf_nostr_event(&event, &mut decoded)?;
+                assert_eq!(envelope, sample_envelope());
+                Ok::<(), NostrError>(())
             },
-        )?;
-
-        assert_eq!(event.kind, HYF_NOSTR_ENVELOPE_KIND);
-        assert_eq!(event.tags.as_slice()[0].name(), "p");
-        assert_eq!(
-            event.tags.as_slice()[1].values(),
-            &["t", HYF_NOSTR_TOPIC_TAG]
-        );
-        assert_eq!(
-            event.tags.as_slice()[2].values(),
-            &["alt", HYF_NOSTR_ALT_TAG]
-        );
-
-        let mut decoded = [0; 256];
-        let envelope = verify_and_decode_hyf_nostr_event(&event, &mut decoded)?;
-        assert_eq!(envelope, sample_envelope());
-        Ok(())
+        )?
     }
 
     #[test]
