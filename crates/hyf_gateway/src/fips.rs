@@ -7,6 +7,9 @@ use hyf_link_fips::{FakeFipsSidecar, FipsDatagramRef, FipsEndpoint, FipsError};
 use crate::{GatewayError, GatewayLinkExecutor};
 
 pub trait FipsGatewaySidecarDriver {
+    fn local_endpoint(&self) -> FipsEndpoint;
+    fn mtu(&self) -> usize;
+    fn has_peer(&self, endpoint: FipsEndpoint) -> bool;
     fn set_up(&mut self, up: bool);
     fn send_to(&mut self, destination: FipsEndpoint, bytes: &[u8]) -> Result<(), FipsError>;
     fn poll_inbound<'a>(
@@ -18,6 +21,18 @@ pub trait FipsGatewaySidecarDriver {
 impl<const PEERS: usize, const QUEUE: usize, const FRAME_MAX: usize> FipsGatewaySidecarDriver
     for FakeFipsSidecar<PEERS, QUEUE, FRAME_MAX>
 {
+    fn local_endpoint(&self) -> FipsEndpoint {
+        FakeFipsSidecar::local_endpoint(self)
+    }
+
+    fn mtu(&self) -> usize {
+        FakeFipsSidecar::mtu(self)
+    }
+
+    fn has_peer(&self, endpoint: FipsEndpoint) -> bool {
+        FakeFipsSidecar::has_peer(self, endpoint)
+    }
+
     fn set_up(&mut self, up: bool) {
         FakeFipsSidecar::set_up(self, up);
     }
@@ -44,23 +59,6 @@ pub struct FipsGatewayExecutor<S> {
 }
 
 impl<S> FipsGatewayExecutor<S> {
-    pub const fn new(
-        link_id: LinkId,
-        local_endpoint: FipsEndpoint,
-        remote_endpoint: FipsEndpoint,
-        sidecar: S,
-        mtu: usize,
-    ) -> Self {
-        Self {
-            link_id,
-            local_endpoint,
-            remote_endpoint,
-            sidecar,
-            mtu,
-            up: false,
-        }
-    }
-
     pub const fn link_id(&self) -> LinkId {
         self.link_id
     }
@@ -102,6 +100,42 @@ impl<S> FipsGatewayExecutor<S>
 where
     S: FipsGatewaySidecarDriver,
 {
+    pub fn new(
+        link_id: LinkId,
+        local_endpoint: FipsEndpoint,
+        remote_endpoint: FipsEndpoint,
+        sidecar: S,
+        mtu: usize,
+    ) -> Result<Self, GatewayError> {
+        let executor = Self {
+            link_id,
+            local_endpoint,
+            remote_endpoint,
+            sidecar,
+            mtu,
+            up: false,
+        };
+        executor.validate()?;
+        Ok(executor)
+    }
+
+    pub fn validate(&self) -> Result<(), GatewayError> {
+        self.local_endpoint
+            .validate()
+            .map_err(|error| map_fips_send_error(self.link_id, error))?;
+        self.remote_endpoint
+            .validate()
+            .map_err(|error| map_fips_send_error(self.link_id, error))?;
+        if self.mtu == 0
+            || self.sidecar.local_endpoint() != self.local_endpoint
+            || self.sidecar.mtu() != self.mtu
+            || !self.sidecar.has_peer(self.remote_endpoint)
+        {
+            return Err(gateway_protocol_error(self.link_id));
+        }
+        Ok(())
+    }
+
     pub fn set_up(&mut self, up: bool) {
         self.up = up;
         self.sidecar.set_up(up);
@@ -239,11 +273,18 @@ fn map_fips_receive_error(link_id: LinkId, error: FipsError) -> GatewayError {
     GatewayError::Driver { link_id, kind }
 }
 
+fn gateway_protocol_error(link_id: LinkId) -> GatewayError {
+    GatewayError::Driver {
+        link_id,
+        kind: LinkDriverErrorKind::Protocol,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use hyf_core::TimestampMs;
     use hyf_link::{Link, LinkDriverErrorKind, LinkId};
-    use hyf_link_fips::{FakeFipsSidecar, FipsEndpoint, FipsError, FipsPublicKey};
+    use hyf_link_fips::{FakeFipsSidecar, FipsEndpoint, FipsPublicKey};
 
     use super::FipsGatewayExecutor;
     use crate::{GatewayError, GatewayLinkExecutor};
@@ -264,6 +305,7 @@ mod tests {
         assert_eq!(executor.local_endpoint(), endpoint(1));
         assert_eq!(executor.remote_endpoint(), endpoint(2));
         assert!(!executor.is_up());
+        assert_eq!(executor.validate(), Ok(()));
         executor.set_up(true);
         assert!(executor.is_up());
         assert!(executor.sidecar().is_up());
@@ -342,19 +384,67 @@ mod tests {
     }
 
     #[test]
-    fn fips_gateway_executor_maps_unknown_peer_to_protocol_error() -> Result<(), FipsError> {
-        let sidecar = FakeFipsSidecar::<0, 1, 16>::new(endpoint(1), 16)?;
-        let mut executor =
-            FipsGatewayExecutor::new(FIPS_LINK, endpoint(1), endpoint(2), sidecar, 16);
-        executor.set_up(true);
+    fn fips_gateway_executor_rejects_missing_remote_peer() -> Result<(), GatewayError> {
+        let sidecar = FakeFipsSidecar::<0, 1, 16>::new(endpoint(1), 16)
+            .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
 
-        assert_eq!(
-            executor.send_link_bytes(FIPS_LINK, b"frame", TimestampMs(1)),
-            Err(GatewayError::Driver {
-                link_id: FIPS_LINK,
-                kind: LinkDriverErrorKind::Protocol,
-            })
-        );
+        assert_constructor_protocol_error(FipsGatewayExecutor::new(
+            FIPS_LINK,
+            endpoint(1),
+            endpoint(2),
+            sidecar,
+            16,
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn fips_gateway_executor_rejects_local_endpoint_mismatch() -> Result<(), GatewayError> {
+        let mut sidecar = FakeFipsSidecar::<1, 1, 16>::new(endpoint(3), 16)
+            .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
+        sidecar
+            .register_peer(endpoint(2))
+            .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
+
+        assert_constructor_protocol_error(FipsGatewayExecutor::new(
+            FIPS_LINK,
+            endpoint(1),
+            endpoint(2),
+            sidecar,
+            16,
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn fips_gateway_executor_rejects_mtu_mismatch_and_zero_mtu() -> Result<(), GatewayError> {
+        let mut sidecar = FakeFipsSidecar::<1, 1, 16>::new(endpoint(1), 8)
+            .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
+        sidecar
+            .register_peer(endpoint(2))
+            .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
+
+        assert_constructor_protocol_error(FipsGatewayExecutor::new(
+            FIPS_LINK,
+            endpoint(1),
+            endpoint(2),
+            sidecar,
+            16,
+        ));
+
+        let mut sidecar = FakeFipsSidecar::<1, 1, 16>::new(endpoint(1), 0)
+            .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
+        sidecar
+            .register_peer(endpoint(2))
+            .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
+
+        assert_constructor_protocol_error(FipsGatewayExecutor::new(
+            FIPS_LINK,
+            endpoint(1),
+            endpoint(2),
+            sidecar,
+            0,
+        ));
         Ok(())
     }
 
@@ -366,7 +456,7 @@ mod tests {
             .register_peer(endpoint(2))
             .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
         let mut executor =
-            FipsGatewayExecutor::new(FIPS_LINK, endpoint(1), endpoint(2), sidecar, 16);
+            FipsGatewayExecutor::new(FIPS_LINK, endpoint(1), endpoint(2), sidecar, 16)?;
         executor.set_up(true);
         executor.send_link_bytes(FIPS_LINK, b"one", TimestampMs(1))?;
 
@@ -436,13 +526,17 @@ mod tests {
         sidecar
             .register_peer(endpoint(2))
             .map_err(|error| super::map_fips_send_error(FIPS_LINK, error))?;
-        Ok(FipsGatewayExecutor::new(
-            FIPS_LINK,
-            endpoint(1),
-            endpoint(2),
-            sidecar,
-            mtu,
-        ))
+        FipsGatewayExecutor::new(FIPS_LINK, endpoint(1), endpoint(2), sidecar, mtu)
+    }
+
+    fn assert_constructor_protocol_error<S>(result: Result<FipsGatewayExecutor<S>, GatewayError>) {
+        assert_eq!(
+            result.err(),
+            Some(GatewayError::Driver {
+                link_id: FIPS_LINK,
+                kind: LinkDriverErrorKind::Protocol,
+            })
+        );
     }
 
     fn endpoint(seed: u8) -> FipsEndpoint {

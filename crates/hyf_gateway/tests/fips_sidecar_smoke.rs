@@ -135,23 +135,14 @@ fn smoke_gateway_store_forward_keeps_pending_on_fips_queue_full() -> Result<(), 
 }
 
 #[test]
-fn smoke_gateway_unknown_peer_failure_is_non_recoverable() -> Result<(), GatewayError> {
-    let mut core = SmokeCore::new(config(2048))?;
-    let mut executor = fips_executor::<0, 2, GATEWAY_FRAME_BUFFER_LEN>(2048, false)?;
-
-    core.submit(sample_envelope(), &mut executor)?;
-    executor.set_up(true);
-
+fn smoke_gateway_missing_fips_peer_fails_validation() -> Result<(), GatewayError> {
     assert_eq!(
-        core.handle_link_event(LinkEvent::Up { link_id: FIPS_LINK }, &mut executor,),
-        Err(GatewayError::Driver {
+        fips_executor::<0, 2, GATEWAY_FRAME_BUFFER_LEN>(2048, false).err(),
+        Some(GatewayError::Driver {
             link_id: FIPS_LINK,
             kind: LinkDriverErrorKind::Protocol,
         })
     );
-    assert_eq!(core.stored_len(), 1);
-    assert_eq!(core.metrics().link_errors, 1);
-    assert_eq!(executor.sidecar().outbound_len(), 0);
     Ok(())
 }
 
@@ -271,13 +262,7 @@ fn fips_executor<const PEERS: usize, const QUEUE: usize, const FRAME_MAX: usize>
             .register_peer(remote_endpoint())
             .map_err(map_fips_error)?;
     }
-    Ok(FipsGatewayExecutor::new(
-        FIPS_LINK,
-        local_endpoint(),
-        remote_endpoint(),
-        sidecar,
-        mtu,
-    ))
+    FipsGatewayExecutor::new(FIPS_LINK, local_endpoint(), remote_endpoint(), sidecar, mtu)
 }
 
 fn local_endpoint() -> FipsEndpoint {

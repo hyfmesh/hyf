@@ -148,7 +148,7 @@ impl<const PEERS: usize, const QUEUE: usize, const FRAME_MAX: usize>
         poll_queue(&mut self.outbound, &mut self.outbound_len, output)
     }
 
-    fn has_peer(&self, endpoint: FipsEndpoint) -> bool {
+    pub fn has_peer(&self, endpoint: FipsEndpoint) -> bool {
         self.peers.iter().flatten().any(|peer| *peer == endpoint)
     }
 
@@ -254,6 +254,8 @@ mod tests {
         sidecar.register_peer(endpoint(2))?;
 
         assert_eq!(sidecar.peer_count(), 1);
+        assert!(sidecar.has_peer(endpoint(2)));
+        assert!(!sidecar.has_peer(endpoint(3)));
         assert_eq!(
             sidecar.register_peer(endpoint(2)),
             Err(FipsError::DuplicatePeer)
