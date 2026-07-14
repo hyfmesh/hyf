@@ -73,10 +73,142 @@ pub fn decode_lxmf_payload(input: &[u8]) -> Result<LxmfPayloadRef<'_>, LxmfError
     })
 }
 
+pub fn lxmf_payload_encoded_len(payload: LxmfPayloadRef<'_>) -> Result<usize, LxmfError> {
+    validate_payload_for_encode(payload)?;
+    let required = 1usize
+        .checked_add(9)
+        .and_then(|len| len.checked_add(bin_encoded_len(payload.title.len())))
+        .and_then(|len| len.checked_add(bin_encoded_len(payload.content.len())))
+        .and_then(|len| len.checked_add(payload.fields.bytes.len()))
+        .ok_or(LxmfError::PayloadTooLarge {
+            actual: payload.fields.bytes.len(),
+            maximum: LXMF_PAYLOAD_MAX_LEN,
+        })?;
+    if required > LXMF_PAYLOAD_MAX_LEN {
+        return Err(LxmfError::PayloadTooLarge {
+            actual: required,
+            maximum: LXMF_PAYLOAD_MAX_LEN,
+        });
+    }
+    Ok(required)
+}
+
+pub fn encode_lxmf_payload(
+    payload: LxmfPayloadRef<'_>,
+    output: &mut [u8],
+) -> Result<usize, LxmfError> {
+    let required = lxmf_payload_encoded_len(payload)?;
+    if output.len() < required {
+        return Err(LxmfError::OutputTooSmall {
+            needed: required,
+            available: output.len(),
+        });
+    }
+
+    let mut cursor = WriteCursor::new(output);
+    cursor.write_u8(0x90 | LXMF_PAYLOAD_ARRAY_LEN as u8);
+    cursor.write_u8(0xcb);
+    cursor.write_array(&payload.timestamp_secs.to_bits().to_be_bytes());
+    write_bin(payload.title, &mut cursor)?;
+    write_bin(payload.content, &mut cursor)?;
+    cursor.write_array(payload.fields.bytes);
+    Ok(required)
+}
+
+fn validate_payload_for_encode(payload: LxmfPayloadRef<'_>) -> Result<(), LxmfError> {
+    if !payload.timestamp_secs.is_finite() {
+        return Err(LxmfError::InvalidTimestamp);
+    }
+    if payload.title.len() > LXMF_TITLE_MAX_LEN {
+        return Err(LxmfError::TitleTooLarge {
+            actual: payload.title.len(),
+            maximum: LXMF_TITLE_MAX_LEN,
+        });
+    }
+    if payload.content.len() > LXMF_CONTENT_MAX_LEN {
+        return Err(LxmfError::ContentTooLarge {
+            actual: payload.content.len(),
+            maximum: LXMF_CONTENT_MAX_LEN,
+        });
+    }
+    validate_raw_map(payload.fields.bytes)?;
+    if payload.fields.bytes.len() > LXMF_FIELDS_MAX_LEN {
+        return Err(LxmfError::FieldsTooLarge {
+            actual: payload.fields.bytes.len(),
+            maximum: LXMF_FIELDS_MAX_LEN,
+        });
+    }
+    if let Some(stamp) = payload.stamp
+        && stamp.bytes.len() > LXMF_STAMP_MAX_LEN
+    {
+        return Err(LxmfError::StampTooLarge {
+            actual: stamp.bytes.len(),
+            maximum: LXMF_STAMP_MAX_LEN,
+        });
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_raw_map(input: &[u8]) -> Result<(), LxmfError> {
+    let mut cursor = MsgpackCursor::new(input);
+    cursor.read_raw_map()?;
+    cursor.finish()
+}
+
+const fn bin_encoded_len(len: usize) -> usize {
+    if len <= u8::MAX as usize {
+        2 + len
+    } else {
+        3 + len
+    }
+}
+
+fn write_bin(bytes: &[u8], cursor: &mut WriteCursor<'_>) -> Result<(), LxmfError> {
+    if bytes.len() <= u8::MAX as usize {
+        cursor.write_u8(0xc4);
+        cursor.write_u8(bytes.len() as u8);
+    } else if bytes.len() <= u16::MAX as usize {
+        cursor.write_u8(0xc5);
+        cursor.write_array(&(bytes.len() as u16).to_be_bytes());
+    } else {
+        return Err(LxmfError::PayloadTooLarge {
+            actual: bytes.len(),
+            maximum: LXMF_PAYLOAD_MAX_LEN,
+        });
+    }
+    cursor.write_array(bytes);
+    Ok(())
+}
+
+struct WriteCursor<'a> {
+    output: &'a mut [u8],
+    index: usize,
+}
+
+impl<'a> WriteCursor<'a> {
+    fn new(output: &'a mut [u8]) -> Self {
+        Self { output, index: 0 }
+    }
+
+    fn write_u8(&mut self, value: u8) {
+        self.output[self.index] = value;
+        self.index += 1;
+    }
+
+    fn write_array(&mut self, value: &[u8]) {
+        let end = self.index + value.len();
+        self.output[self.index..end].copy_from_slice(value);
+        self.index = end;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::decode_lxmf_payload;
-    use crate::{LxmfError, LxmfRawMapRef, LxmfStampRef};
+    use crate::{
+        LxmfError, LxmfPayloadRef, LxmfRawMapRef, LxmfStampRef, encode_lxmf_payload,
+        lxmf_payload_encoded_len,
+    };
 
     const PAYLOAD4: &[u8] = &[
         0x94, 0xcb, 0x3f, 0xf8, 0, 0, 0, 0, 0, 0, 0xc4, 0x05, b't', b'i', b't', b'l', b'e', 0xc4,
@@ -199,6 +331,97 @@ mod tests {
 
         assert_eq!(
             decode_lxmf_payload(&payload),
+            Err(LxmfError::UnsupportedMsgpackType { marker: 0x90 })
+        );
+    }
+
+    #[test]
+    fn encode_payload_uses_array4_and_bin_fields() -> Result<(), LxmfError> {
+        let payload = LxmfPayloadRef {
+            timestamp_secs: 1.5,
+            title: b"title",
+            content: b"hello",
+            fields: LxmfRawMapRef { bytes: &[0x80] },
+            stamp: None,
+        };
+        let mut output = [0; 64];
+
+        let len = encode_lxmf_payload(payload, &mut output)?;
+
+        assert_eq!(len, PAYLOAD4.len());
+        assert_eq!(&output[..len], PAYLOAD4);
+        assert_eq!(lxmf_payload_encoded_len(payload)?, PAYLOAD4.len());
+        Ok(())
+    }
+
+    #[test]
+    fn encode_payload_does_not_generate_optional_stamp() -> Result<(), LxmfError> {
+        let payload = LxmfPayloadRef {
+            timestamp_secs: 1.5,
+            title: b"title",
+            content: b"hello",
+            fields: LxmfRawMapRef { bytes: &[0x80] },
+            stamp: Some(LxmfStampRef {
+                bytes: &[0xc4, 0x02, b'x', b'x'],
+            }),
+        };
+        let mut output = [0; 64];
+
+        let len = encode_lxmf_payload(payload, &mut output)?;
+
+        assert_eq!(&output[..len], PAYLOAD4);
+        Ok(())
+    }
+
+    #[test]
+    fn encode_payload_rejects_nan_infinite_and_short_output() {
+        let nan = LxmfPayloadRef {
+            timestamp_secs: f64::NAN,
+            title: b"title",
+            content: b"hello",
+            fields: LxmfRawMapRef { bytes: &[0x80] },
+            stamp: None,
+        };
+        let infinite = LxmfPayloadRef {
+            timestamp_secs: f64::INFINITY,
+            ..nan
+        };
+        let valid = LxmfPayloadRef {
+            timestamp_secs: 1.5,
+            ..nan
+        };
+        let mut output = [0; 1];
+
+        assert_eq!(
+            encode_lxmf_payload(nan, &mut output),
+            Err(LxmfError::InvalidTimestamp)
+        );
+        assert_eq!(
+            encode_lxmf_payload(infinite, &mut output),
+            Err(LxmfError::InvalidTimestamp)
+        );
+        assert_eq!(
+            encode_lxmf_payload(valid, &mut output),
+            Err(LxmfError::OutputTooSmall {
+                needed: PAYLOAD4.len(),
+                available: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn encode_payload_rejects_malformed_fields() {
+        let payload = LxmfPayloadRef {
+            timestamp_secs: 1.5,
+            title: b"title",
+            content: b"hello",
+            fields: LxmfRawMapRef { bytes: &[0x90] },
+            stamp: None,
+        };
+        let mut output = [0; 64];
+
+        assert_eq!(
+            encode_lxmf_payload(payload, &mut output),
             Err(LxmfError::UnsupportedMsgpackType { marker: 0x90 })
         );
     }
