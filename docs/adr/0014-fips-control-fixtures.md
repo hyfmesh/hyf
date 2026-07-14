@@ -19,6 +19,9 @@ The parser accepts fixture envelopes with top-level `status` and `data` fields,
 requires `status == "ok"`, validates node and IPv6-like addresses, and ignores
 unknown fields. It does not open sockets or perform live requests.
 
+For `tun_state`, the parser recognizes `disabled`, `configured`, `active`, and
+`failed`. Other strings are preserved as the typed `Unknown` state.
+
 ## Consequences
 
 HYF can test control status shape and failure handling without adding live

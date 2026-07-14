@@ -331,7 +331,16 @@ const REQUIRED_PUBLIC_DOCS: &[PublicDocSpec] = &[
     },
     PublicDocSpec {
         path: "docs/adr/0014-fips-control-fixtures.md",
-        required: &["Accepted", "control_json", "does not open sockets"],
+        required: &[
+            "Accepted",
+            "control_json",
+            "does not open sockets",
+            "disabled",
+            "configured",
+            "active",
+            "failed",
+            "Unknown",
+        ],
         forbidden: PUBLIC_REPO_FORBIDDEN_SNIPPETS,
     },
     PublicDocSpec {
