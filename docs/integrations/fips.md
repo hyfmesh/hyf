@@ -1,24 +1,36 @@
-# FIPS Accommodation
+# FIPS Sidecar Carrier
 
-FIPS is a future integration target, not a current implementation.
+HYF includes a small, fake-sidecar-first FIPS carrier surface for gateway
+envelope tests.
 
-The current model can represent foreign endpoints, including 16-byte FIPS
-`node_addr` values and 32-byte identities such as Nostr public-key-derived
-identifiers. That representation is only an address model. It does not add a
-FIPS transport, protocol adapter, dependency, sidecar process, or runtime path.
+The implemented surface is deliberately narrow:
 
-## Intended Future Shape
+- `hyf_link_fips` derives FIPS-style node and IPv6-like addresses from raw
+  32-byte public keys.
+- `FakeFipsSidecar` stores peers and datagrams in bounded memory.
+- `hyf_gateway::FipsGatewayExecutor` sends and polls encoded HYF envelope bytes
+  through the fake sidecar.
+- optional `control_json` parsing accepts bounded status fixtures only.
 
-If FIPS support is added later, the expected shape is a gateway-side
-accommodation such as a sidecar or TUN-style boundary. That boundary should
-translate between a future FIPS-facing adapter and the existing HYF gateway
-runtime without making FIPS a dependency of the core wire, router, store, or
-RNS conformance crates.
+This is not a live FIPS runtime. It does not open a TUN interface, talk to a
+daemon, configure routes, join a mesh, implement FMP/FSP, provide Noise
+sessions, or claim live interoperability.
 
 ## Current Guarantees
 
-- No FIPS crate or dependency is compiled into the current runtime.
-- No FIPS adapter is implemented.
-- No FIPS behavior is claimed by the gateway smoke tests.
-- FIPS does not replace Reticulum/RNS compatibility work.
-- FIPS does not alter RNode or Reticulum non-goals.
+- The FIPS carrier is first-party Rust code.
+- Normal validation uses deterministic fake-sidecar tests.
+- No external FIPS crate, daemon, TUN crate, Tokio runtime, rtnetlink,
+  nftables, or rustables dependency is required.
+- Gateway core remains protocol-agnostic.
+- Default checks do not require root privileges, network services, or hardware.
+
+## Integration Shape
+
+Future live work should stay behind the gateway executor boundary. A live
+sidecar client can implement the same send and poll responsibilities without
+making FIPS a dependency of `hyf_wire`, `hyf_router`, `hyf_store`, or the
+Reticulum/RNS conformance crates.
+
+Until live evidence exists, public claims should stay at the fake-sidecar
+carrier level.

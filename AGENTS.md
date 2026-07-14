@@ -40,6 +40,9 @@ covers the change, then widen as risk increases.
 
 For Nostr uplink verification, follow `docs/verification/nostr_uplink.md`.
 
+For FIPS sidecar carrier verification, follow
+`docs/verification/fips_sidecar.md`.
+
 Optional Reticulum oracle checks may use `HYF_RETICULUM_PATH`. Optional RNode
 serial checks may use `HYF_HIL_RNODE_PORT` only when a real device is explicitly
 connected. When hardware is not configured, report the skip plainly and do not

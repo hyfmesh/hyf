@@ -23,6 +23,9 @@ router, daemon, firmware image, or mobile application.
   behind an explicit feature and environment gate.
 - Nostr uplink primitives for NIP-01 event canonicalization, signing,
   messages, filters, bounded fake relay behavior, and gateway executor tests.
+- FIPS sidecar carrier primitives for raw public-key addressing, bounded fake
+  sidecar queues, fixture-only control status parsing, and gateway executor
+  smoke tests.
 
 ## Crates
 
@@ -44,6 +47,8 @@ router, daemon, firmware image, or mobile application.
 - `hyf_link_rns`: opaque RNS packet validation and HYF foreign-packet wrapping.
 - `hyf_link_nostr`: Nostr event, key, message, filter, fake relay, and HYF
   envelope carriage primitives.
+- `hyf_link_fips`: FIPS-style identity/address derivation, bounded fake
+  sidecar behavior, datagram records, and fixture control status parsing.
 - `hyf_rns_core`: Reticulum/RNS hashes, destination names, and profile
   constants.
 - `hyf_rns_crypto`: Reticulum/RNS identity, signing, HKDF, token, and
@@ -70,24 +75,30 @@ cargo test -p hyf_rns_conformance
 cargo test -p hyf_gateway --test gateway_smoke
 cargo test -p hyf_gateway --test rnode_serial_smoke
 cargo test -p hyf_gateway --test nostr_uplink_smoke
+cargo test -p hyf_gateway --test fips_sidecar_smoke
+cargo check -p hyf_link_fips --no-default-features
+cargo test -p hyf_link_fips
 cargo build --manifest-path fuzz/Cargo.toml --bins
 ```
 
 For the complete Nostr uplink verification bundle, see
 `docs/verification/nostr_uplink.md`.
 
+For the complete FIPS sidecar carrier verification bundle, see
+`docs/verification/fips_sidecar.md`.
+
 Optional Reticulum oracle tests require `HYF_RETICULUM_PATH` to point at a
 compatible Reticulum source checkout. Optional RNode serial tests require
 `HYF_HIL_RNODE_PORT` and an explicitly connected device. No default check
-requires Python, a live Nostr relay, live Reticulum network state, or real
-RNode hardware.
+requires Python, a live Nostr relay, live Reticulum network state, a live FIPS
+daemon, a live TUN interface, or real RNode hardware.
 
 ## Boundaries
 
 HYF does not currently implement a full Reticulum router, Reticulum path table,
-Reticulum link sessions, LXMF, BitChat, FIPS runtime support, NIP-17, NIP-44,
-NIP-65, live Nostr relay runtime, production persistence, firmware, mobile
-apps, or RF transmission by default.
+Reticulum link sessions, LXMF, BitChat, live FIPS runtime support, FMP, FSP,
+Noise sessions, NIP-17, NIP-44, NIP-65, live Nostr relay runtime, production
+persistence, firmware, mobile apps, or RF transmission by default.
 
 Runtime crates do not depend on Python. Compatibility claims should be tied to
 tested profiles and recorded evidence, not broad protocol assertions.

@@ -2,24 +2,23 @@
 
 ## Status
 
-Accepted as future-facing documentation only. No FIPS runtime implementation is
-included.
+Accepted. Refined by ADR 0011, ADR 0012, ADR 0013, and ADR 0014.
 
 ## Context
 
-The HYF data model includes foreign endpoint identifiers that can represent
-FIPS-style addresses. That does not mean the gateway should directly depend on
-or implement FIPS during the gateway foundation phase.
+HYF can carry foreign endpoint identifiers without making every foreign
+network a core dependency. FIPS-style addressing is useful to model at the
+gateway edge, but it should not change the HYF wire format, router, store, or
+Reticulum/RNS conformance boundaries.
 
 ## Decision
 
-Treat FIPS as a possible future gateway-side accommodation, likely through a
-sidecar or TUN-style boundary. Keep FIPS out of the core crates, router, store,
-wire format implementation, Reticulum/RNS conformance crates, and current
-gateway runtime.
+Treat FIPS as a gateway-side carrier surface. Keep the core crates independent
+from live FIPS runtime dependencies. Model and test the boundary through
+first-party Rust types and deterministic fake-sidecar behavior.
 
 ## Consequences
 
-The current code can discuss how FIPS might fit later without carrying a FIPS
-dependency or making FIPS behavior claims. Any future FIPS work needs its own
-specification, tests, security review, and compatibility evidence.
+HYF can validate gateway envelope carriage through a FIPS-shaped sidecar model
+without claiming live FIPS routing. Live sidecar clients, TUN setup, route
+management, FMP, FSP, and Noise sessions require separate design and evidence.
