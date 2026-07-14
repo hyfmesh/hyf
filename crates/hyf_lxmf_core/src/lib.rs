@@ -8,6 +8,7 @@
 
 mod constants;
 mod error;
+mod msgpack;
 mod types;
 
 pub use constants::{
