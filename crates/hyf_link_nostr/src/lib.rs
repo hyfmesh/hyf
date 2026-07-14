@@ -25,6 +25,7 @@ mod signing;
 mod signing_spike;
 mod status;
 mod stored;
+mod stored_event;
 
 pub use canonical::{event_id, write_canonical_event};
 pub use constants::{
