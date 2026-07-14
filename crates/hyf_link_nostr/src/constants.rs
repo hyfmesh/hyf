@@ -1,3 +1,8 @@
 pub const HYF_NOSTR_ENVELOPE_KIND: u16 = 9775;
 pub const HYF_NOSTR_MAX_ENVELOPE_BYTES: usize = 2048;
 pub const HYF_NOSTR_MAX_CONTENT_CHARS: usize = HYF_NOSTR_MAX_ENVELOPE_BYTES * 2;
+pub const HYF_NOSTR_MAX_TAGS: usize = 8;
+pub const HYF_NOSTR_MAX_TAG_VALUES: usize = 4;
+pub const HYF_NOSTR_MAX_TAG_VALUE_CHARS: usize = 128;
+pub const HYF_NOSTR_MAX_P_TAGS: usize = 8;
+pub const HYF_NOSTR_MAX_RELAY_STATUS_CHARS: usize = 256;

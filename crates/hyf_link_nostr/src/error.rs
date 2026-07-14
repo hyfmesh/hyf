@@ -20,8 +20,12 @@ pub enum NostrError {
     RelayEventStoreFull { capacity: usize },
     RelayOutputFull { capacity: usize },
     RelaySubscriptionFull { capacity: usize },
+    StoredStringTooLarge { actual: usize, maximum: usize },
     SubscriptionIdTooLong { len: usize, maximum: usize },
+    TagCountTooLarge { actual: usize, maximum: usize },
     TagEmpty,
+    TagValueCountTooLarge { actual: usize, maximum: usize },
+    TagValueTooLarge { actual: usize, maximum: usize },
     UnexpectedKind { expected: u16, actual: u16 },
     UnsupportedMessage,
     Unsupported,
@@ -93,13 +97,37 @@ impl fmt::Display for NostrError {
                     "fake nostr relay subscription store full: capacity {capacity}"
                 )
             }
+            Self::StoredStringTooLarge { actual, maximum } => {
+                write!(
+                    formatter,
+                    "stored nostr string too large: length {actual}, maximum {maximum}"
+                )
+            }
             Self::SubscriptionIdTooLong { len, maximum } => {
                 write!(
                     formatter,
                     "nostr subscription id too long: length {len}, maximum {maximum}"
                 )
             }
+            Self::TagCountTooLarge { actual, maximum } => {
+                write!(
+                    formatter,
+                    "nostr tag count too large: count {actual}, maximum {maximum}"
+                )
+            }
             Self::TagEmpty => write!(formatter, "nostr tag is empty"),
+            Self::TagValueCountTooLarge { actual, maximum } => {
+                write!(
+                    formatter,
+                    "nostr tag value count too large: count {actual}, maximum {maximum}"
+                )
+            }
+            Self::TagValueTooLarge { actual, maximum } => {
+                write!(
+                    formatter,
+                    "nostr tag value too large: length {actual}, maximum {maximum}"
+                )
+            }
             Self::UnexpectedKind { expected, actual } => {
                 write!(
                     formatter,
@@ -219,6 +247,14 @@ mod tests {
             "fake nostr relay subscription store full: capacity 1"
         );
         assert_eq!(
+            NostrError::StoredStringTooLarge {
+                actual: 257,
+                maximum: 256,
+            }
+            .to_string(),
+            "stored nostr string too large: length 257, maximum 256"
+        );
+        assert_eq!(
             NostrError::SubscriptionIdTooLong {
                 len: 65,
                 maximum: 64,
@@ -226,7 +262,31 @@ mod tests {
             .to_string(),
             "nostr subscription id too long: length 65, maximum 64"
         );
+        assert_eq!(
+            NostrError::TagCountTooLarge {
+                actual: 9,
+                maximum: 8,
+            }
+            .to_string(),
+            "nostr tag count too large: count 9, maximum 8"
+        );
         assert_eq!(NostrError::TagEmpty.to_string(), "nostr tag is empty");
+        assert_eq!(
+            NostrError::TagValueCountTooLarge {
+                actual: 5,
+                maximum: 4,
+            }
+            .to_string(),
+            "nostr tag value count too large: count 5, maximum 4"
+        );
+        assert_eq!(
+            NostrError::TagValueTooLarge {
+                actual: 129,
+                maximum: 128,
+            }
+            .to_string(),
+            "nostr tag value too large: length 129, maximum 128"
+        );
         assert_eq!(
             NostrError::UnexpectedKind {
                 expected: 9775,
