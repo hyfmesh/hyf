@@ -7,14 +7,18 @@
 #![deny(clippy::unwrap_used)]
 
 mod constants;
+mod datagram;
 mod error;
+mod fake_sidecar;
 mod identity;
 
 pub use constants::{
     HYF_FIPS_CONTROL_MAX_RESPONSE_BYTES, HYF_FIPS_DEFAULT_FRAME_MAX, HYF_FIPS_DEFAULT_MTU,
     HYF_FIPS_DEFAULT_PEERS, HYF_FIPS_DEFAULT_QUEUE,
 };
+pub use datagram::{FipsDatagramRecord, FipsDatagramRef};
 pub use error::FipsError;
+pub use fake_sidecar::FakeFipsSidecar;
 pub use identity::{
     FipsEndpoint, FipsIpv6Addr, FipsNodeAddr, FipsPublicKey, derive_fips_endpoint,
     derive_fips_ipv6_addr, derive_fips_node_addr,
