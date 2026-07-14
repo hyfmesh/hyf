@@ -5,6 +5,7 @@ use crate::HyfWireError;
 pub enum PayloadKind {
     HyfNativeV0 = 0,
     ForeignRnsPacket = 16,
+    ForeignLxmfMessage = 17,
 }
 
 impl PayloadKind {
@@ -16,6 +17,7 @@ impl PayloadKind {
         match tag {
             0 => Ok(Self::HyfNativeV0),
             16 => Ok(Self::ForeignRnsPacket),
+            17 => Ok(Self::ForeignLxmfMessage),
             _ => Err(HyfWireError::InvalidPayloadKind { tag }),
         }
     }
@@ -30,9 +32,14 @@ mod tests {
     fn payload_kind_discriminants_are_stable() {
         assert_eq!(PayloadKind::HyfNativeV0.wire_tag(), 0);
         assert_eq!(PayloadKind::ForeignRnsPacket.wire_tag(), 16);
+        assert_eq!(PayloadKind::ForeignLxmfMessage.wire_tag(), 17);
         assert_eq!(
             PayloadKind::from_wire_tag(17),
-            Err(HyfWireError::InvalidPayloadKind { tag: 17 })
+            Ok(PayloadKind::ForeignLxmfMessage)
+        );
+        assert_eq!(
+            PayloadKind::from_wire_tag(18),
+            Err(HyfWireError::InvalidPayloadKind { tag: 18 })
         );
     }
 }

@@ -555,6 +555,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyf_link_lxmf"
+version = "0.1.0"
+dependencies = [
+ "hyf_core",
+ "hyf_lxmf_core",
+ "hyf_wire",
+]
+
+[[package]]
 name = "hyf_link_nostr"
 version = "0.1.0"
 dependencies = [
