@@ -7,12 +7,14 @@
 
 mod core;
 mod error;
+mod fips;
 mod metrics;
 mod nostr;
 mod runtime;
 
 pub use core::{GATEWAY_FRAME_BUFFER_LEN, GatewayCore, GatewayLinkExecutor};
 pub use error::GatewayError;
+pub use fips::{FipsGatewayExecutor, FipsGatewaySidecarDriver};
 pub use metrics::GatewayMetrics;
 pub use nostr::{
     NostrGatewayControlText, NostrGatewayExecutor, NostrGatewayRelayOutput,

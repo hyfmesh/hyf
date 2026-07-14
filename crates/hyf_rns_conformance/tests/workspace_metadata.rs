@@ -485,6 +485,7 @@ fn gateway_dependencies_preserve_clean_boundaries() -> TestResult {
             "hyf_config",
             "hyf_core",
             "hyf_link",
+            "hyf_link_fips",
             "hyf_link_loopback",
             "hyf_link_nostr",
             "hyf_router",
