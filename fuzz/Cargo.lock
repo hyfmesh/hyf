@@ -234,6 +234,7 @@ version = "0.0.0"
 dependencies = [
  "hyf_link_kiss",
  "hyf_link_rnode",
+ "hyf_lxmf_core",
  "hyf_rns_core",
  "hyf_rns_crypto",
  "hyf_rns_wire",
@@ -249,6 +250,13 @@ name = "hyf_link_rnode"
 version = "0.1.0"
 dependencies = [
  "hyf_link_kiss",
+]
+
+[[package]]
+name = "hyf_lxmf_core"
+version = "0.1.0"
+dependencies = [
+ "sha2",
 ]
 
 [[package]]

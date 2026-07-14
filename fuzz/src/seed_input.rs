@@ -61,6 +61,8 @@ mod tests {
     const TRACKED_TEXT_HEX_CORPUS: &[(&str, usize)] = &[
         ("corpus/fuzz_ifac_verify/valid_masked_packet", 30),
         ("corpus/fuzz_kiss_decoder/escaped_data_frame", 8),
+        ("corpus/fuzz_lxmf_message_decode/full_message4", 121),
+        ("corpus/fuzz_lxmf_message_decode/full_message5", 125),
         ("corpus/fuzz_rnode_command_parser/rx_stat_frame", 7),
         ("corpus/fuzz_rns_announce_decode/negative_context_flag", 188),
         ("corpus/fuzz_rns_announce_decode/negative_destination", 188),
