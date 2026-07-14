@@ -9,6 +9,7 @@
 mod constants;
 mod error;
 mod msgpack;
+mod payload;
 mod types;
 
 pub use constants::{
@@ -17,6 +18,7 @@ pub use constants::{
     LXMF_SIGNATURE_LEN, LXMF_SOURCE_HASH_LEN, LXMF_STAMP_MAX_LEN, LXMF_TITLE_MAX_LEN,
 };
 pub use error::LxmfError;
+pub use payload::decode_lxmf_payload;
 pub use types::{
     LxmfDestinationHash, LxmfMessageId, LxmfMessageRef, LxmfPayloadRef, LxmfRawMapRef,
     LxmfSignature, LxmfSourceHash, LxmfStampRef,

@@ -34,10 +34,12 @@ impl<'a> MsgpackCursor<'a> {
         Self { input, index: 0 }
     }
 
+    #[cfg(test)]
     pub(crate) const fn position(&self) -> usize {
         self.index
     }
 
+    #[cfg(test)]
     pub(crate) const fn remaining(&self) -> usize {
         self.input.len() - self.index
     }
