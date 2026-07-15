@@ -232,6 +232,7 @@ dependencies = [
 name = "hyf-fuzz"
 version = "0.0.0"
 dependencies = [
+ "hyf_bitchat_core",
  "hyf_link_kiss",
  "hyf_link_rnode",
  "hyf_lxmf_core",
@@ -240,6 +241,10 @@ dependencies = [
  "hyf_rns_wire",
  "libfuzzer-sys",
 ]
+
+[[package]]
+name = "hyf_bitchat_core"
+version = "0.1.0"
 
 [[package]]
 name = "hyf_link_kiss"

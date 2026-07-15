@@ -56,6 +56,12 @@ mod tests {
         include_str!("../../../fixtures/rns/packet_hash_vectors.json");
     const ANNOUNCE_FIXTURE: &str = include_str!("../../../fixtures/rns/announce_vectors.json");
     const TRACKED_FUZZ_CORPUS_SEEDS: &[&str] = &[
+        "fuzz/corpus/fuzz_bitchat_packet_decode/compressed_structural",
+        "fuzz/corpus/fuzz_bitchat_packet_decode/reserved_flags",
+        "fuzz/corpus/fuzz_bitchat_packet_decode/truncated_header",
+        "fuzz/corpus/fuzz_bitchat_packet_decode/v1_plain",
+        "fuzz/corpus/fuzz_bitchat_packet_decode/v2_plain",
+        "fuzz/corpus/fuzz_bitchat_packet_decode/v2_route",
         "fuzz/corpus/fuzz_ifac_verify/valid_masked_packet",
         "fuzz/corpus/fuzz_kiss_decoder/escaped_data_frame",
         "fuzz/corpus/fuzz_lxmf_message_decode/full_message4",

@@ -59,6 +59,12 @@ mod tests {
     use super::input_bytes;
 
     const TRACKED_TEXT_HEX_CORPUS: &[(&str, usize)] = &[
+        ("corpus/fuzz_bitchat_packet_decode/compressed_structural", 29),
+        ("corpus/fuzz_bitchat_packet_decode/reserved_flags", 29),
+        ("corpus/fuzz_bitchat_packet_decode/truncated_header", 2),
+        ("corpus/fuzz_bitchat_packet_decode/v1_plain", 27),
+        ("corpus/fuzz_bitchat_packet_decode/v2_plain", 29),
+        ("corpus/fuzz_bitchat_packet_decode/v2_route", 46),
         ("corpus/fuzz_ifac_verify/valid_masked_packet", 30),
         ("corpus/fuzz_kiss_decoder/escaped_data_frame", 8),
         ("corpus/fuzz_lxmf_message_decode/full_message4", 121),

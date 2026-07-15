@@ -8,6 +8,7 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
+hyf_bitchat_core = { path = "../crates/hyf_bitchat_core", default-features = false }
 hyf_link_kiss = { path = "../crates/hyf_link_kiss", default-features = false }
 hyf_link_rnode = { path = "../crates/hyf_link_rnode", default-features = false }
 hyf_lxmf_core = { path = "../crates/hyf_lxmf_core", default-features = false }
@@ -15,6 +16,13 @@ hyf_rns_core = { path = "../crates/hyf_rns_core", default-features = false }
 hyf_rns_crypto = { path = "../crates/hyf_rns_crypto", default-features = false, features = ["crypto_x25519"] }
 hyf_rns_wire = { path = "../crates/hyf_rns_wire", default-features = false, features = ["ifac"] }
 libfuzzer-sys = { version = "0.4", default-features = true }
+
+[[bin]]
+name = "fuzz_bitchat_packet_decode"
+path = "fuzz_targets/fuzz_bitchat_packet_decode.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "fuzz_lxmf_message_decode"
