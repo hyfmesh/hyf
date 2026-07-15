@@ -352,7 +352,7 @@ mod tests {
             bytes: &[u8],
             _now_ms: TimestampMs,
         ) -> Result<(), GatewayError> {
-            let should_fail = self.fail_link.map_or(true, |failed| failed == link_id);
+            let should_fail = self.fail_link.is_none_or(|failed| failed == link_id);
             if should_fail && let Some(error) = self.send_error {
                 return Err(error);
             }
