@@ -1,6 +1,6 @@
 use crate::{
     BITCHAT_CORE_PACKET_MAX_LEN, BITCHAT_PAYLOAD_MAX_LEN, BITCHAT_PEER_ID_LEN,
-    BITCHAT_ROUTE_MAX_HOPS, BITCHAT_V1_HEADER_LEN, BITCHAT_V2_HEADER_LEN,
+    BITCHAT_ROUTE_MAX_HOPS, BITCHAT_SIGNATURE_LEN, BITCHAT_V1_HEADER_LEN, BITCHAT_V2_HEADER_LEN,
     BitchatError, BitchatFlags, BitchatPacketRef, BitchatPayloadRef, BitchatPeerId,
     BitchatRouteRef, BitchatSignature, BitchatVersion,
 };
@@ -78,6 +78,139 @@ pub fn decode_bitchat_packet(input: &[u8]) -> Result<BitchatPacketRef<'_>, Bitch
         payload,
         signature,
     })
+}
+
+pub fn bitchat_packet_encoded_len_v2(
+    packet: BitchatPacketRef<'_>,
+) -> Result<usize, BitchatError> {
+    let payload_len = encode_plain_payload_len(packet)?;
+    let route_len = encoded_route_len(packet.route)?;
+
+    let mut len = BITCHAT_V2_HEADER_LEN
+        .checked_add(BITCHAT_PEER_ID_LEN)
+        .ok_or(BitchatError::LengthOverflow)?;
+    if packet.recipient_id.is_some() {
+        len = len
+            .checked_add(BITCHAT_PEER_ID_LEN)
+            .ok_or(BitchatError::LengthOverflow)?;
+    }
+    len = len
+        .checked_add(route_len)
+        .ok_or(BitchatError::LengthOverflow)?
+        .checked_add(payload_len)
+        .ok_or(BitchatError::LengthOverflow)?;
+    if packet.signature.is_some() {
+        len = len
+            .checked_add(BITCHAT_SIGNATURE_LEN)
+            .ok_or(BitchatError::LengthOverflow)?;
+    }
+
+    if len > BITCHAT_CORE_PACKET_MAX_LEN {
+        return Err(BitchatError::PacketTooLarge {
+            actual: len,
+            maximum: BITCHAT_CORE_PACKET_MAX_LEN,
+        });
+    }
+
+    Ok(len)
+}
+
+pub fn encode_bitchat_packet_v2(
+    packet: BitchatPacketRef<'_>,
+    output: &mut [u8],
+) -> Result<usize, BitchatError> {
+    let needed = bitchat_packet_encoded_len_v2(packet)?;
+    if output.len() < needed {
+        return Err(BitchatError::OutputTooSmall {
+            needed,
+            available: output.len(),
+        });
+    }
+
+    let BitchatPayloadRef::Plain(payload) = packet.payload else {
+        return Err(BitchatError::UnsupportedCompressedEncode);
+    };
+
+    let flags = canonical_encode_flags(packet);
+    let mut cursor = EncodeCursor::new(output);
+    cursor.write_u8(2)?;
+    cursor.write_u8(packet.packet_type)?;
+    cursor.write_u8(packet.ttl)?;
+    cursor.write_slice(&packet.timestamp.to_be_bytes())?;
+    cursor.write_u8(flags.to_wire_byte())?;
+    cursor.write_slice(&(payload.len() as u32).to_be_bytes())?;
+    cursor.write_slice(packet.sender_id.as_bytes())?;
+    if let Some(recipient_id) = packet.recipient_id {
+        cursor.write_slice(recipient_id.as_bytes())?;
+    }
+    if let Some(route) = packet.route {
+        cursor.write_u8(route.hop_count)?;
+        cursor.write_slice(route.raw_hops)?;
+    }
+    cursor.write_slice(payload)?;
+    if let Some(signature) = packet.signature {
+        cursor.write_slice(signature.as_bytes())?;
+    }
+
+    Ok(cursor.position())
+}
+
+fn encode_plain_payload_len(packet: BitchatPacketRef<'_>) -> Result<usize, BitchatError> {
+    if packet.version != BitchatVersion::V2 {
+        return Err(BitchatError::UnsupportedEncodeVersion {
+            version: packet.version.wire_value(),
+        });
+    }
+
+    let BitchatPayloadRef::Plain(payload) = packet.payload else {
+        return Err(BitchatError::UnsupportedCompressedEncode);
+    };
+
+    if payload.len() > BITCHAT_PAYLOAD_MAX_LEN {
+        return Err(BitchatError::PayloadTooLarge {
+            actual: payload.len(),
+            maximum: BITCHAT_PAYLOAD_MAX_LEN,
+        });
+    }
+
+    Ok(payload.len())
+}
+
+fn encoded_route_len(route: Option<BitchatRouteRef<'_>>) -> Result<usize, BitchatError> {
+    let Some(route) = route else {
+        return Ok(0);
+    };
+
+    let hop_count = usize::from(route.hop_count);
+    if hop_count > BITCHAT_ROUTE_MAX_HOPS {
+        return Err(BitchatError::RouteTooManyHops {
+            actual: hop_count,
+            maximum: BITCHAT_ROUTE_MAX_HOPS,
+        });
+    }
+
+    let expected = hop_count
+        .checked_mul(BITCHAT_PEER_ID_LEN)
+        .ok_or(BitchatError::LengthOverflow)?;
+    if route.raw_hops.len() != expected {
+        return Err(BitchatError::InvalidRouteByteLength {
+            hop_count: route.hop_count,
+            actual: route.raw_hops.len(),
+            expected,
+        });
+    }
+
+    expected.checked_add(1).ok_or(BitchatError::LengthOverflow)
+}
+
+const fn canonical_encode_flags(packet: BitchatPacketRef<'_>) -> BitchatFlags {
+    BitchatFlags {
+        has_recipient: packet.recipient_id.is_some(),
+        has_signature: packet.signature.is_some(),
+        is_compressed: false,
+        has_route: packet.route.is_some(),
+        is_rsr: packet.flags.is_rsr,
+    }
 }
 
 fn decode_version(input: &[u8]) -> Result<BitchatVersion, BitchatError> {
@@ -193,6 +326,46 @@ pub(crate) struct DecodeCursor<'a> {
     position: usize,
 }
 
+struct EncodeCursor<'a> {
+    output: &'a mut [u8],
+    position: usize,
+}
+
+impl<'a> EncodeCursor<'a> {
+    fn new(output: &'a mut [u8]) -> Self {
+        Self {
+            output,
+            position: 0,
+        }
+    }
+
+    const fn position(&self) -> usize {
+        self.position
+    }
+
+    fn write_u8(&mut self, value: u8) -> Result<(), BitchatError> {
+        self.write_slice(&[value])
+    }
+
+    fn write_slice(&mut self, bytes: &[u8]) -> Result<(), BitchatError> {
+        let end = self
+            .position
+            .checked_add(bytes.len())
+            .ok_or(BitchatError::LengthOverflow)?;
+        if end > self.output.len() {
+            return Err(BitchatError::OutputTooSmall {
+                needed: end,
+                available: self.output.len(),
+            });
+        }
+
+        self.output[self.position..end].copy_from_slice(bytes);
+        self.position = end;
+
+        Ok(())
+    }
+}
+
 impl<'a> DecodeCursor<'a> {
     pub(crate) const fn new(input: &'a [u8]) -> Self {
         Self { input, position: 0 }
@@ -280,11 +453,15 @@ impl<'a> DecodeCursor<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DecodeCursor, decode_bitchat_packet};
+    use super::{
+        DecodeCursor, bitchat_packet_encoded_len_v2, decode_bitchat_packet,
+        encode_bitchat_packet_v2,
+    };
     use crate::{
         BITCHAT_CORE_PACKET_MAX_LEN, BITCHAT_PAYLOAD_MAX_LEN, BITCHAT_ROUTE_MAX_HOPS,
-        BITCHAT_SIGNATURE_LEN, BITCHAT_V1_HEADER_LEN, BitchatError, BitchatPayloadRef,
-        BitchatPeerId, BitchatRouteRef, BitchatSignature, BitchatVersion,
+        BITCHAT_PEER_ID_LEN, BITCHAT_SIGNATURE_LEN, BITCHAT_V1_HEADER_LEN, BITCHAT_V2_HEADER_LEN,
+        BitchatError, BitchatFlags, BitchatPacketRef, BitchatPayloadRef, BitchatPeerId,
+        BitchatRouteRef, BitchatSignature, BitchatVersion,
     };
 
     #[test]
@@ -621,6 +798,181 @@ mod tests {
         );
     }
 
+    #[test]
+    fn encoded_len_v2_counts_payload_without_route_bytes() -> Result<(), BitchatError> {
+        let route_hops = [0x44; 16];
+        let packet = packet_ref(
+            BitchatPayloadRef::Plain(b"hello"),
+            Some(BitchatRouteRef {
+                hop_count: 2,
+                raw_hops: &route_hops,
+            }),
+            None,
+            None,
+        );
+
+        assert_eq!(
+            bitchat_packet_encoded_len_v2(packet)?,
+            BITCHAT_V2_HEADER_LEN + BITCHAT_PEER_ID_LEN + 1 + route_hops.len() + b"hello".len()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_v2_writes_canonical_plain_packet() -> Result<(), BitchatError> {
+        let route_hops = [0x55; 8];
+        let packet = BitchatPacketRef {
+            version: BitchatVersion::V2,
+            packet_type: 0xfe,
+            ttl: 9,
+            timestamp: 0x0102_0304_0506_0708,
+            flags: BitchatFlags {
+                has_recipient: false,
+                has_signature: false,
+                is_compressed: true,
+                has_route: false,
+                is_rsr: true,
+            },
+            sender_id: sender_id(),
+            recipient_id: Some(recipient_id()),
+            route: Some(BitchatRouteRef {
+                hop_count: 1,
+                raw_hops: &route_hops,
+            }),
+            payload: BitchatPayloadRef::Plain(b"hello"),
+            signature: Some(signature()),
+        };
+        let needed = bitchat_packet_encoded_len_v2(packet)?;
+        let mut output = vec![0; needed];
+
+        let written = encode_bitchat_packet_v2(packet, &mut output)?;
+        assert_eq!(written, needed);
+        assert_eq!(&output[..3], &[2, 0xfe, 9]);
+        assert_eq!(&output[3..11], &0x0102_0304_0506_0708_u64.to_be_bytes());
+        assert_eq!(output[11], 0x1b);
+        assert_eq!(&output[12..16], &(b"hello".len() as u32).to_be_bytes());
+
+        let decoded = decode_bitchat_packet(&output)?;
+        assert_eq!(decoded.packet_type, 0xfe);
+        assert_eq!(decoded.flags.to_wire_byte(), 0x1b);
+        assert_eq!(decoded.payload, BitchatPayloadRef::Plain(b"hello"));
+        assert_eq!(decoded.recipient_id, Some(recipient_id()));
+        assert_eq!(
+            decoded.route,
+            Some(BitchatRouteRef {
+                hop_count: 1,
+                raw_hops: &route_hops,
+            })
+        );
+        assert_eq!(decoded.signature, Some(signature()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn packet_type_roundtrips_as_raw_u8() -> Result<(), BitchatError> {
+        let packet = packet_ref(BitchatPayloadRef::Plain(b"packet-type"), None, None, None);
+        let packet = BitchatPacketRef {
+            packet_type: 0xff,
+            ..packet
+        };
+        let mut output = vec![0; bitchat_packet_encoded_len_v2(packet)?];
+
+        encode_bitchat_packet_v2(packet, &mut output)?;
+        assert_eq!(decode_bitchat_packet(&output)?.packet_type, 0xff);
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_v2_rejects_unsupported_inputs() {
+        let v1 = BitchatPacketRef {
+            version: BitchatVersion::V1,
+            ..packet_ref(BitchatPayloadRef::Plain(b"hello"), None, None, None)
+        };
+        assert_eq!(
+            bitchat_packet_encoded_len_v2(v1),
+            Err(BitchatError::UnsupportedEncodeVersion { version: 1 })
+        );
+
+        let compressed = packet_ref(
+            BitchatPayloadRef::Compressed {
+                original_len: 5,
+                compressed_bytes: b"bytes",
+            },
+            None,
+            None,
+            None,
+        );
+        assert_eq!(
+            bitchat_packet_encoded_len_v2(compressed),
+            Err(BitchatError::UnsupportedCompressedEncode)
+        );
+
+        let oversized_payload = vec![0xaa; BITCHAT_PAYLOAD_MAX_LEN + 1];
+        let oversized = packet_ref(BitchatPayloadRef::Plain(&oversized_payload), None, None, None);
+        assert_eq!(
+            bitchat_packet_encoded_len_v2(oversized),
+            Err(BitchatError::PayloadTooLarge {
+                actual: BITCHAT_PAYLOAD_MAX_LEN + 1,
+                maximum: BITCHAT_PAYLOAD_MAX_LEN,
+            })
+        );
+    }
+
+    #[test]
+    fn encode_v2_rejects_route_and_output_errors() -> Result<(), BitchatError> {
+        let route_hops = [0xaa; 8];
+        let too_many = packet_ref(
+            BitchatPayloadRef::Plain(b"hello"),
+            Some(BitchatRouteRef {
+                hop_count: (BITCHAT_ROUTE_MAX_HOPS + 1) as u8,
+                raw_hops: &route_hops,
+            }),
+            None,
+            None,
+        );
+        assert_eq!(
+            bitchat_packet_encoded_len_v2(too_many),
+            Err(BitchatError::RouteTooManyHops {
+                actual: BITCHAT_ROUTE_MAX_HOPS + 1,
+                maximum: BITCHAT_ROUTE_MAX_HOPS,
+            })
+        );
+
+        let invalid_route = packet_ref(
+            BitchatPayloadRef::Plain(b"hello"),
+            Some(BitchatRouteRef {
+                hop_count: 2,
+                raw_hops: &route_hops,
+            }),
+            None,
+            None,
+        );
+        assert_eq!(
+            bitchat_packet_encoded_len_v2(invalid_route),
+            Err(BitchatError::InvalidRouteByteLength {
+                hop_count: 2,
+                actual: 8,
+                expected: 16,
+            })
+        );
+
+        let packet = packet_ref(BitchatPayloadRef::Plain(b"hello"), None, None, None);
+        let needed = bitchat_packet_encoded_len_v2(packet)?;
+        let mut short_output = vec![0; needed - 1];
+        assert_eq!(
+            encode_bitchat_packet_v2(packet, &mut short_output),
+            Err(BitchatError::OutputTooSmall {
+                needed,
+                available: needed - 1,
+            })
+        );
+
+        Ok(())
+    }
+
     fn v1_packet(flags: u8, payload: &[u8]) -> Vec<u8> {
         let mut packet = v1_header_only(flags, payload.len());
         packet.extend_from_slice(payload);
@@ -685,5 +1037,25 @@ mod tests {
 
     fn signature() -> BitchatSignature {
         BitchatSignature::from_bytes([0x33; 64])
+    }
+
+    fn packet_ref<'a>(
+        payload: BitchatPayloadRef<'a>,
+        route: Option<BitchatRouteRef<'a>>,
+        recipient_id: Option<BitchatPeerId>,
+        signature: Option<BitchatSignature>,
+    ) -> BitchatPacketRef<'a> {
+        BitchatPacketRef {
+            version: BitchatVersion::V2,
+            packet_type: 0x31,
+            ttl: 5,
+            timestamp: 6,
+            flags: BitchatFlags::empty(),
+            sender_id: sender_id(),
+            recipient_id,
+            route,
+            payload,
+            signature,
+        }
     }
 }
