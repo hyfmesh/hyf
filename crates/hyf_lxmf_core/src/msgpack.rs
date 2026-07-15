@@ -6,6 +6,9 @@ const MARKER_TRUE: u8 = 0xc3;
 const MARKER_BIN8: u8 = 0xc4;
 const MARKER_BIN16: u8 = 0xc5;
 const MARKER_BIN32: u8 = 0xc6;
+const MARKER_EXT8: u8 = 0xc7;
+const MARKER_EXT16: u8 = 0xc8;
+const MARKER_EXT32: u8 = 0xc9;
 const MARKER_FLOAT32: u8 = 0xca;
 const MARKER_FLOAT64: u8 = 0xcb;
 const MARKER_UINT8: u8 = 0xcc;
@@ -16,6 +19,11 @@ const MARKER_INT8: u8 = 0xd0;
 const MARKER_INT16: u8 = 0xd1;
 const MARKER_INT32: u8 = 0xd2;
 const MARKER_INT64: u8 = 0xd3;
+const MARKER_FIXEXT1: u8 = 0xd4;
+const MARKER_FIXEXT2: u8 = 0xd5;
+const MARKER_FIXEXT4: u8 = 0xd6;
+const MARKER_FIXEXT8: u8 = 0xd7;
+const MARKER_FIXEXT16: u8 = 0xd8;
 const MARKER_STR8: u8 = 0xd9;
 const MARKER_STR16: u8 = 0xda;
 const MARKER_STR32: u8 = 0xdb;
@@ -123,10 +131,27 @@ impl<'a> MsgpackCursor<'a> {
                 let len = self.read_u32_as_usize()?;
                 self.skip_len(len)
             }
+            MARKER_EXT8 => {
+                let len = self.read_u8()? as usize;
+                self.skip_ext(len)
+            }
+            MARKER_EXT16 => {
+                let len = self.read_u16()? as usize;
+                self.skip_ext(len)
+            }
+            MARKER_EXT32 => {
+                let len = self.read_u32_as_usize()?;
+                self.skip_ext(len)
+            }
             MARKER_FLOAT32 | MARKER_UINT32 | MARKER_INT32 => self.skip_len(4),
             MARKER_FLOAT64 | MARKER_UINT64 | MARKER_INT64 => self.skip_len(8),
             MARKER_UINT8 | MARKER_INT8 => self.skip_len(1),
             MARKER_UINT16 | MARKER_INT16 => self.skip_len(2),
+            MARKER_FIXEXT1 => self.skip_ext(1),
+            MARKER_FIXEXT2 => self.skip_ext(2),
+            MARKER_FIXEXT4 => self.skip_ext(4),
+            MARKER_FIXEXT8 => self.skip_ext(8),
+            MARKER_FIXEXT16 => self.skip_ext(16),
             MARKER_ARRAY16 => {
                 let len = self.read_u16()? as usize;
                 self.skip_array(len, depth)
@@ -160,6 +185,11 @@ impl<'a> MsgpackCursor<'a> {
             self.skip_value(depth + 1)?;
         }
         Ok(())
+    }
+
+    fn skip_ext(&mut self, len: usize) -> Result<(), LxmfError> {
+        self.skip_len(1)?;
+        self.skip_len(len)
     }
 
     fn skip_len(&mut self, len: usize) -> Result<(), LxmfError> {
@@ -227,7 +257,10 @@ const fn is_map_marker(marker: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::MsgpackCursor;
+    use super::{
+        MARKER_EXT8, MARKER_EXT16, MARKER_EXT32, MARKER_FIXEXT1, MARKER_FIXEXT2, MARKER_FIXEXT4,
+        MARKER_FIXEXT8, MARKER_FIXEXT16, MsgpackCursor,
+    };
     use crate::{LXMF_MSGPACK_MAX_DEPTH, LxmfError};
 
     #[test]
@@ -285,6 +318,106 @@ mod tests {
     }
 
     #[test]
+    fn msgpack_preserves_fixext_values_inside_raw_map() -> Result<(), LxmfError> {
+        let input = [
+            0x85,
+            0xa1,
+            b'a',
+            MARKER_FIXEXT1,
+            0x01,
+            0xaa,
+            0xa1,
+            b'b',
+            MARKER_FIXEXT2,
+            0x02,
+            0xaa,
+            0xbb,
+            0xa1,
+            b'c',
+            MARKER_FIXEXT4,
+            0x03,
+            0xaa,
+            0xbb,
+            0xcc,
+            0xdd,
+            0xa1,
+            b'd',
+            MARKER_FIXEXT8,
+            0x04,
+            0xaa,
+            0xbb,
+            0xcc,
+            0xdd,
+            0xee,
+            0xff,
+            0x00,
+            0x11,
+            0xa1,
+            b'e',
+            MARKER_FIXEXT16,
+            0x05,
+            0x00,
+            0x11,
+            0x22,
+            0x33,
+            0x44,
+            0x55,
+            0x66,
+            0x77,
+            0x88,
+            0x99,
+            0xaa,
+            0xbb,
+            0xcc,
+            0xdd,
+            0xee,
+            0xff,
+        ];
+        let mut cursor = MsgpackCursor::new(&input);
+
+        assert_eq!(cursor.read_raw_map()?, input);
+        assert_eq!(cursor.finish(), Ok(()));
+        Ok(())
+    }
+
+    #[test]
+    fn msgpack_preserves_ext_values_inside_raw_map() -> Result<(), LxmfError> {
+        let input = [
+            0x83,
+            0xa1,
+            b'a',
+            MARKER_EXT8,
+            0x02,
+            0x01,
+            0xaa,
+            0xbb,
+            0xa1,
+            b'b',
+            MARKER_EXT16,
+            0x00,
+            0x02,
+            0x02,
+            0xcc,
+            0xdd,
+            0xa1,
+            b'c',
+            MARKER_EXT32,
+            0x00,
+            0x00,
+            0x00,
+            0x02,
+            0x03,
+            0xee,
+            0xff,
+        ];
+        let mut cursor = MsgpackCursor::new(&input);
+
+        assert_eq!(cursor.read_raw_map()?, input);
+        assert_eq!(cursor.finish(), Ok(()));
+        Ok(())
+    }
+
+    #[test]
     fn msgpack_preserves_raw_value_bytes() -> Result<(), LxmfError> {
         let input = [0x92, 0xa1, b'a', 0xcc, 0x09];
         let mut cursor = MsgpackCursor::new(&input);
@@ -310,6 +443,46 @@ mod tests {
 
         assert_eq!(
             cursor.read_bin_or_str_bytes(),
+            Err(LxmfError::MsgpackTruncated)
+        );
+    }
+
+    #[test]
+    fn msgpack_rejects_truncated_fixext_type_and_payload() {
+        let mut missing_type = MsgpackCursor::new(&[MARKER_FIXEXT1]);
+        let mut missing_payload = MsgpackCursor::new(&[MARKER_FIXEXT1, 0x01]);
+
+        assert_eq!(
+            missing_type.read_raw_value(),
+            Err(LxmfError::MsgpackTruncated)
+        );
+        assert_eq!(
+            missing_payload.read_raw_value(),
+            Err(LxmfError::MsgpackTruncated)
+        );
+    }
+
+    #[test]
+    fn msgpack_rejects_truncated_ext_length_type_and_payload() {
+        for input in [
+            &[MARKER_EXT8][..],
+            &[MARKER_EXT16, 0x00][..],
+            &[MARKER_EXT32, 0x00, 0x00, 0x00][..],
+        ] {
+            let mut cursor = MsgpackCursor::new(input);
+
+            assert_eq!(cursor.read_raw_value(), Err(LxmfError::MsgpackTruncated));
+        }
+
+        let mut missing_type = MsgpackCursor::new(&[MARKER_EXT8, 0x01]);
+        let mut missing_payload = MsgpackCursor::new(&[MARKER_EXT8, 0x02, 0x01, 0xaa]);
+
+        assert_eq!(
+            missing_type.read_raw_value(),
+            Err(LxmfError::MsgpackTruncated)
+        );
+        assert_eq!(
+            missing_payload.read_raw_value(),
             Err(LxmfError::MsgpackTruncated)
         );
     }

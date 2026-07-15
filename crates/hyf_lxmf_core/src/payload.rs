@@ -325,6 +325,24 @@ mod tests {
     }
 
     #[test]
+    fn payload_decode_preserves_extension_fields_raw() -> Result<(), LxmfError> {
+        let fields = [
+            0x82, 0xa1, b'a', 0xd4, 0x01, 0xaa, 0xa1, b'b', 0xc7, 0x02, 0x02, 0xbb, 0xcc,
+        ];
+        let payload = payload_with_parts(
+            &repeated_bin(1, b't'),
+            &repeated_bin(1, b'c'),
+            &fields,
+            None,
+        );
+
+        let decoded = decode_lxmf_payload(&payload)?;
+
+        assert_eq!(decoded.fields.bytes, fields);
+        Ok(())
+    }
+
+    #[test]
     fn payload_decode_rejects_non_map_fields() {
         let payload = [
             0x94, 0xcb, 0x3f, 0xf8, 0, 0, 0, 0, 0, 0, 0xc4, 0x01, b't', 0xc4, 0x01, b'c', 0x90,
