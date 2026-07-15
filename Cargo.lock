@@ -492,6 +492,14 @@ name = "hyf_bitchat_core"
 version = "0.1.0"
 
 [[package]]
+name = "hyf_bridge_core"
+version = "0.1.0"
+dependencies = [
+ "hyf_core",
+ "hyf_wire",
+]
+
+[[package]]
 name = "hyf_config"
 version = "0.1.0"
 dependencies = [

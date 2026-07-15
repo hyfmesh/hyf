@@ -1,0 +1,19 @@
+[package]
+name = "hyf_bridge_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hyf_core.workspace = true
+hyf_wire.workspace = true
+
+[features]
+default = []
+std = ["hyf_core/std", "hyf_wire/std"]
+
+[lints]
+workspace = true
