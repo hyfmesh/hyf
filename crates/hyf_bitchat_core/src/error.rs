@@ -78,7 +78,10 @@ impl fmt::Display for BitchatError {
                 write!(formatter, "unknown BitChat packet version: {version}")
             }
             Self::ReservedFlags { flags } => {
-                write!(formatter, "BitChat flags contain reserved bits: 0x{flags:02x}")
+                write!(
+                    formatter,
+                    "BitChat flags contain reserved bits: 0x{flags:02x}"
+                )
             }
             Self::V1RouteFlag => formatter.write_str("BitChat v1 packets cannot contain routes"),
             Self::PayloadTooLarge { actual, maximum } => {
@@ -128,10 +131,7 @@ impl fmt::Display for BitchatError {
                 formatter.write_str("BitChat compressed payload body is empty")
             }
             Self::UnsupportedEncodeVersion { version } => {
-                write!(
-                    formatter,
-                    "unsupported BitChat encode version: {version}"
-                )
+                write!(formatter, "unsupported BitChat encode version: {version}")
             }
             Self::UnsupportedCompressedEncode => {
                 formatter.write_str("BitChat encoder only supports plain payloads")

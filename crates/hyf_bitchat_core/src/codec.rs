@@ -80,9 +80,7 @@ pub fn decode_bitchat_packet(input: &[u8]) -> Result<BitchatPacketRef<'_>, Bitch
     })
 }
 
-pub fn bitchat_packet_encoded_len_v2(
-    packet: BitchatPacketRef<'_>,
-) -> Result<usize, BitchatError> {
+pub fn bitchat_packet_encoded_len_v2(packet: BitchatPacketRef<'_>) -> Result<usize, BitchatError> {
     let payload_len = encode_plain_payload_len(packet)?;
     let route_len = encoded_route_len(packet.route)?;
 
@@ -282,9 +280,7 @@ fn decode_payload<'a>(
     }
 
     let original_len = match version {
-        BitchatVersion::V1 => {
-            usize::from(u16::from_be_bytes([payload_bytes[0], payload_bytes[1]]))
-        }
+        BitchatVersion::V1 => usize::from(u16::from_be_bytes([payload_bytes[0], payload_bytes[1]])),
         BitchatVersion::V2 => u32::from_be_bytes([
             payload_bytes[0],
             payload_bytes[1],
@@ -458,17 +454,17 @@ mod tests {
         encode_bitchat_packet_v2,
     };
     use crate::{
-        BITCHAT_CORE_PACKET_MAX_LEN, BITCHAT_PAYLOAD_MAX_LEN, BITCHAT_ROUTE_MAX_HOPS,
-        BITCHAT_PEER_ID_LEN, BITCHAT_SIGNATURE_LEN, BITCHAT_V1_HEADER_LEN, BITCHAT_V2_HEADER_LEN,
-        BitchatError, BitchatFlags, BitchatPacketRef, BitchatPayloadRef, BitchatPeerId,
-        BitchatRouteRef, BitchatSignature, BitchatVersion,
+        BITCHAT_CORE_PACKET_MAX_LEN, BITCHAT_PAYLOAD_MAX_LEN, BITCHAT_PEER_ID_LEN,
+        BITCHAT_ROUTE_MAX_HOPS, BITCHAT_SIGNATURE_LEN, BITCHAT_V1_HEADER_LEN,
+        BITCHAT_V2_HEADER_LEN, BitchatError, BitchatFlags, BitchatPacketRef, BitchatPayloadRef,
+        BitchatPeerId, BitchatRouteRef, BitchatSignature, BitchatVersion,
     };
 
     #[test]
     fn cursor_reads_big_endian_values_and_slices() -> Result<(), BitchatError> {
         let bytes = [
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
-            0x0e, 0x0f,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f,
         ];
         let mut cursor = DecodeCursor::new(&bytes);
 
@@ -911,7 +907,12 @@ mod tests {
         );
 
         let oversized_payload = vec![0xaa; BITCHAT_PAYLOAD_MAX_LEN + 1];
-        let oversized = packet_ref(BitchatPayloadRef::Plain(&oversized_payload), None, None, None);
+        let oversized = packet_ref(
+            BitchatPayloadRef::Plain(&oversized_payload),
+            None,
+            None,
+            None,
+        );
         assert_eq!(
             bitchat_packet_encoded_len_v2(oversized),
             Err(BitchatError::PayloadTooLarge {
@@ -999,7 +1000,8 @@ mod tests {
         sender_id: BitchatPeerId,
         payload: &[u8],
     ) -> Vec<u8> {
-        let mut packet = v2_header_only(flags, packet_type, ttl, timestamp, sender_id, payload.len());
+        let mut packet =
+            v2_header_only(flags, packet_type, ttl, timestamp, sender_id, payload.len());
         packet.extend_from_slice(payload);
         packet
     }
