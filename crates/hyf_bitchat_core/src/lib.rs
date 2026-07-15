@@ -19,6 +19,7 @@ pub use constants::{
     BITCHAT_V2_HEADER_LEN,
 };
 pub use error::BitchatError;
+pub use types::{BitchatPeerId, BitchatSignature};
 
 #[cfg(test)]
 mod tests {
