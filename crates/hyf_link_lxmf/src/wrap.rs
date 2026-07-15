@@ -16,7 +16,7 @@ pub fn wrap_lxmf_message<'a>(
 ) -> Result<HyfEnvelopeRef<'a>, HyfLinkLxmfError> {
     let message = validate_lxmf_message(raw)?;
     let message_id = hyf_message_id(lxmf_message_id(message)?);
-    let destination_hash = *message.destination_hash.as_bytes();
+    let destination_hash = *message.destination_hash().as_bytes();
     let envelope = HyfEnvelopeRef {
         version: HYF_WIRE_VERSION_0,
         message_id,
@@ -79,9 +79,9 @@ mod tests {
 
         let message = validate_lxmf_message(&raw)?;
 
-        assert_eq!(message.destination_hash.as_bytes(), &DESTINATION_HASH);
-        assert_eq!(message.source_hash.as_bytes(), &SOURCE_HASH);
-        assert_eq!(message.packed_payload, PAYLOAD4);
+        assert_eq!(message.destination_hash().as_bytes(), &DESTINATION_HASH);
+        assert_eq!(message.source_hash().as_bytes(), &SOURCE_HASH);
+        assert_eq!(message.packed_payload(), PAYLOAD4);
         Ok(())
     }
 

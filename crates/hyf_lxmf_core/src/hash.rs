@@ -10,12 +10,12 @@ const LXMF_PAYLOAD_ARRAY_WITH_STAMP_LEN: usize = 5;
 const FIXED_ARRAY4_MARKER: u8 = 0x90 | LXMF_PAYLOAD_ARRAY_LEN as u8;
 
 pub fn lxmf_message_id(message: LxmfMessageRef<'_>) -> Result<LxmfMessageId, LxmfError> {
-    let signing_payload = SigningPayload::parse(message.packed_payload)?;
+    let signing_payload = SigningPayload::parse(message.packed_payload())?;
     Ok(message_id_with_signing_payload(message, &signing_payload))
 }
 
 pub fn lxmf_signature_input_len(message: LxmfMessageRef<'_>) -> Result<usize, LxmfError> {
-    let signing_payload = SigningPayload::parse(message.packed_payload)?;
+    let signing_payload = SigningPayload::parse(message.packed_payload())?;
     Ok(LXMF_DESTINATION_HASH_LEN
         + LXMF_SOURCE_HASH_LEN
         + signing_payload.len()
@@ -26,7 +26,7 @@ pub fn write_lxmf_signature_input(
     message: LxmfMessageRef<'_>,
     output: &mut [u8],
 ) -> Result<usize, LxmfError> {
-    let signing_payload = SigningPayload::parse(message.packed_payload)?;
+    let signing_payload = SigningPayload::parse(message.packed_payload())?;
     let required = LXMF_DESTINATION_HASH_LEN
         .checked_add(LXMF_SOURCE_HASH_LEN)
         .and_then(|len| len.checked_add(signing_payload.len()))
@@ -43,8 +43,8 @@ pub fn write_lxmf_signature_input(
     }
 
     let mut sink = OutputSink::new(output);
-    sink.write(message.destination_hash.as_bytes());
-    sink.write(message.source_hash.as_bytes());
+    sink.write(message.destination_hash().as_bytes());
+    sink.write(message.source_hash().as_bytes());
     signing_payload.write_to(&mut sink);
     let message_id = message_id_with_signing_payload(message, &signing_payload);
     sink.write(message_id.as_bytes());
@@ -62,8 +62,8 @@ fn message_id_with_signing_payload(
 
 fn message_id_hasher(message: LxmfMessageRef<'_>) -> Sha256 {
     let mut hasher = Sha256::new();
-    hasher.update(message.destination_hash.as_bytes());
-    hasher.update(message.source_hash.as_bytes());
+    hasher.update(message.destination_hash().as_bytes());
+    hasher.update(message.source_hash().as_bytes());
     hasher
 }
 
@@ -334,19 +334,19 @@ mod tests {
 
     #[test]
     fn message_id_and_signature_input_reject_malformed_signing_payload() {
-        let message = LxmfMessageRef {
-            destination_hash: LxmfDestinationHash::from_bytes(DESTINATION_HASH),
-            source_hash: LxmfSourceHash::from_bytes(SOURCE_HASH),
-            signature: LxmfSignature::from_bytes(SIGNATURE),
-            packed_payload: &[0x95],
-            payload: LxmfPayloadRef {
+        let message = LxmfMessageRef::from_validated_parts(
+            LxmfDestinationHash::from_bytes(DESTINATION_HASH),
+            LxmfSourceHash::from_bytes(SOURCE_HASH),
+            LxmfSignature::from_bytes(SIGNATURE),
+            &[0x95],
+            LxmfPayloadRef {
                 timestamp_secs: 1.5,
                 title: b"title",
                 content: b"hello",
                 fields: LxmfRawMapRef { bytes: &[0x80] },
                 stamp: None,
             },
-        };
+        );
         let mut output = [0; 128];
 
         assert_eq!(lxmf_message_id(message), Err(LxmfError::MsgpackTruncated));

@@ -31,13 +31,13 @@ pub fn decode_lxmf_message(input: &[u8]) -> Result<LxmfMessageRef<'_>, LxmfError
     let packed_payload = &input[LXMF_FIXED_HEADER_LEN..];
     let payload = decode_lxmf_payload(packed_payload)?;
 
-    Ok(LxmfMessageRef {
-        destination_hash: LxmfDestinationHash::from_bytes(destination_hash),
-        source_hash: LxmfSourceHash::from_bytes(source_hash),
-        signature: LxmfSignature::from_bytes(signature),
+    Ok(LxmfMessageRef::from_validated_parts(
+        LxmfDestinationHash::from_bytes(destination_hash),
+        LxmfSourceHash::from_bytes(source_hash),
+        LxmfSignature::from_bytes(signature),
         packed_payload,
         payload,
-    })
+    ))
 }
 
 pub fn encode_lxmf_message(
@@ -105,12 +105,12 @@ mod tests {
 
         let message = decode_lxmf_message(&input)?;
 
-        assert_eq!(message.destination_hash.as_bytes(), &DESTINATION_HASH);
-        assert_eq!(message.source_hash.as_bytes(), &SOURCE_HASH);
-        assert_eq!(message.signature.as_bytes(), &SIGNATURE);
-        assert_eq!(message.packed_payload, PAYLOAD4);
-        assert_eq!(message.payload.title, b"title");
-        assert_eq!(message.payload.content, b"hello");
+        assert_eq!(message.destination_hash().as_bytes(), &DESTINATION_HASH);
+        assert_eq!(message.source_hash().as_bytes(), &SOURCE_HASH);
+        assert_eq!(message.signature().as_bytes(), &SIGNATURE);
+        assert_eq!(message.packed_payload(), PAYLOAD4);
+        assert_eq!(message.payload().title, b"title");
+        assert_eq!(message.payload().content, b"hello");
         Ok(())
     }
 
@@ -121,9 +121,9 @@ mod tests {
 
         let message = decode_lxmf_message(&input)?;
 
-        assert_eq!(message.packed_payload, PAYLOAD5);
+        assert_eq!(message.packed_payload(), PAYLOAD5);
         assert_eq!(
-            message.payload.stamp.map(|stamp| stamp.bytes),
+            message.payload().stamp.map(|stamp| stamp.bytes),
             Some(&PAYLOAD5[PAYLOAD5.len() - 4..])
         );
         Ok(())
@@ -184,10 +184,10 @@ mod tests {
 
         assert_eq!(len, LXMF_FIXED_HEADER_LEN + PAYLOAD4.len());
         let decoded = decode_lxmf_message(&output)?;
-        assert_eq!(decoded.destination_hash.as_bytes(), &DESTINATION_HASH);
-        assert_eq!(decoded.source_hash.as_bytes(), &SOURCE_HASH);
-        assert_eq!(decoded.signature.as_bytes(), &SIGNATURE);
-        assert_eq!(decoded.packed_payload, PAYLOAD4);
+        assert_eq!(decoded.destination_hash().as_bytes(), &DESTINATION_HASH);
+        assert_eq!(decoded.source_hash().as_bytes(), &SOURCE_HASH);
+        assert_eq!(decoded.signature().as_bytes(), &SIGNATURE);
+        assert_eq!(decoded.packed_payload(), PAYLOAD4);
         Ok(())
     }
 

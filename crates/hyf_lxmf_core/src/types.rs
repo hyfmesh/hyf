@@ -110,11 +110,49 @@ impl fmt::Debug for LxmfPayloadRef<'_> {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct LxmfMessageRef<'a> {
-    pub destination_hash: LxmfDestinationHash,
-    pub source_hash: LxmfSourceHash,
-    pub signature: LxmfSignature,
-    pub packed_payload: &'a [u8],
-    pub payload: LxmfPayloadRef<'a>,
+    destination_hash: LxmfDestinationHash,
+    source_hash: LxmfSourceHash,
+    signature: LxmfSignature,
+    packed_payload: &'a [u8],
+    payload: LxmfPayloadRef<'a>,
+}
+
+impl<'a> LxmfMessageRef<'a> {
+    pub(crate) const fn from_validated_parts(
+        destination_hash: LxmfDestinationHash,
+        source_hash: LxmfSourceHash,
+        signature: LxmfSignature,
+        packed_payload: &'a [u8],
+        payload: LxmfPayloadRef<'a>,
+    ) -> Self {
+        Self {
+            destination_hash,
+            source_hash,
+            signature,
+            packed_payload,
+            payload,
+        }
+    }
+
+    pub const fn destination_hash(&self) -> &LxmfDestinationHash {
+        &self.destination_hash
+    }
+
+    pub const fn source_hash(&self) -> &LxmfSourceHash {
+        &self.source_hash
+    }
+
+    pub const fn signature(&self) -> &LxmfSignature {
+        &self.signature
+    }
+
+    pub const fn packed_payload(&self) -> &'a [u8] {
+        self.packed_payload
+    }
+
+    pub const fn payload(&self) -> LxmfPayloadRef<'a> {
+        self.payload
+    }
 }
 
 impl fmt::Debug for LxmfMessageRef<'_> {
@@ -164,15 +202,20 @@ mod tests {
                 bytes: b"secret-stamp",
             }),
         };
-        let message = LxmfMessageRef {
-            destination_hash: LxmfDestinationHash::from_bytes([1; 16]),
-            source_hash: LxmfSourceHash::from_bytes([2; 16]),
-            signature: LxmfSignature::from_bytes([3; 64]),
-            packed_payload: b"secret-payload",
+        let message = LxmfMessageRef::from_validated_parts(
+            LxmfDestinationHash::from_bytes([1; 16]),
+            LxmfSourceHash::from_bytes([2; 16]),
+            LxmfSignature::from_bytes([3; 64]),
+            b"secret-payload",
             payload,
-        };
+        );
         let debug = format!("{message:?}");
 
+        assert_eq!(message.destination_hash().as_bytes(), &[1; 16]);
+        assert_eq!(message.source_hash().as_bytes(), &[2; 16]);
+        assert_eq!(message.signature().as_bytes(), &[3; 64]);
+        assert_eq!(message.packed_payload(), b"secret-payload");
+        assert_eq!(message.payload().title, b"secret-title");
         assert!(debug.contains("LxmfMessageRef"));
         assert!(debug.contains("<redacted>"));
         assert!(!debug.contains("secret-title"));
