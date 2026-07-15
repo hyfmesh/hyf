@@ -102,6 +102,85 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
         ],
     },
     FeatureSurface {
+        package: "hyf_bridge_core",
+        features: &[
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &["hyf_core/std", "hyf_wire/std"],
+            },
+        ],
+    },
+    FeatureSurface {
+        package: "hyf_bridge_bitchat",
+        features: &[
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &[
+                    "hyf_bitchat_core/std",
+                    "hyf_bridge_core/std",
+                    "hyf_core/std",
+                ],
+            },
+        ],
+    },
+    FeatureSurface {
+        package: "hyf_bridge_lxmf",
+        features: &[
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &["hyf_bridge_core/std", "hyf_core/std", "hyf_lxmf_core/std"],
+            },
+        ],
+    },
+    FeatureSurface {
+        package: "hyf_bridge_nostr",
+        features: &[
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &["hyf_bridge_core/std", "hyf_core/std", "hyf_link_nostr/std"],
+            },
+        ],
+    },
+    FeatureSurface {
+        package: "hyf_bridge_runtime",
+        features: &[
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &[
+                    "hyf_bitchat_core/std",
+                    "hyf_bridge_bitchat/std",
+                    "hyf_bridge_core/std",
+                    "hyf_bridge_lxmf/std",
+                    "hyf_bridge_nostr/std",
+                    "hyf_core/std",
+                    "hyf_link_nostr/std",
+                    "hyf_lxmf_core/std",
+                    "hyf_wire/std",
+                ],
+            },
+        ],
+    },
+    FeatureSurface {
         package: "hyf_link_rnode_serial",
         features: &[
             FeatureSpec {
@@ -250,6 +329,35 @@ const FUTURE_PRODUCTION_DEPENDENCY_MARKERS: &[&str] = &[
     "rnode",
     "serialport",
 ];
+const BRIDGE_PACKAGES: &[&str] = &[
+    "hyf_bridge_core",
+    "hyf_bridge_bitchat",
+    "hyf_bridge_lxmf",
+    "hyf_bridge_nostr",
+    "hyf_bridge_runtime",
+];
+const BRIDGE_ADAPTER_PACKAGES: &[&str] = &[
+    "hyf_bridge_bitchat",
+    "hyf_bridge_lxmf",
+    "hyf_bridge_nostr",
+    "hyf_bridge_runtime",
+];
+const FAKE_BRIDGE_FORBIDDEN_LIVE_DEPENDENCY_MARKERS: &[&str] = &[
+    "async",
+    "compression",
+    "fips",
+    "flate",
+    "pyo3",
+    "python",
+    "reticulum",
+    "rnode",
+    "serialport",
+    "swift",
+    "tokio",
+    "tungstenite",
+    "websocket",
+    "zlib",
+];
 const ALLOWED_GATEWAY_FOUNDATION_DEPENDENCIES_WITH_MARKERS: &[&str] = &["hyf_link_fips"];
 const PUBLIC_REPO_FORBIDDEN_SNIPPETS: &[&str] = &[
     concat!("hand", "off"),
@@ -259,6 +367,12 @@ const PUBLIC_REPO_FORBIDDEN_SNIPPETS: &[&str] = &[
 ];
 const PRIVATE_ROOT_REFERENCE_SNIPPETS: &[&str] =
     &[concat!("/", "_", "hyf"), concat!("_", "hyf", "/")];
+const PRIVATE_SOURCE_REFERENCE_PATH_SNIPPETS: &[&str] = &[
+    concat!("re", "fs", "/"),
+    concat!(".", "/", "re", "fs"),
+    concat!("..", "/", "re", "fs"),
+    concat!("re", "fs", "\\"),
+];
 const REQUIRED_PUBLIC_DOCS: &[PublicDocSpec] = &[
     PublicDocSpec {
         path: "README.md",
@@ -614,11 +728,18 @@ fn gateway_dependencies_preserve_clean_boundaries() -> TestResult {
         package_by_name(&packages, "hyf_gateway")?,
         "dev",
         &[
+            "hyf_bitchat_core",
+            "hyf_bridge_bitchat",
+            "hyf_bridge_core",
+            "hyf_bridge_lxmf",
+            "hyf_bridge_nostr",
+            "hyf_bridge_runtime",
             "hyf_link_bitchat",
             "hyf_link_kiss",
             "hyf_link_lxmf",
             "hyf_link_rnode_serial",
             "hyf_link_rns",
+            "hyf_lxmf_core",
             "hyf_wire",
         ],
     )?;
@@ -626,6 +747,75 @@ fn gateway_dependencies_preserve_clean_boundaries() -> TestResult {
         &packages,
         GATEWAY_FOUNDATION_PACKAGES,
         FUTURE_PRODUCTION_DEPENDENCY_MARKERS,
+        ALLOWED_GATEWAY_FOUNDATION_DEPENDENCIES_WITH_MARKERS,
+        "Gateway foundation packages",
+    )
+}
+
+#[test]
+fn bridge_dependencies_preserve_fake_mode_boundaries() -> TestResult {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let metadata = metadata_for_manifest(&workspace_root.join("Cargo.toml"))?;
+    let packages = workspace_packages(&metadata)?;
+
+    assert_direct_dependency_names(package_by_name(&packages, "hyf_wire")?, &["hyf_core"])?;
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_bridge_core")?,
+        &["hyf_core", "hyf_wire"],
+    )?;
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_bridge_bitchat")?,
+        &["hyf_bitchat_core", "hyf_bridge_core", "hyf_core"],
+    )?;
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_bridge_lxmf")?,
+        &["hyf_bridge_core", "hyf_core", "hyf_lxmf_core"],
+    )?;
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_bridge_nostr")?,
+        &["hyf_bridge_core", "hyf_core", "hyf_link_nostr"],
+    )?;
+    assert_direct_dependency_names(
+        package_by_name(&packages, "hyf_bridge_runtime")?,
+        &[
+            "hyf_bitchat_core",
+            "hyf_bridge_bitchat",
+            "hyf_bridge_core",
+            "hyf_bridge_lxmf",
+            "hyf_bridge_nostr",
+            "hyf_core",
+            "hyf_link_nostr",
+            "hyf_lxmf_core",
+            "hyf_wire",
+        ],
+    )?;
+
+    assert_packages_omit_direct_dependencies(
+        &packages,
+        &["hyf_bridge_core"],
+        &[
+            "hyf_bitchat_core",
+            "hyf_bridge_bitchat",
+            "hyf_bridge_lxmf",
+            "hyf_bridge_nostr",
+            "hyf_bridge_runtime",
+            "hyf_link_nostr",
+            "hyf_lxmf_core",
+        ],
+        "Bridge core",
+    )?;
+    assert_packages_omit_direct_dependencies(
+        &packages,
+        &["hyf_router", "hyf_wire"],
+        BRIDGE_ADAPTER_PACKAGES,
+        "Router and wire crates",
+    )?;
+    assert_packages_omit_dependency_markers(
+        &packages,
+        BRIDGE_PACKAGES,
+        FAKE_BRIDGE_FORBIDDEN_LIVE_DEPENDENCY_MARKERS,
+        &[],
+        "Fake bridge packages",
     )
 }
 
@@ -741,6 +931,11 @@ fn tracked_public_files_omit_private_process_terms() -> TestResult {
                 violations.push(format!("{relative_path}: path contains {forbidden}"));
             }
         }
+        for forbidden in PRIVATE_SOURCE_REFERENCE_PATH_SNIPPETS {
+            if relative_path_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: path contains {forbidden}"));
+            }
+        }
 
         let content = fs::read(workspace_root.join(relative_path))?;
         let content_lowercase = String::from_utf8_lossy(&content).to_ascii_lowercase();
@@ -750,6 +945,11 @@ fn tracked_public_files_omit_private_process_terms() -> TestResult {
             }
         }
         for forbidden in PRIVATE_ROOT_REFERENCE_SNIPPETS {
+            if content_lowercase.contains(forbidden) {
+                violations.push(format!("{relative_path}: content contains {forbidden}"));
+            }
+        }
+        for forbidden in PRIVATE_SOURCE_REFERENCE_PATH_SNIPPETS {
             if content_lowercase.contains(forbidden) {
                 violations.push(format!("{relative_path}: content contains {forbidden}"));
             }
@@ -1129,6 +1329,8 @@ fn assert_packages_omit_dependency_markers(
     packages: &[&Package],
     package_names: &[&str],
     forbidden_markers: &[&str],
+    allowed_dependencies_with_markers: &[&str],
+    package_group: &str,
 ) -> TestResult {
     let mut violations = Vec::new();
     for package_name in package_names {
@@ -1137,9 +1339,7 @@ fn assert_packages_omit_dependency_markers(
             if dependency_kind(dependency) != "normal" {
                 continue;
             }
-            if ALLOWED_GATEWAY_FOUNDATION_DEPENDENCIES_WITH_MARKERS
-                .contains(&dependency.name.as_str())
-            {
+            if allowed_dependencies_with_markers.contains(&dependency.name.as_str()) {
                 continue;
             }
             let dependency_name = dependency.name.to_ascii_lowercase();
@@ -1161,7 +1361,47 @@ fn assert_packages_omit_dependency_markers(
     }
 
     Err(std::io::Error::other(format!(
-        "Gateway foundation packages depend on forbidden future production crates: {}",
+        "{package_group} depend on forbidden crates: {}",
+        violations.join(", ")
+    ))
+    .into())
+}
+
+fn assert_packages_omit_direct_dependencies(
+    packages: &[&Package],
+    package_names: &[&str],
+    forbidden_dependencies: &[&str],
+    package_group: &str,
+) -> TestResult {
+    let forbidden = forbidden_dependencies
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let mut violations = Vec::new();
+
+    for package_name in package_names {
+        let package = package_by_name(packages, package_name)?;
+        for dependency in &package.dependencies {
+            if dependency_kind(dependency) != "normal" {
+                continue;
+            }
+            if forbidden.contains(dependency.name.as_str()) {
+                violations.push(format!(
+                    "{} -> {} ({})",
+                    package.name,
+                    dependency.name,
+                    dependency_kind(dependency)
+                ));
+            }
+        }
+    }
+
+    if violations.is_empty() {
+        return Ok(());
+    }
+
+    Err(std::io::Error::other(format!(
+        "{package_group} depend on forbidden direct crates: {}",
         violations.join(", ")
     ))
     .into())
