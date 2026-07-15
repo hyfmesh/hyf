@@ -206,8 +206,9 @@ impl<'a> WriteCursor<'a> {
 mod tests {
     use super::decode_lxmf_payload;
     use crate::{
-        LxmfError, LxmfPayloadRef, LxmfRawMapRef, LxmfStampRef, encode_lxmf_payload,
-        lxmf_payload_encoded_len,
+        LXMF_CONTENT_MAX_LEN, LXMF_FIELDS_MAX_LEN, LXMF_PAYLOAD_MAX_LEN, LXMF_STAMP_MAX_LEN,
+        LXMF_TITLE_MAX_LEN, LxmfError, LxmfPayloadRef, LxmfRawMapRef, LxmfStampRef,
+        encode_lxmf_payload, lxmf_payload_encoded_len,
     };
 
     const PAYLOAD4: &[u8] = &[
@@ -336,6 +337,93 @@ mod tests {
     }
 
     #[test]
+    fn payload_decode_rejects_oversize_payload_input() {
+        let too_large = [0; LXMF_PAYLOAD_MAX_LEN + 1];
+
+        assert_eq!(
+            decode_lxmf_payload(&too_large),
+            Err(LxmfError::PayloadTooLarge {
+                actual: LXMF_PAYLOAD_MAX_LEN + 1,
+                maximum: LXMF_PAYLOAD_MAX_LEN,
+            })
+        );
+    }
+
+    #[test]
+    fn payload_decode_rejects_oversize_title() {
+        let payload = payload_with_parts(
+            &repeated_bin(LXMF_TITLE_MAX_LEN + 1, b't'),
+            &repeated_bin(1, b'c'),
+            &[0x80],
+            None,
+        );
+
+        assert_eq!(
+            decode_lxmf_payload(&payload),
+            Err(LxmfError::TitleTooLarge {
+                actual: LXMF_TITLE_MAX_LEN + 1,
+                maximum: LXMF_TITLE_MAX_LEN,
+            })
+        );
+    }
+
+    #[test]
+    fn payload_decode_rejects_oversize_content() {
+        let payload = payload_with_parts(
+            &repeated_bin(1, b't'),
+            &repeated_bin(LXMF_CONTENT_MAX_LEN + 1, b'c'),
+            &[0x80],
+            None,
+        );
+
+        assert_eq!(
+            decode_lxmf_payload(&payload),
+            Err(LxmfError::ContentTooLarge {
+                actual: LXMF_CONTENT_MAX_LEN + 1,
+                maximum: LXMF_CONTENT_MAX_LEN,
+            })
+        );
+    }
+
+    #[test]
+    fn payload_decode_rejects_oversize_fields() {
+        let fields = fields_map_over_limit();
+        let payload = payload_with_parts(
+            &repeated_bin(1, b't'),
+            &repeated_bin(1, b'c'),
+            &fields,
+            None,
+        );
+
+        assert_eq!(
+            decode_lxmf_payload(&payload),
+            Err(LxmfError::FieldsTooLarge {
+                actual: fields.len(),
+                maximum: LXMF_FIELDS_MAX_LEN,
+            })
+        );
+    }
+
+    #[test]
+    fn payload_decode_rejects_oversize_stamp() {
+        let stamp = repeated_bin(LXMF_STAMP_MAX_LEN - 1, b's');
+        let payload = payload_with_parts(
+            &repeated_bin(1, b't'),
+            &repeated_bin(1, b'c'),
+            &[0x80],
+            Some(&stamp),
+        );
+
+        assert_eq!(
+            decode_lxmf_payload(&payload),
+            Err(LxmfError::StampTooLarge {
+                actual: stamp.len(),
+                maximum: LXMF_STAMP_MAX_LEN,
+            })
+        );
+    }
+
+    #[test]
     fn encode_payload_uses_array4_and_bin_fields() -> Result<(), LxmfError> {
         let payload = LxmfPayloadRef {
             timestamp_secs: 1.5,
@@ -424,5 +512,44 @@ mod tests {
             encode_lxmf_payload(payload, &mut output),
             Err(LxmfError::UnsupportedMsgpackType { marker: 0x90 })
         );
+    }
+
+    fn payload_with_parts(
+        title: &[u8],
+        content: &[u8],
+        fields: &[u8],
+        stamp: Option<&[u8]>,
+    ) -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.push(if stamp.is_some() { 0x95 } else { 0x94 });
+        payload.extend_from_slice(&[0xcb, 0x3f, 0xf8, 0, 0, 0, 0, 0, 0]);
+        payload.extend_from_slice(title);
+        payload.extend_from_slice(content);
+        payload.extend_from_slice(fields);
+        if let Some(stamp) = stamp {
+            payload.extend_from_slice(stamp);
+        }
+        payload
+    }
+
+    fn repeated_bin(len: usize, byte: u8) -> Vec<u8> {
+        let mut bin = Vec::new();
+        if len <= u8::MAX as usize {
+            bin.push(0xc4);
+            bin.push(len as u8);
+        } else {
+            bin.push(0xc5);
+            bin.extend_from_slice(&(len as u16).to_be_bytes());
+        }
+        bin.resize(bin.len() + len, byte);
+        bin
+    }
+
+    fn fields_map_over_limit() -> Vec<u8> {
+        let mut fields = vec![0xde, 0x02, 0x00];
+        for _ in 0..512 {
+            fields.extend_from_slice(&[0x00, 0x00]);
+        }
+        fields
     }
 }

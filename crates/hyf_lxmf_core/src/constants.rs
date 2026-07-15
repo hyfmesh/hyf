@@ -4,13 +4,13 @@ pub const LXMF_SIGNATURE_LEN: usize = 64;
 pub const LXMF_MESSAGE_ID_LEN: usize = 32;
 pub const LXMF_FIXED_HEADER_LEN: usize =
     LXMF_DESTINATION_HASH_LEN + LXMF_SOURCE_HASH_LEN + LXMF_SIGNATURE_LEN;
-pub const LXMF_MESSAGE_MAX_LEN: usize = u16::MAX as usize;
+pub const LXMF_MESSAGE_MAX_LEN: usize = 4096;
 pub const LXMF_PAYLOAD_MAX_LEN: usize = LXMF_MESSAGE_MAX_LEN - LXMF_FIXED_HEADER_LEN;
 pub const LXMF_MSGPACK_MAX_DEPTH: usize = 16;
-pub const LXMF_TITLE_MAX_LEN: usize = LXMF_PAYLOAD_MAX_LEN;
-pub const LXMF_CONTENT_MAX_LEN: usize = LXMF_PAYLOAD_MAX_LEN;
-pub const LXMF_FIELDS_MAX_LEN: usize = LXMF_PAYLOAD_MAX_LEN;
-pub const LXMF_STAMP_MAX_LEN: usize = LXMF_PAYLOAD_MAX_LEN;
+pub const LXMF_TITLE_MAX_LEN: usize = 2048;
+pub const LXMF_CONTENT_MAX_LEN: usize = 2048;
+pub const LXMF_FIELDS_MAX_LEN: usize = 1024;
+pub const LXMF_STAMP_MAX_LEN: usize = 128;
 
 #[cfg(test)]
 mod tests {
@@ -31,16 +31,13 @@ mod tests {
     }
 
     #[test]
-    fn lxmf_size_limits_are_bounded_by_hyf_payload_capacity() {
-        assert_eq!(LXMF_MESSAGE_MAX_LEN, u16::MAX as usize);
-        assert_eq!(
-            LXMF_PAYLOAD_MAX_LEN,
-            u16::MAX as usize - LXMF_FIXED_HEADER_LEN
-        );
+    fn lxmf_size_limits_use_approved_poc_values() {
+        assert_eq!(LXMF_MESSAGE_MAX_LEN, 4096);
+        assert_eq!(LXMF_PAYLOAD_MAX_LEN, 4096 - LXMF_FIXED_HEADER_LEN);
         assert_eq!(LXMF_MSGPACK_MAX_DEPTH, 16);
-        assert_eq!(LXMF_TITLE_MAX_LEN, LXMF_PAYLOAD_MAX_LEN);
-        assert_eq!(LXMF_CONTENT_MAX_LEN, LXMF_PAYLOAD_MAX_LEN);
-        assert_eq!(LXMF_FIELDS_MAX_LEN, LXMF_PAYLOAD_MAX_LEN);
-        assert_eq!(LXMF_STAMP_MAX_LEN, LXMF_PAYLOAD_MAX_LEN);
+        assert_eq!(LXMF_TITLE_MAX_LEN, 2048);
+        assert_eq!(LXMF_CONTENT_MAX_LEN, 2048);
+        assert_eq!(LXMF_FIELDS_MAX_LEN, 1024);
+        assert_eq!(LXMF_STAMP_MAX_LEN, 128);
     }
 }
