@@ -54,7 +54,10 @@ pub fn unwrap_bitchat_packet<'a>(
 
 #[cfg(test)]
 mod tests {
-    use hyf_bitchat_core::{BITCHAT_CARRIER_PACKET_MAX_LEN, BitchatError};
+    use hyf_bitchat_core::{
+        BITCHAT_CARRIER_PACKET_MAX_LEN, BITCHAT_PAYLOAD_MAX_LEN, BITCHAT_PEER_ID_LEN,
+        BITCHAT_V2_HEADER_LEN, BitchatError, BitchatPayloadRef, decode_bitchat_packet,
+    };
     use hyf_core::{ForeignEndpointId, ForeignNetworkKind, MessageId, NodeId, TimestampMs};
     use hyf_wire::{HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind};
 
@@ -90,6 +93,28 @@ mod tests {
     }
 
     #[test]
+    fn carrier_oversize_fixture_is_core_valid() -> Result<(), BitchatError> {
+        let raw = carrier_oversize_core_valid_packet();
+        let packet = decode_bitchat_packet(&raw)?;
+
+        assert_eq!(raw.len(), BITCHAT_CARRIER_PACKET_MAX_LEN + 1);
+        assert_eq!(packet.packet_type, 0x31);
+        assert_eq!(packet.payload, BitchatPayloadRef::Plain(&raw[24..]));
+
+        Ok(())
+    }
+
+    #[test]
+    fn validate_rejects_carrier_oversize_packet() {
+        let raw = carrier_oversize_core_valid_packet();
+
+        assert_eq!(
+            validate_bitchat_packet(&raw),
+            Err(expected_carrier_oversize_error())
+        );
+    }
+
+    #[test]
     fn wrap_sets_explicit_bitchat_kind_destination_and_borrows_raw()
     -> Result<(), HyfLinkBitchatError> {
         let raw = raw_bitchat_packet();
@@ -120,13 +145,20 @@ mod tests {
             ))
         );
 
-        let oversize = vec![0; BITCHAT_CARRIER_PACKET_MAX_LEN + 1];
+        let oversize = carrier_oversize_core_valid_packet();
         assert_eq!(
             wrap_bitchat_packet(&oversize, self::params()),
-            Err(HyfLinkBitchatError::PacketTooLargeForCarrier {
-                actual: BITCHAT_CARRIER_PACKET_MAX_LEN + 1,
-                maximum: BITCHAT_CARRIER_PACKET_MAX_LEN,
-            })
+            Err(expected_carrier_oversize_error())
+        );
+    }
+
+    #[test]
+    fn wrap_rejects_carrier_oversize_packet() {
+        let raw = carrier_oversize_core_valid_packet();
+
+        assert_eq!(
+            wrap_bitchat_packet(&raw, params()),
+            Err(expected_carrier_oversize_error())
         );
     }
 
@@ -188,6 +220,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn unwrap_rejects_carrier_oversize_packet() {
+        let raw = carrier_oversize_core_valid_packet();
+        let envelope = HyfEnvelopeRef {
+            version: HYF_WIRE_VERSION_0,
+            message_id: MessageId([3; 32]),
+            source: NodeId([1; 32]),
+            destination: params().destination,
+            created_at_ms: TimestampMs(10),
+            expires_at_ms: TimestampMs(20),
+            hop_limit: 1,
+            payload_kind: PayloadKind::ForeignBitChatPacket,
+            payload: &raw,
+        };
+
+        assert_eq!(
+            unwrap_bitchat_packet(envelope),
+            Err(expected_carrier_oversize_error())
+        );
+    }
+
     fn params() -> BitchatWrapParams {
         BitchatWrapParams {
             message_id: EXPLICIT_MESSAGE_ID,
@@ -213,5 +266,32 @@ mod tests {
         packet.extend_from_slice(&[0x11; 8]);
         packet.extend_from_slice(b"hello");
         packet
+    }
+
+    fn carrier_oversize_core_valid_packet() -> Vec<u8> {
+        let payload_len =
+            BITCHAT_CARRIER_PACKET_MAX_LEN + 1 - BITCHAT_V2_HEADER_LEN - BITCHAT_PEER_ID_LEN;
+        assert!(payload_len <= BITCHAT_PAYLOAD_MAX_LEN);
+
+        let mut packet = Vec::with_capacity(BITCHAT_CARRIER_PACKET_MAX_LEN + 1);
+        packet.push(2);
+        packet.push(0x31);
+        packet.push(5);
+        packet.extend_from_slice(&0x0102_0304_0506_0708_u64.to_be_bytes());
+        packet.push(0);
+        packet.extend_from_slice(&(payload_len as u32).to_be_bytes());
+        packet.extend_from_slice(&[0x11; 8]);
+        assert_eq!(packet.len(), BITCHAT_V2_HEADER_LEN + BITCHAT_PEER_ID_LEN);
+        packet.resize(BITCHAT_CARRIER_PACKET_MAX_LEN + 1, 0xaa);
+        assert_eq!(packet.len(), BITCHAT_CARRIER_PACKET_MAX_LEN + 1);
+
+        packet
+    }
+
+    const fn expected_carrier_oversize_error() -> HyfLinkBitchatError {
+        HyfLinkBitchatError::PacketTooLargeForCarrier {
+            actual: BITCHAT_CARRIER_PACKET_MAX_LEN + 1,
+            maximum: BITCHAT_CARRIER_PACKET_MAX_LEN,
+        }
     }
 }
