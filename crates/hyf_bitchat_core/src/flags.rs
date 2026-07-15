@@ -14,6 +14,14 @@ pub enum BitchatVersion {
 }
 
 impl BitchatVersion {
+    pub(crate) fn from_wire_value(version: u8) -> Result<Self, BitchatError> {
+        match version {
+            1 => Ok(Self::V1),
+            2 => Ok(Self::V2),
+            _ => Err(BitchatError::UnknownVersion { version }),
+        }
+    }
+
     pub const fn wire_value(self) -> u8 {
         match self {
             Self::V1 => 1,
@@ -75,9 +83,17 @@ mod tests {
     use crate::BitchatError;
 
     #[test]
-    fn versions_preserve_wire_values() {
+    fn versions_preserve_wire_values() -> Result<(), BitchatError> {
         assert_eq!(BitchatVersion::V1.wire_value(), 1);
         assert_eq!(BitchatVersion::V2.wire_value(), 2);
+        assert_eq!(BitchatVersion::from_wire_value(1)?, BitchatVersion::V1);
+        assert_eq!(BitchatVersion::from_wire_value(2)?, BitchatVersion::V2);
+        assert_eq!(
+            BitchatVersion::from_wire_value(3),
+            Err(BitchatError::UnknownVersion { version: 3 })
+        );
+
+        Ok(())
     }
 
     #[test]
