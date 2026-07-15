@@ -509,6 +509,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyf_bridge_lxmf"
+version = "0.1.0"
+dependencies = [
+ "hyf_bridge_core",
+ "hyf_core",
+ "hyf_lxmf_core",
+]
+
+[[package]]
 name = "hyf_config"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,20 @@
+[package]
+name = "hyf_bridge_lxmf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hyf_bridge_core.workspace = true
+hyf_core.workspace = true
+hyf_lxmf_core.workspace = true
+
+[features]
+default = []
+std = ["hyf_bridge_core/std", "hyf_core/std", "hyf_lxmf_core/std"]
+
+[lints]
+workspace = true
