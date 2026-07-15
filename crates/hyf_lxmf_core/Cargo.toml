@@ -12,8 +12,7 @@ sha2.workspace = true
 
 [features]
 default = []
-alloc = []
-std = ["alloc"]
+std = []
 
 [lints]
 workspace = true

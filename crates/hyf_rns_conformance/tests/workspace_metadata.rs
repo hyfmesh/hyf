@@ -27,6 +27,16 @@ const COMMON_FEATURES: &[FeatureSpec] = &[
         enables: &["alloc"],
     },
 ];
+const STD_ONLY_FEATURES: &[FeatureSpec] = &[
+    FeatureSpec {
+        name: "default",
+        enables: &[],
+    },
+    FeatureSpec {
+        name: "std",
+        enables: &[],
+    },
+];
 const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
     common_features("hyf_core"),
     common_features("hyf_crypto"),
@@ -36,8 +46,8 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
     common_features("hyf_router"),
     common_features("hyf_link_loopback"),
     common_features("hyf_config"),
-    common_features("hyf_lxmf_core"),
-    common_features("hyf_link_lxmf"),
+    std_only_features("hyf_lxmf_core"),
+    std_only_features("hyf_link_lxmf"),
     common_features("hyf_link_rns"),
     FeatureSurface {
         package: "hyf_link_fips",
@@ -432,6 +442,13 @@ const fn common_features(package: &'static str) -> FeatureSurface {
     FeatureSurface {
         package,
         features: COMMON_FEATURES,
+    }
+}
+
+const fn std_only_features(package: &'static str) -> FeatureSurface {
+    FeatureSurface {
+        package,
+        features: STD_ONLY_FEATURES,
     }
 }
 

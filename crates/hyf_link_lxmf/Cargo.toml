@@ -14,8 +14,7 @@ hyf_wire.workspace = true
 
 [features]
 default = []
-alloc = []
-std = ["alloc"]
+std = []
 
 [lints]
 workspace = true
