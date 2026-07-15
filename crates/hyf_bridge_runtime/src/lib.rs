@@ -9,6 +9,7 @@
 mod command;
 mod dedupe;
 mod error;
+mod orchestrator;
 mod policy;
 mod types;
 
@@ -16,6 +17,10 @@ pub use command::{BridgeDropReason, BridgeRuntimeCommand};
 pub use dedupe::BridgeDedupeSet;
 pub use error::BridgeRuntimeError;
 pub use hyf_bridge_core::{BridgeMessageKey, BridgeProtocol};
+pub use orchestrator::{
+    BridgeOrchestrator, BridgeRuntimeDispatchParams, BridgeRuntimeEgressParams,
+    BridgeRuntimeScratch,
+};
 pub use policy::BridgeRoutePolicy;
 pub use types::BridgeOrigin;
 

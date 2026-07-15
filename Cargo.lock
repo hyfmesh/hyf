@@ -530,9 +530,14 @@ dependencies = [
 name = "hyf_bridge_runtime"
 version = "0.1.0"
 dependencies = [
+ "hyf_bitchat_core",
+ "hyf_bridge_bitchat",
  "hyf_bridge_core",
+ "hyf_bridge_lxmf",
+ "hyf_bridge_nostr",
  "hyf_core",
  "hyf_link_nostr",
+ "hyf_lxmf_core",
  "hyf_wire",
 ]
 
@@ -562,7 +567,12 @@ dependencies = [
 name = "hyf_gateway"
 version = "0.1.0"
 dependencies = [
+ "hyf_bitchat_core",
+ "hyf_bridge_bitchat",
  "hyf_bridge_core",
+ "hyf_bridge_lxmf",
+ "hyf_bridge_nostr",
+ "hyf_bridge_runtime",
  "hyf_config",
  "hyf_core",
  "hyf_link",
@@ -574,6 +584,7 @@ dependencies = [
  "hyf_link_nostr",
  "hyf_link_rnode_serial",
  "hyf_link_rns",
+ "hyf_lxmf_core",
  "hyf_router",
  "hyf_store",
  "hyf_wire",

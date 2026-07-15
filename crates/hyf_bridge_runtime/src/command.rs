@@ -18,7 +18,7 @@ pub enum BridgeRuntimeCommand<'a> {
     EmitHyfEnvelope(HyfEnvelopeRef<'a>),
     EmitBitChatPacket(&'a [u8]),
     EmitLxmfMessage(&'a [u8]),
-    EmitNostrEvent(NostrEvent<'a>),
+    EmitNostrEvent(&'a NostrEvent<'a>),
     Drop {
         key: BridgeMessageKey,
         reason: BridgeDropReason,
