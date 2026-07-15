@@ -75,6 +75,12 @@ pub enum FakeNostrRelayControlOutput<'a> {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FakeNostrPublishProfile {
+    HyfEnvelope,
+    SignedKind { kind: u16 },
+}
+
 enum FakeNostrRelayOutputRecord<'a> {
     Ok {
         event_id: NostrEventId,
@@ -322,7 +328,16 @@ impl<
         event: NostrEvent<'_>,
         decode_buffer: &mut [u8],
     ) -> Result<NostrPublishOutcome<'out>, NostrError> {
-        if verify_and_decode_hyf_nostr_event(&event, decode_buffer).is_err() {
+        self.publish_with_profile(event, decode_buffer, FakeNostrPublishProfile::HyfEnvelope)
+    }
+
+    pub fn publish_with_profile<'out>(
+        &'out mut self,
+        event: NostrEvent<'_>,
+        decode_buffer: &mut [u8],
+        profile: FakeNostrPublishProfile,
+    ) -> Result<NostrPublishOutcome<'out>, NostrError> {
+        if validate_publish_profile(&event, decode_buffer, profile).is_err() {
             let status = invalid_status();
             self.enqueue_output_record(FakeNostrRelayOutputRecord::Ok {
                 event_id: event.id,
@@ -631,6 +646,28 @@ impl<
             }
         }
         Ok(best)
+    }
+}
+
+fn validate_publish_profile(
+    event: &NostrEvent<'_>,
+    decode_buffer: &mut [u8],
+    profile: FakeNostrPublishProfile,
+) -> Result<(), NostrError> {
+    match profile {
+        FakeNostrPublishProfile::HyfEnvelope => {
+            verify_and_decode_hyf_nostr_event(event, decode_buffer).map(|_| ())
+        }
+        FakeNostrPublishProfile::SignedKind { kind } => {
+            crate::verify_event(event)?;
+            if event.kind != kind {
+                return Err(NostrError::UnexpectedKind {
+                    expected: kind,
+                    actual: event.kind,
+                });
+            }
+            Ok(())
+        }
     }
 }
 
