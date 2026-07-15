@@ -42,7 +42,9 @@ fn hyf_message_id(message_id: LxmfMessageId) -> MessageId {
 pub fn unwrap_lxmf_message<'a>(envelope: HyfEnvelopeRef<'a>) -> Result<&'a [u8], HyfLinkLxmfError> {
     validate_envelope(envelope)?;
     if envelope.payload_kind != PayloadKind::ForeignLxmfMessage {
-        return Err(HyfLinkLxmfError::NotForeignLxmfMessage);
+        return Err(HyfLinkLxmfError::WrongPayloadKind {
+            actual: envelope.payload_kind,
+        });
     }
     validate_lxmf_message(envelope.payload)?;
     Ok(envelope.payload)
@@ -97,7 +99,8 @@ mod tests {
     }
 
     #[test]
-    fn wrap_sets_foreign_lxmf_kind_destination_and_borrows_raw() -> Result<(), HyfLinkLxmfError> {
+    fn wrap_sets_foreign_lxmf_kind_destination_and_borrows_raw()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut raw = [0; LXMF_FIXED_HEADER_LEN + PAYLOAD4.len()];
         write_lxmf_message(PAYLOAD4, &mut raw);
 
@@ -110,7 +113,7 @@ mod tests {
         assert_eq!(envelope.payload, raw);
         assert_eq!(envelope.payload.as_ptr(), raw.as_ptr());
         let HyfDestination::Foreign(endpoint) = envelope.destination else {
-            return Err(HyfLinkLxmfError::NotForeignLxmfMessage);
+            return Err(std::io::Error::other("expected foreign LXMF destination").into());
         };
         assert_eq!(endpoint.network(), ForeignNetworkKind::Lxmf);
         assert_eq!(endpoint.as_bytes(), &DESTINATION_HASH);
@@ -135,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn unwrap_returns_exact_raw_lxmf_message_and_rejects_native_payload()
+    fn unwrap_returns_exact_raw_lxmf_message_and_rejects_wrong_payload_kinds()
     -> Result<(), HyfLinkLxmfError> {
         let mut raw = [0; LXMF_FIXED_HEADER_LEN + PAYLOAD4.len()];
         write_lxmf_message(PAYLOAD4, &mut raw);
@@ -150,7 +153,21 @@ mod tests {
         };
         assert_eq!(
             unwrap_lxmf_message(native),
-            Err(HyfLinkLxmfError::NotForeignLxmfMessage)
+            Err(HyfLinkLxmfError::WrongPayloadKind {
+                actual: PayloadKind::HyfNativeV0,
+            })
+        );
+
+        let rns = HyfEnvelopeRef {
+            payload_kind: PayloadKind::ForeignRnsPacket,
+            payload: b"rns",
+            ..envelope
+        };
+        assert_eq!(
+            unwrap_lxmf_message(rns),
+            Err(HyfLinkLxmfError::WrongPayloadKind {
+                actual: PayloadKind::ForeignRnsPacket,
+            })
         );
         Ok(())
     }
