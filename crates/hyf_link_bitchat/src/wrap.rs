@@ -96,10 +96,14 @@ mod tests {
     fn carrier_oversize_fixture_is_core_valid() -> Result<(), BitchatError> {
         let raw = carrier_oversize_core_valid_packet();
         let packet = decode_bitchat_packet(&raw)?;
+        let payload_offset = BITCHAT_V2_HEADER_LEN + BITCHAT_PEER_ID_LEN;
 
         assert_eq!(raw.len(), BITCHAT_CARRIER_PACKET_MAX_LEN + 1);
         assert_eq!(packet.packet_type, 0x31);
-        assert_eq!(packet.payload, BitchatPayloadRef::Plain(&raw[24..]));
+        assert_eq!(
+            packet.payload,
+            BitchatPayloadRef::Plain(&raw[payload_offset..])
+        );
 
         Ok(())
     }
