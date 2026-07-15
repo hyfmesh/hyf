@@ -118,7 +118,24 @@ pub struct LxmfMessageRef<'a> {
 }
 
 impl<'a> LxmfMessageRef<'a> {
-    pub(crate) const fn from_validated_parts(
+    pub(crate) const fn from_decoded_parts(
+        destination_hash: LxmfDestinationHash,
+        source_hash: LxmfSourceHash,
+        signature: LxmfSignature,
+        packed_payload: &'a [u8],
+        payload: LxmfPayloadRef<'a>,
+    ) -> Self {
+        Self {
+            destination_hash,
+            source_hash,
+            signature,
+            packed_payload,
+            payload,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn from_unchecked_parts_for_test(
         destination_hash: LxmfDestinationHash,
         source_hash: LxmfSourceHash,
         signature: LxmfSignature,
@@ -202,7 +219,7 @@ mod tests {
                 bytes: b"secret-stamp",
             }),
         };
-        let message = LxmfMessageRef::from_validated_parts(
+        let message = LxmfMessageRef::from_unchecked_parts_for_test(
             LxmfDestinationHash::from_bytes([1; 16]),
             LxmfSourceHash::from_bytes([2; 16]),
             LxmfSignature::from_bytes([3; 64]),

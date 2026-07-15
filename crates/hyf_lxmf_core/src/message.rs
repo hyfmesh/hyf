@@ -31,7 +31,7 @@ pub fn decode_lxmf_message(input: &[u8]) -> Result<LxmfMessageRef<'_>, LxmfError
     let packed_payload = &input[LXMF_FIXED_HEADER_LEN..];
     let payload = decode_lxmf_payload(packed_payload)?;
 
-    Ok(LxmfMessageRef::from_validated_parts(
+    Ok(LxmfMessageRef::from_decoded_parts(
         LxmfDestinationHash::from_bytes(destination_hash),
         LxmfSourceHash::from_bytes(source_hash),
         LxmfSignature::from_bytes(signature),

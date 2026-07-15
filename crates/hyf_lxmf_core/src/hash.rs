@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn message_id_and_signature_input_reject_malformed_signing_payload() {
-        let message = LxmfMessageRef::from_validated_parts(
+        let message = LxmfMessageRef::from_unchecked_parts_for_test(
             LxmfDestinationHash::from_bytes(DESTINATION_HASH),
             LxmfSourceHash::from_bytes(SOURCE_HASH),
             LxmfSignature::from_bytes(SIGNATURE),
