@@ -18,6 +18,7 @@ members = [
     "crates/hyf_link_rnode_serial",
     "crates/hyf_lxmf_core",
     "crates/hyf_link_lxmf",
+    "crates/hyf_bitchat_core",
     "crates/hyf_rns_core",
     "crates/hyf_rns_crypto",
     "crates/hyf_rns_wire",
@@ -51,6 +52,7 @@ hyf_link_fips = { path = "crates/hyf_link_fips", default-features = false }
 hyf_link_rnode_serial = { path = "crates/hyf_link_rnode_serial", default-features = false }
 hyf_lxmf_core = { path = "crates/hyf_lxmf_core", default-features = false }
 hyf_link_lxmf = { path = "crates/hyf_link_lxmf", default-features = false }
+hyf_bitchat_core = { path = "crates/hyf_bitchat_core", default-features = false }
 hyf_rns_core = { path = "crates/hyf_rns_core", default-features = false }
 hyf_rns_crypto = { path = "crates/hyf_rns_crypto", default-features = false }
 hyf_rns_wire = { path = "crates/hyf_rns_wire", default-features = false }

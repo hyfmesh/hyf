@@ -488,6 +488,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyf_bitchat_core"
+version = "0.1.0"
+
+[[package]]
 name = "hyf_config"
 version = "0.1.0"
 dependencies = [
