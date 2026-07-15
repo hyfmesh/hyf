@@ -20,6 +20,7 @@ pub use constants::{
 };
 pub use error::BitchatError;
 pub use flags::{BitchatFlags, BitchatVersion};
+pub use packet::{BitchatPacketRef, BitchatPayloadRef, BitchatRouteRef};
 pub use types::{BitchatPeerId, BitchatSignature};
 
 #[cfg(test)]
