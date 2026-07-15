@@ -4,13 +4,11 @@ use hyf_wire::{HYF_WIRE_VERSION_0, HyfEnvelopeRef, PayloadKind, validate_envelop
 use crate::{BitchatWrapParams, HyfLinkBitchatError};
 
 pub fn validate_bitchat_packet(raw: &[u8]) -> Result<BitchatPacketRef<'_>, HyfLinkBitchatError> {
+    enforce_carrier_packet_len(raw)?;
     Ok(decode_bitchat_packet(raw)?)
 }
 
-pub fn wrap_bitchat_packet<'a>(
-    raw: &'a [u8],
-    params: BitchatWrapParams,
-) -> Result<HyfEnvelopeRef<'a>, HyfLinkBitchatError> {
+fn enforce_carrier_packet_len(raw: &[u8]) -> Result<(), HyfLinkBitchatError> {
     if raw.len() > BITCHAT_CARRIER_PACKET_MAX_LEN {
         return Err(HyfLinkBitchatError::PacketTooLargeForCarrier {
             actual: raw.len(),
@@ -18,6 +16,13 @@ pub fn wrap_bitchat_packet<'a>(
         });
     }
 
+    Ok(())
+}
+
+pub fn wrap_bitchat_packet<'a>(
+    raw: &'a [u8],
+    params: BitchatWrapParams,
+) -> Result<HyfEnvelopeRef<'a>, HyfLinkBitchatError> {
     validate_bitchat_packet(raw)?;
     let envelope = HyfEnvelopeRef {
         version: HYF_WIRE_VERSION_0,
