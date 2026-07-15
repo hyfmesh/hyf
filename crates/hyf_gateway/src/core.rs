@@ -3,14 +3,15 @@ use core::fmt;
 use hyf_config::GatewayConfig;
 use hyf_core::{MessageId, TimestampMs};
 use hyf_link::{LinkEvent, LinkFrameRef, LinkId};
-use hyf_router::{DropReason, Router, RouterCommand, RouterEvent, RouterStoreCommand};
+use hyf_router::{
+    DropReason, ROUTER_COMMAND_CAPACITY, Router, RouterCommand, RouterEvent, RouterStoreCommand,
+};
 use hyf_store::Store;
 use hyf_wire::{HyfEnvelopeRef, decode_envelope, encode_envelope};
 
 use crate::{GatewayError, GatewayMetrics};
 
 pub const GATEWAY_FRAME_BUFFER_LEN: usize = 2048;
-const ROUTER_COMMAND_CAPACITY: usize = 4;
 
 pub trait GatewayLinkExecutor {
     fn send_link_bytes(
@@ -177,10 +178,27 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize, const STORE_CAPACITY: usize>
     where
         E: GatewayLinkExecutor,
     {
+        let mut successes = 0usize;
+        let mut first_error = None;
         for command in commands {
-            self.execute_command(*command, executor)?;
+            match self.execute_command(*command, executor) {
+                Ok(()) => {
+                    successes += 1;
+                }
+                Err(error) => {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
+            }
         }
-        Ok(())
+        if successes > 0 || commands.is_empty() {
+            return Ok(());
+        }
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     fn execute_command<'event, E>(
@@ -194,14 +212,14 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize, const STORE_CAPACITY: usize>
         match command {
             RouterCommand::Send { link_id, envelope } => {
                 self.send_envelope(link_id, envelope, executor)?;
-                self.router.commit_seen(envelope.message_id);
+                self.router.commit_seen(envelope);
                 Ok(())
             }
             RouterCommand::Store(RouterStoreCommand::Put(envelope)) => {
                 if self.config.policy.allow_store_and_forward {
                     self.store.put_envelope(envelope)?;
                     self.metrics.stored = self.metrics.stored.saturating_add(1);
-                    self.router.commit_seen(envelope.message_id);
+                    self.router.commit_seen(envelope);
                 } else {
                     self.metrics.dropped = self.metrics.dropped.saturating_add(1);
                 }
@@ -224,7 +242,7 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize, const STORE_CAPACITY: usize>
                 self.last_delivered_message_id = Some(envelope.message_id);
                 self.last_delivered_payload_len = envelope.payload.len();
                 self.metrics.delivered = self.metrics.delivered.saturating_add(1);
-                self.router.commit_seen(envelope.message_id);
+                self.router.commit_seen(envelope);
                 Ok(())
             }
         }
@@ -307,7 +325,7 @@ mod tests {
     use hyf_config::{
         GatewayConfig, GatewayPolicyConfig, LinkConfig, LinkConfigSet, RouterConfig, StoreConfig,
     };
-    use hyf_core::{MessageId, NodeId, TimestampMs};
+    use hyf_core::{CommunityId, MessageId, NodeId, TimestampMs};
     use hyf_link::{LinkDriverErrorKind, LinkFrameRef, LinkId};
     use hyf_store::StorePolicy;
     use hyf_wire::{
@@ -322,6 +340,7 @@ mod tests {
     #[derive(Default)]
     struct TestExecutor {
         send_error: Option<GatewayError>,
+        fail_link: Option<LinkId>,
         sent: usize,
         last_link_id: Option<LinkId>,
     }
@@ -333,7 +352,8 @@ mod tests {
             bytes: &[u8],
             _now_ms: TimestampMs,
         ) -> Result<(), GatewayError> {
-            if let Some(error) = self.send_error {
+            let should_fail = self.fail_link.map_or(true, |failed| failed == link_id);
+            if should_fail && let Some(error) = self.send_error {
                 return Err(error);
             }
             self.sent += 1;
@@ -407,6 +427,31 @@ mod tests {
     }
 
     #[test]
+    fn core_community_submit_fans_out_after_one_link_failure() -> Result<(), GatewayError> {
+        let mut core = TestCore::new(local_community_config())?;
+        let mut executor = TestExecutor {
+            send_error: Some(GatewayError::Driver {
+                link_id: link_b(),
+                kind: LinkDriverErrorKind::Backpressure,
+            }),
+            fail_link: Some(link_b()),
+            ..TestExecutor::default()
+        };
+
+        core.handle_link_event(hyf_link::LinkEvent::Up { link_id: link_a() }, &mut executor)?;
+        core.handle_link_event(hyf_link::LinkEvent::Up { link_id: link_b() }, &mut executor)?;
+        core.submit(community_envelope(MessageId([5; 32])), &mut executor)?;
+
+        assert_eq!(executor.sent, 1);
+        assert_eq!(executor.last_link_id, Some(link_a()));
+        assert_eq!(core.metrics().delivered, 1);
+        assert_eq!(core.metrics().sent, 1);
+        assert_eq!(core.metrics().link_errors, 1);
+        assert_eq!(core.last_delivered_message_id(), Some(MessageId([5; 32])));
+        Ok(())
+    }
+
+    #[test]
     fn core_debug_redacts_last_delivered_payload() -> Result<(), GatewayError> {
         let mut core = TestCore::new(valid_config())?;
         let mut executor = TestExecutor::default();
@@ -434,6 +479,15 @@ mod tests {
         }
     }
 
+    fn local_community_config() -> GatewayConfig<2> {
+        let mut local_communities = [None; hyf_router::ROUTER_LOCAL_COMMUNITY_CAPACITY];
+        local_communities[0] = Some(room());
+        GatewayConfig {
+            policy: GatewayPolicyConfig::with_local_communities(local_communities),
+            ..valid_config()
+        }
+    }
+
     fn sample_envelope(message_id: MessageId, destination: NodeId) -> HyfEnvelopeRef<'static> {
         HyfEnvelopeRef {
             version: HYF_WIRE_VERSION_0,
@@ -448,12 +502,30 @@ mod tests {
         }
     }
 
+    fn community_envelope(message_id: MessageId) -> HyfEnvelopeRef<'static> {
+        HyfEnvelopeRef {
+            version: HYF_WIRE_VERSION_0,
+            message_id,
+            source: local(),
+            destination: HyfDestination::Community(room()),
+            created_at_ms: TimestampMs(100),
+            expires_at_ms: TimestampMs(300),
+            hop_limit: 4,
+            payload_kind: PayloadKind::HyfNativeV0,
+            payload: b"bridge",
+        }
+    }
+
     const fn local() -> NodeId {
         NodeId([0x11; 32])
     }
 
     const fn remote() -> NodeId {
         NodeId([0x22; 32])
+    }
+
+    const fn room() -> CommunityId {
+        CommunityId([0x33; 16])
     }
 
     const fn link_a() -> LinkId {

@@ -1,6 +1,6 @@
-use hyf_core::NodeId;
+use hyf_core::{CommunityId, NodeId};
 use hyf_link::LinkId;
-use hyf_router::RouterPolicy;
+use hyf_router::{ROUTER_COMMAND_CAPACITY, ROUTER_LOCAL_COMMUNITY_CAPACITY, RouterPolicy};
 use hyf_store::StorePolicy;
 
 use crate::ConfigError;
@@ -19,6 +19,7 @@ impl<const MAX_LINKS: usize> GatewayConfig<MAX_LINKS> {
         validate_node_id(self.node_id)?;
         self.router.validate()?;
         self.store.validate()?;
+        self.policy.validate()?;
         self.links.validate()?;
         let enabled_links = self.links.enabled_count();
         if enabled_links > self.router.max_links {
@@ -27,11 +28,18 @@ impl<const MAX_LINKS: usize> GatewayConfig<MAX_LINKS> {
                 maximum: self.router.max_links,
             });
         }
+        let fanout_link_max = ROUTER_COMMAND_CAPACITY - 2;
+        if enabled_links > fanout_link_max {
+            return Err(ConfigError::LinkCountExceedsRouterCommandCapacity {
+                links: enabled_links,
+                maximum: fanout_link_max,
+            });
+        }
         Ok(())
     }
 
     pub fn router_policy(&self) -> RouterPolicy {
-        RouterPolicy::new(self.node_id)
+        RouterPolicy::new(self.node_id, self.policy.local_communities)
     }
 
     pub fn store_policy(&self) -> StorePolicy {
@@ -166,13 +174,46 @@ impl<const N: usize> LinkConfigSet<N> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GatewayPolicyConfig {
     pub allow_store_and_forward: bool,
+    pub local_communities: [Option<CommunityId>; ROUTER_LOCAL_COMMUNITY_CAPACITY],
 }
 
 impl GatewayPolicyConfig {
     pub const fn new() -> Self {
         Self {
             allow_store_and_forward: true,
+            local_communities: [None; ROUTER_LOCAL_COMMUNITY_CAPACITY],
         }
+    }
+
+    pub const fn with_local_communities(
+        local_communities: [Option<CommunityId>; ROUTER_LOCAL_COMMUNITY_CAPACITY],
+    ) -> Self {
+        Self {
+            allow_store_and_forward: true,
+            local_communities,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        for (index, community) in self.local_communities.iter().enumerate() {
+            let Some(community_id) = community else {
+                continue;
+            };
+            if community_id.0 == [0; 16] {
+                return Err(ConfigError::InvalidLocalCommunity);
+            }
+            if self
+                .local_communities
+                .iter()
+                .skip(index + 1)
+                .any(|other| other.is_some_and(|other_id| other_id == *community_id))
+            {
+                return Err(ConfigError::DuplicateLocalCommunity {
+                    community_id: *community_id,
+                });
+            }
+        }
+        Ok(())
     }
 }
 
@@ -191,7 +232,7 @@ fn validate_node_id(node_id: NodeId) -> Result<(), ConfigError> {
 
 #[cfg(test)]
 mod tests {
-    use hyf_core::NodeId;
+    use hyf_core::{CommunityId, NodeId};
     use hyf_link::LinkId;
     use hyf_store::StorePolicy;
 
@@ -207,6 +248,10 @@ mod tests {
         config.validate()?;
 
         assert_eq!(config.router_policy().local_node_id, NodeId([1; 32]));
+        assert_eq!(
+            config.router_policy().local_communities,
+            [None; hyf_router::ROUTER_LOCAL_COMMUNITY_CAPACITY]
+        );
         assert_eq!(config.store_policy(), StorePolicy::new());
         assert_eq!(config.links.enabled_count(), 2);
         Ok(())
@@ -294,6 +339,32 @@ mod tests {
             Err(ConfigError::LinkCountExceedsRouter {
                 links: 2,
                 maximum: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn gateway_policy_config_rejects_zero_and_duplicate_local_communities() {
+        let mut zero_communities = [None; hyf_router::ROUTER_LOCAL_COMMUNITY_CAPACITY];
+        zero_communities[0] = Some(CommunityId([0; 16]));
+        let zero = GatewayConfig {
+            policy: GatewayPolicyConfig::with_local_communities(zero_communities),
+            ..valid_config()
+        };
+
+        let mut duplicate_communities = [None; hyf_router::ROUTER_LOCAL_COMMUNITY_CAPACITY];
+        duplicate_communities[0] = Some(CommunityId([2; 16]));
+        duplicate_communities[1] = Some(CommunityId([2; 16]));
+        let duplicate = GatewayConfig {
+            policy: GatewayPolicyConfig::with_local_communities(duplicate_communities),
+            ..valid_config()
+        };
+
+        assert_eq!(zero.validate(), Err(ConfigError::InvalidLocalCommunity));
+        assert_eq!(
+            duplicate.validate(),
+            Err(ConfigError::DuplicateLocalCommunity {
+                community_id: CommunityId([2; 16]),
             })
         );
     }

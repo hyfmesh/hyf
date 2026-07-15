@@ -1,4 +1,4 @@
-use hyf_core::{MessageId, TimestampMs};
+use hyf_core::{CommunityId, MessageId, TimestampMs};
 use hyf_link::{LinkEvent, LinkFrameRef, LinkId};
 use hyf_wire::{HyfDestination, HyfEnvelopeRef, decode_envelope, validate_envelope};
 
@@ -12,12 +12,24 @@ struct LinkState {
     up: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SeenDestination {
+    MessageOnly,
+    Community(CommunityId),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RouterSeenKey {
+    destination: SeenDestination,
+    message_id: MessageId,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Router<const MAX_LINKS: usize, const MAX_SEEN: usize> {
     policy: RouterPolicy,
     now_ms: TimestampMs,
     links: [Option<LinkState>; MAX_LINKS],
-    seen: [Option<MessageId>; MAX_SEEN],
+    seen: [Option<RouterSeenKey>; MAX_SEEN],
     next_seen: usize,
 }
 
@@ -40,9 +52,10 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         self.now_ms
     }
 
-    pub fn commit_seen(&mut self, message_id: MessageId) {
-        if !self.has_seen(message_id) {
-            self.mark_seen(message_id);
+    pub fn commit_seen(&mut self, envelope: HyfEnvelopeRef<'_>) {
+        let key = seen_key_for(envelope);
+        if !self.has_seen(key) {
+            self.mark_seen(key);
         }
     }
 
@@ -116,7 +129,7 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         if let Some(count) = self.reject_invalid_or_expired(envelope, out)? {
             return Ok(count);
         }
-        if self.has_seen(envelope.message_id) {
+        if self.has_seen(seen_key_for(envelope)) {
             return emit(
                 out,
                 RouterCommand::Drop {
@@ -124,6 +137,10 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
                     reason: DropReason::Duplicate,
                 },
             );
+        }
+
+        if let HyfDestination::Community(community_id) = envelope.destination {
+            return self.handle_community_envelope(envelope, community_id, ingress, out);
         }
 
         if self.is_local_destination(envelope.destination) {
@@ -256,6 +273,78 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         None
     }
 
+    fn handle_community_envelope<'a>(
+        &self,
+        envelope: HyfEnvelopeRef<'a>,
+        community_id: CommunityId,
+        ingress: Option<LinkId>,
+        out: &mut [RouterCommand<'a>],
+    ) -> Result<usize, RouterError> {
+        if ingress.is_some() && envelope.hop_limit <= 1 {
+            return emit(
+                out,
+                RouterCommand::Drop {
+                    message_id: envelope.message_id,
+                    reason: DropReason::HopLimitExhausted,
+                },
+            );
+        }
+
+        let local_delivery = self.policy.is_local_community(community_id);
+        let send_count = self.up_link_count_except(ingress);
+        let required = usize::from(local_delivery) + send_count;
+        if required == 0 {
+            return self.emit_community_fallback(envelope, ingress, out);
+        }
+        if out.len() < required {
+            return Err(RouterError::OutputTooSmall {
+                actual: out.len(),
+                required,
+            });
+        }
+
+        let mut count = 0;
+        if local_delivery {
+            out[count] = RouterCommand::DeliverLocal(envelope);
+            count += 1;
+        }
+        let outbound = match ingress {
+            Some(_) => HyfEnvelopeRef {
+                hop_limit: envelope.hop_limit - 1,
+                ..envelope
+            },
+            None => envelope,
+        };
+        for link in self.links.iter().flatten() {
+            if link.up && Some(link.link_id) != ingress {
+                out[count] = RouterCommand::Send {
+                    link_id: link.link_id,
+                    envelope: outbound,
+                };
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    fn emit_community_fallback<'a>(
+        &self,
+        envelope: HyfEnvelopeRef<'a>,
+        ingress: Option<LinkId>,
+        out: &mut [RouterCommand<'a>],
+    ) -> Result<usize, RouterError> {
+        if ingress.is_none() {
+            return emit(out, RouterCommand::Store(RouterStoreCommand::Put(envelope)));
+        }
+        emit(
+            out,
+            RouterCommand::Drop {
+                message_id: envelope.message_id,
+                reason: DropReason::NoRoute,
+            },
+        )
+    }
+
     fn first_up_link_except(&self, ingress: Option<LinkId>) -> Option<LinkId> {
         for link in self.links.iter().flatten() {
             if link.up && Some(link.link_id) != ingress {
@@ -265,27 +354,46 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         None
     }
 
-    fn has_seen(&self, message_id: MessageId) -> bool {
-        self.seen
+    fn up_link_count_except(&self, ingress: Option<LinkId>) -> usize {
+        self.links
             .iter()
-            .any(|seen| seen.is_some_and(|existing| existing == message_id))
+            .flatten()
+            .filter(|link| link.up && Some(link.link_id) != ingress)
+            .count()
     }
 
-    fn mark_seen(&mut self, message_id: MessageId) {
+    fn has_seen(&self, key: RouterSeenKey) -> bool {
+        self.seen
+            .iter()
+            .any(|seen| seen.is_some_and(|existing| existing == key))
+    }
+
+    fn mark_seen(&mut self, key: RouterSeenKey) {
         if MAX_SEEN == 0 {
             return;
         }
         if let Some(index) = self.seen.iter().position(Option::is_none) {
-            self.seen[index] = Some(message_id);
+            self.seen[index] = Some(key);
             self.next_seen = (index + 1) % MAX_SEEN;
             return;
         }
-        self.seen[self.next_seen] = Some(message_id);
+        self.seen[self.next_seen] = Some(key);
         self.next_seen = (self.next_seen + 1) % MAX_SEEN;
     }
 
     fn is_local_destination(&self, destination: HyfDestination) -> bool {
         matches!(destination, HyfDestination::Node(node_id) if node_id == self.policy.local_node_id)
+    }
+}
+
+fn seen_key_for(envelope: HyfEnvelopeRef<'_>) -> RouterSeenKey {
+    let destination = match envelope.destination {
+        HyfDestination::Community(community_id) => SeenDestination::Community(community_id),
+        HyfDestination::Node(_) | HyfDestination::Foreign(_) => SeenDestination::MessageOnly,
+    };
+    RouterSeenKey {
+        destination,
+        message_id: envelope.message_id,
     }
 }
 
@@ -332,7 +440,7 @@ fn emit<'a>(
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use hyf_core::{MessageId, NodeId, TimestampMs};
+    use hyf_core::{CommunityId, MessageId, NodeId, TimestampMs};
     use hyf_link::{LinkEvent, LinkFrameRef, LinkId};
     use hyf_wire::{
         HYF_WIRE_VERSION_0, HyfDestination, HyfEnvelopeRef, PayloadKind, encode_envelope,
@@ -345,6 +453,8 @@ pub(crate) mod tests {
 
     const LOCAL: NodeId = NodeId([0x11; 32]);
     const REMOTE: NodeId = NodeId([0x22; 32]);
+    const ROOM_A: CommunityId = CommunityId([0xa1; 16]);
+    const ROOM_B: CommunityId = CommunityId([0xb2; 16]);
     const LINK_A: LinkId = LinkId([0xaa; 16]);
     const LINK_B: LinkId = LinkId([0xbb; 16]);
 
@@ -423,7 +533,7 @@ pub(crate) mod tests {
         );
 
         router.handle_event(RouterEvent::LocalSubmit(duplicate), &mut out)?;
-        router.commit_seen(duplicate.message_id);
+        router.commit_seen(duplicate);
         router.handle_event(RouterEvent::LocalSubmit(duplicate), &mut out)?;
         assert_eq!(
             out[0],
@@ -463,7 +573,7 @@ pub(crate) mod tests {
             }
         );
 
-        router.commit_seen(envelope.message_id);
+        router.commit_seen(envelope);
         router.handle_event(RouterEvent::LocalSubmit(envelope), &mut out)?;
         assert_eq!(
             out[0],
@@ -725,7 +835,7 @@ pub(crate) mod tests {
 
     #[test]
     fn router_reports_bounded_output_and_link_capacity() -> Result<(), RouterError> {
-        let mut router = Router::<1, 4>::new(RouterPolicy::new(LOCAL));
+        let mut router = Router::<1, 4>::new(RouterPolicy::new(LOCAL, [None; 8]));
         let envelope = sample_envelope(MessageId([1; 32]), 100, 200, 1, b"payload");
         let mut out = [drop_command(); 1];
 
@@ -750,6 +860,182 @@ pub(crate) mod tests {
         Ok(())
     }
 
+    #[test]
+    fn local_community_submit_delivers_and_sends_to_all_up_links() -> Result<(), RouterError> {
+        let mut router = community_router();
+        let envelope = community_envelope(MessageId([0x21; 32]), ROOM_A, 100, 200, 4, b"room");
+        let mut out = [drop_command(); 3];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_A }),
+            &mut out,
+        )?;
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_B }),
+            &mut out,
+        )?;
+        let count = router.handle_event(RouterEvent::LocalSubmit(envelope), &mut out)?;
+
+        assert_eq!(count, 3);
+        assert_eq!(out[0], RouterCommand::DeliverLocal(envelope));
+        assert_eq!(
+            out[1],
+            RouterCommand::Send {
+                link_id: LINK_A,
+                envelope,
+            }
+        );
+        assert_eq!(
+            out[2],
+            RouterCommand::Send {
+                link_id: LINK_B,
+                envelope,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn local_unsubscribed_community_stores_when_offline() -> Result<(), RouterError> {
+        let mut router = community_router();
+        let envelope = community_envelope(MessageId([0x22; 32]), ROOM_B, 100, 200, 4, b"room");
+        let mut out = [drop_command(); 1];
+
+        let count = router.handle_event(RouterEvent::LocalSubmit(envelope), &mut out)?;
+
+        assert_eq!(count, 1);
+        assert_eq!(
+            out[0],
+            RouterCommand::Store(RouterStoreCommand::Put(envelope))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn inbound_community_fanout_excludes_ingress_and_does_not_store() -> Result<(), RouterError> {
+        let mut router = community_router();
+        let envelope = community_envelope(MessageId([0x23; 32]), ROOM_A, 100, 200, 4, b"room");
+        let expected_forward = HyfEnvelopeRef {
+            hop_limit: 3,
+            ..envelope
+        };
+        let mut frame = [0; 128];
+        let frame_len =
+            encode_envelope(envelope, &mut frame).map_err(RouterError::InvalidEnvelope)?;
+        let mut out = [drop_command(); 2];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_A }),
+            &mut out,
+        )?;
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_B }),
+            &mut out,
+        )?;
+        let count = router.handle_event(
+            RouterEvent::Link(LinkEvent::Frame(LinkFrameRef::new(
+                LINK_A,
+                TimestampMs(100),
+                &frame[..frame_len],
+            ))),
+            &mut out,
+        )?;
+
+        assert_eq!(count, 2);
+        assert_eq!(out[0], RouterCommand::DeliverLocal(envelope));
+        assert_eq!(
+            out[1],
+            RouterCommand::Send {
+                link_id: LINK_B,
+                envelope: expected_forward,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn inbound_unsubscribed_community_without_egress_drops_no_route() -> Result<(), RouterError> {
+        let mut router = community_router();
+        let envelope = community_envelope(MessageId([0x24; 32]), ROOM_B, 100, 200, 4, b"room");
+        let mut frame = [0; 128];
+        let frame_len =
+            encode_envelope(envelope, &mut frame).map_err(RouterError::InvalidEnvelope)?;
+        let mut out = [drop_command(); 1];
+
+        let count = router.handle_event(
+            RouterEvent::Link(LinkEvent::Frame(LinkFrameRef::new(
+                LINK_A,
+                TimestampMs(100),
+                &frame[..frame_len],
+            ))),
+            &mut out,
+        )?;
+
+        assert_eq!(count, 1);
+        assert_eq!(
+            out[0],
+            RouterCommand::Drop {
+                message_id: envelope.message_id,
+                reason: DropReason::NoRoute,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn community_fanout_reports_required_output_capacity() -> Result<(), RouterError> {
+        let mut router = community_router();
+        let envelope = community_envelope(MessageId([0x25; 32]), ROOM_A, 100, 200, 4, b"room");
+        let mut out = [drop_command(); 1];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_A }),
+            &mut out,
+        )?;
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_B }),
+            &mut out,
+        )?;
+
+        assert_eq!(
+            router.handle_event(RouterEvent::LocalSubmit(envelope), &mut out),
+            Err(RouterError::OutputTooSmall {
+                actual: 1,
+                required: 3,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn same_message_id_in_different_communities_is_not_duplicate() -> Result<(), RouterError> {
+        let mut router = community_router();
+        let room_a = community_envelope(MessageId([0x26; 32]), ROOM_A, 100, 200, 4, b"a");
+        let room_b = community_envelope(MessageId([0x26; 32]), ROOM_B, 100, 200, 4, b"b");
+        let mut out = [drop_command(); 1];
+
+        router.handle_event(RouterEvent::LocalSubmit(room_a), &mut out)?;
+        router.commit_seen(room_a);
+        let count = router.handle_event(RouterEvent::LocalSubmit(room_b), &mut out)?;
+
+        assert_eq!(count, 1);
+        assert_eq!(
+            out[0],
+            RouterCommand::Store(RouterStoreCommand::Put(room_b))
+        );
+
+        router.commit_seen(room_b);
+        router.handle_event(RouterEvent::LocalSubmit(room_b), &mut out)?;
+        assert_eq!(
+            out[0],
+            RouterCommand::Drop {
+                message_id: room_b.message_id,
+                reason: DropReason::Duplicate,
+            }
+        );
+        Ok(())
+    }
+
     pub(crate) fn sample_envelope<'a>(
         message_id: MessageId,
         created_at_ms: u64,
@@ -770,8 +1056,28 @@ pub(crate) mod tests {
         }
     }
 
+    fn community_envelope<'a>(
+        message_id: MessageId,
+        community_id: CommunityId,
+        created_at_ms: u64,
+        expires_at_ms: u64,
+        hop_limit: u8,
+        payload: &'a [u8],
+    ) -> HyfEnvelopeRef<'a> {
+        HyfEnvelopeRef {
+            destination: HyfDestination::Community(community_id),
+            ..sample_envelope(message_id, created_at_ms, expires_at_ms, hop_limit, payload)
+        }
+    }
+
     fn router() -> Router<2, 4> {
-        Router::new(RouterPolicy::new(LOCAL))
+        Router::new(RouterPolicy::new(LOCAL, [None; 8]))
+    }
+
+    fn community_router() -> Router<2, 8> {
+        let mut communities = [None; 8];
+        communities[0] = Some(ROOM_A);
+        Router::new(RouterPolicy::new(LOCAL, communities))
     }
 
     const fn drop_command<'a>() -> RouterCommand<'a> {

@@ -12,10 +12,10 @@ mod event;
 mod policy;
 mod router;
 
-pub use command::{DropReason, RouterCommand, RouterStoreCommand};
+pub use command::{DropReason, ROUTER_COMMAND_CAPACITY, RouterCommand, RouterStoreCommand};
 pub use error::RouterError;
 pub use event::RouterEvent;
-pub use policy::RouterPolicy;
+pub use policy::{ROUTER_LOCAL_COMMUNITY_CAPACITY, RouterPolicy};
 pub use router::Router;
 
 #[cfg(test)]

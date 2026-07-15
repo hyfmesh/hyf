@@ -2,6 +2,8 @@ use hyf_core::{MessageId, TimestampMs};
 use hyf_link::LinkId;
 use hyf_wire::HyfEnvelopeRef;
 
+pub const ROUTER_COMMAND_CAPACITY: usize = 16;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DropReason {
     Duplicate,
@@ -9,6 +11,7 @@ pub enum DropReason {
     HopLimitExhausted,
     InvalidEnvelope,
     MalformedFrame,
+    NoRoute,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

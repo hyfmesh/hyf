@@ -1,5 +1,6 @@
 use core::fmt;
 
+use hyf_core::CommunityId;
 use hyf_link::LinkId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -8,9 +9,12 @@ pub enum ConfigError {
     InvalidRouterLinkCapacity,
     InvalidRouterDedupeCapacity,
     InvalidStoreCapacity,
+    InvalidLocalCommunity,
+    DuplicateLocalCommunity { community_id: CommunityId },
     InvalidLinkMtu { link_id: LinkId },
     DuplicateLinkId { link_id: LinkId },
     LinkCountExceedsRouter { links: usize, maximum: usize },
+    LinkCountExceedsRouterCommandCapacity { links: usize, maximum: usize },
 }
 
 impl fmt::Display for ConfigError {
@@ -22,6 +26,10 @@ impl fmt::Display for ConfigError {
                 formatter.write_str("invalid router dedupe capacity")
             }
             Self::InvalidStoreCapacity => formatter.write_str("invalid store capacity"),
+            Self::InvalidLocalCommunity => formatter.write_str("invalid local community id"),
+            Self::DuplicateLocalCommunity { community_id } => {
+                write!(formatter, "duplicate local community id {community_id:?}")
+            }
             Self::InvalidLinkMtu { link_id } => {
                 write!(formatter, "invalid link mtu for {link_id:?}")
             }
@@ -34,6 +42,12 @@ impl fmt::Display for ConfigError {
                     "link count exceeds router capacity: links {links}, maximum {maximum}"
                 )
             }
+            Self::LinkCountExceedsRouterCommandCapacity { links, maximum } => {
+                write!(
+                    formatter,
+                    "link count exceeds router command capacity: links {links}, maximum {maximum}"
+                )
+            }
         }
     }
 }
@@ -43,6 +57,7 @@ impl std::error::Error for ConfigError {}
 
 #[cfg(test)]
 mod tests {
+    use hyf_core::CommunityId;
     use hyf_link::LinkId;
 
     use super::ConfigError;
@@ -67,6 +82,25 @@ mod tests {
             }
             .to_string(),
             "link count exceeds router capacity: links 3, maximum 2"
+        );
+        assert_eq!(
+            ConfigError::InvalidLocalCommunity.to_string(),
+            "invalid local community id"
+        );
+        assert_eq!(
+            ConfigError::DuplicateLocalCommunity {
+                community_id: CommunityId([2; 16]),
+            }
+            .to_string(),
+            "duplicate local community id CommunityId([2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2])"
+        );
+        assert_eq!(
+            ConfigError::LinkCountExceedsRouterCommandCapacity {
+                links: 15,
+                maximum: 14,
+            }
+            .to_string(),
+            "link count exceeds router command capacity: links 15, maximum 14"
         );
     }
 }

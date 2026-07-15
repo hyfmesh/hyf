@@ -525,6 +525,7 @@ dependencies = [
 name = "hyf_gateway"
 version = "0.1.0"
 dependencies = [
+ "hyf_bridge_core",
  "hyf_config",
  "hyf_core",
  "hyf_link",

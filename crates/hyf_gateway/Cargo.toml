@@ -19,6 +19,7 @@ hyf_store.workspace = true
 hyf_wire.workspace = true
 
 [dev-dependencies]
+hyf_bridge_core = { workspace = true, features = ["std"] }
 hyf_link_bitchat = { workspace = true, features = ["std"] }
 hyf_link_kiss = { workspace = true, features = ["std"] }
 hyf_link_lxmf = { workspace = true, features = ["std"] }
