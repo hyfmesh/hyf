@@ -16,7 +16,7 @@ mod tests {
     };
 
     #[test]
-    fn constants_match_handoff_8_contract() {
+    fn constants_match_bitchat_contract() {
         assert_eq!(BITCHAT_V1_HEADER_LEN, 14);
         assert_eq!(BITCHAT_V2_HEADER_LEN, 16);
         assert_eq!(BITCHAT_PEER_ID_LEN, 8);

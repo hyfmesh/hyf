@@ -48,6 +48,20 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
     common_features("hyf_config"),
     std_only_features("hyf_lxmf_core"),
     std_only_features("hyf_link_lxmf"),
+    std_only_features("hyf_bitchat_core"),
+    FeatureSurface {
+        package: "hyf_link_bitchat",
+        features: &[
+            FeatureSpec {
+                name: "default",
+                enables: &[],
+            },
+            FeatureSpec {
+                name: "std",
+                enables: &["hyf_bitchat_core/std", "hyf_core/std", "hyf_wire/std"],
+            },
+        ],
+    },
     common_features("hyf_link_rns"),
     FeatureSurface {
         package: "hyf_link_fips",
@@ -600,6 +614,7 @@ fn gateway_dependencies_preserve_clean_boundaries() -> TestResult {
         package_by_name(&packages, "hyf_gateway")?,
         "dev",
         &[
+            "hyf_link_bitchat",
             "hyf_link_kiss",
             "hyf_link_lxmf",
             "hyf_link_rnode_serial",
