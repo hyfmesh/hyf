@@ -520,6 +520,7 @@ dependencies = [
  "hyf_config",
  "hyf_core",
  "hyf_link",
+ "hyf_link_bitchat",
  "hyf_link_fips",
  "hyf_link_kiss",
  "hyf_link_loopback",
