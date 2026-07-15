@@ -18,6 +18,7 @@ pub use constants::{
     BITCHAT_PEER_ID_LEN, BITCHAT_ROUTE_MAX_HOPS, BITCHAT_SIGNATURE_LEN, BITCHAT_V1_HEADER_LEN,
     BITCHAT_V2_HEADER_LEN,
 };
+pub use error::BitchatError;
 
 #[cfg(test)]
 mod tests {
