@@ -527,6 +527,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyf_bridge_runtime"
+version = "0.1.0"
+dependencies = [
+ "hyf_bridge_core",
+ "hyf_core",
+ "hyf_link_nostr",
+ "hyf_wire",
+]
+
+[[package]]
 name = "hyf_config"
 version = "0.1.0"
 dependencies = [

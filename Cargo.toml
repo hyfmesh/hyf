@@ -24,6 +24,7 @@ members = [
     "crates/hyf_bridge_bitchat",
     "crates/hyf_bridge_lxmf",
     "crates/hyf_bridge_nostr",
+    "crates/hyf_bridge_runtime",
     "crates/hyf_rns_core",
     "crates/hyf_rns_crypto",
     "crates/hyf_rns_wire",
@@ -63,6 +64,7 @@ hyf_bridge_core = { path = "crates/hyf_bridge_core", default-features = false }
 hyf_bridge_bitchat = { path = "crates/hyf_bridge_bitchat", default-features = false }
 hyf_bridge_lxmf = { path = "crates/hyf_bridge_lxmf", default-features = false }
 hyf_bridge_nostr = { path = "crates/hyf_bridge_nostr", default-features = false }
+hyf_bridge_runtime = { path = "crates/hyf_bridge_runtime", default-features = false }
 hyf_rns_core = { path = "crates/hyf_rns_core", default-features = false }
 hyf_rns_crypto = { path = "crates/hyf_rns_crypto", default-features = false }
 hyf_rns_wire = { path = "crates/hyf_rns_wire", default-features = false }
