@@ -188,6 +188,10 @@ mod tests {
         0x95, 0xcb, 0x3f, 0xf8, 0, 0, 0, 0, 0, 0, 0xc4, 0x05, b't', b'i', b't', b'l', b'e', 0xc4,
         0x05, b'h', b'e', b'l', b'l', b'o', 0x80, 0xc4, 0x02, b'x', b'x',
     ];
+    const PAYLOAD5_WITH_EXT_STAMP: &[u8] = &[
+        0x95, 0xcb, 0x3f, 0xf8, 0, 0, 0, 0, 0, 0, 0xc4, 0x05, b't', b'i', b't', b'l', b'e', 0xc4,
+        0x05, b'h', b'e', b'l', b'l', b'o', 0x80, 0xc7, 0x02, 0x01, 0xaa, 0xbb,
+    ];
     const PAYLOAD5_WITH_STRINGS: &[u8] = &[
         0x95, 0xcb, 0x3f, 0xf8, 0, 0, 0, 0, 0, 0, 0xa5, b't', b'i', b't', b'l', b'e', 0xa5, b'h',
         b'e', b'l', b'l', b'o', 0x80, 0xc4, 0x02, b'x', b'x',
@@ -255,6 +259,33 @@ mod tests {
 
         assert_eq!(lxmf_message_id(message4)?, expected);
         assert_eq!(lxmf_message_id(message5)?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn message_id_and_signature_input_exclude_extension_stamp() -> Result<(), LxmfError> {
+        let mut full_message4 = [0; LXMF_FIXED_HEADER_LEN + PAYLOAD4.len()];
+        let mut full_message5 = [0; LXMF_FIXED_HEADER_LEN + PAYLOAD5_WITH_EXT_STAMP.len()];
+        write_full_message(PAYLOAD4, &mut full_message4);
+        write_full_message(PAYLOAD5_WITH_EXT_STAMP, &mut full_message5);
+        let message4 = decode_lxmf_message(&full_message4)?;
+        let message5 = decode_lxmf_message(&full_message5)?;
+        let expected = LxmfMessageId::from_bytes(EXPECTED_MESSAGE_ID);
+        let mut output4 = [0; SIGNATURE_INPUT_LEN];
+        let mut output5 = [0; SIGNATURE_INPUT_LEN];
+
+        assert_eq!(lxmf_message_id(message4)?, expected);
+        assert_eq!(lxmf_message_id(message5)?, expected);
+        assert_eq!(
+            write_lxmf_signature_input(message4, &mut output4)?,
+            SIGNATURE_INPUT_LEN
+        );
+        assert_eq!(
+            write_lxmf_signature_input(message5, &mut output5)?,
+            SIGNATURE_INPUT_LEN
+        );
+        assert_eq!(lxmf_signature_input_len(message5)?, SIGNATURE_INPUT_LEN);
+        assert_eq!(output4, output5);
         Ok(())
     }
 

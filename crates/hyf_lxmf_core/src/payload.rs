@@ -248,6 +248,36 @@ mod tests {
     }
 
     #[test]
+    fn payload_decode_accepts_fixext_stamp() -> Result<(), LxmfError> {
+        let stamp = [0xd4, 0x01, 0xaa];
+        let payload = payload_with_parts(
+            &repeated_bin(1, b't'),
+            &repeated_bin(1, b'c'),
+            &[0x80],
+            Some(&stamp),
+        );
+        let decoded = decode_lxmf_payload(&payload)?;
+
+        assert_eq!(decoded.stamp, Some(LxmfStampRef { bytes: &stamp }));
+        Ok(())
+    }
+
+    #[test]
+    fn payload_decode_accepts_ext8_stamp() -> Result<(), LxmfError> {
+        let stamp = [0xc7, 0x02, 0x01, 0xaa, 0xbb];
+        let payload = payload_with_parts(
+            &repeated_bin(1, b't'),
+            &repeated_bin(1, b'c'),
+            &[0x80],
+            Some(&stamp),
+        );
+        let decoded = decode_lxmf_payload(&payload)?;
+
+        assert_eq!(decoded.stamp, Some(LxmfStampRef { bytes: &stamp }));
+        Ok(())
+    }
+
+    #[test]
     fn payload_source_order_title_content_are_not_swapped() -> Result<(), LxmfError> {
         let readme_order = [
             0x94, 0xcb, 0x3f, 0xf8, 0, 0, 0, 0, 0, 0, 0xc4, 0x05, b'h', b'e', b'l', b'l', b'o',
