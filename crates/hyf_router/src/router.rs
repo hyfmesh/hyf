@@ -93,6 +93,9 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         if let Some(count) = self.reject_terminal_envelope(envelope, out)? {
             return Ok(count);
         }
+        if let HyfDestination::Community(community_id) = envelope.destination {
+            return self.forward_stored_community(envelope, community_id, out);
+        }
         if self.is_local_destination(envelope.destination) {
             return emit(out, RouterCommand::DeliverLocal(envelope));
         }
@@ -320,6 +323,42 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
                 out[count] = RouterCommand::Send {
                     link_id: link.link_id,
                     envelope: outbound,
+                };
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    fn forward_stored_community<'a>(
+        &self,
+        envelope: HyfEnvelopeRef<'a>,
+        community_id: CommunityId,
+        out: &mut [RouterCommand<'a>],
+    ) -> Result<usize, RouterError> {
+        let local_delivery = self.policy.is_local_community(community_id);
+        let send_count = self.up_link_count_except(None);
+        let required = usize::from(local_delivery) + send_count;
+        if required == 0 {
+            return Ok(0);
+        }
+        if out.len() < required {
+            return Err(RouterError::OutputTooSmall {
+                actual: out.len(),
+                required,
+            });
+        }
+
+        let mut count = 0;
+        if local_delivery {
+            out[count] = RouterCommand::DeliverLocal(envelope);
+            count += 1;
+        }
+        for link in self.links.iter().flatten() {
+            if link.up {
+                out[count] = RouterCommand::Send {
+                    link_id: link.link_id,
+                    envelope,
                 };
                 count += 1;
             }
@@ -648,6 +687,88 @@ pub(crate) mod tests {
                 reason: DropReason::HopLimitExhausted,
             }
         );
+        Ok(())
+    }
+
+    #[test]
+    fn stored_local_community_delivers_then_fans_out() -> Result<(), RouterError> {
+        let mut router = community_router();
+        let envelope = community_envelope(MessageId([0x31; 32]), ROOM_A, 100, 300, 4, b"stored");
+        let mut out = [drop_command(); 3];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_A }),
+            &mut out,
+        )?;
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_B }),
+            &mut out,
+        )?;
+
+        let count = router.forward_stored(envelope, &mut out)?;
+
+        assert_eq!(count, 3);
+        assert_eq!(out[0], RouterCommand::DeliverLocal(envelope));
+        assert_eq!(
+            out[1],
+            RouterCommand::Send {
+                link_id: LINK_A,
+                envelope,
+            }
+        );
+        assert_eq!(
+            out[2],
+            RouterCommand::Send {
+                link_id: LINK_B,
+                envelope,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stored_unsubscribed_community_fans_out_without_local_delivery() -> Result<(), RouterError> {
+        let mut router = community_router();
+        let envelope = community_envelope(MessageId([0x32; 32]), ROOM_B, 100, 300, 4, b"stored");
+        let mut out = [drop_command(); 2];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_A }),
+            &mut out,
+        )?;
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_B }),
+            &mut out,
+        )?;
+
+        let count = router.forward_stored(envelope, &mut out)?;
+
+        assert_eq!(count, 2);
+        assert_eq!(
+            out[0],
+            RouterCommand::Send {
+                link_id: LINK_A,
+                envelope,
+            }
+        );
+        assert_eq!(
+            out[1],
+            RouterCommand::Send {
+                link_id: LINK_B,
+                envelope,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stored_unsubscribed_community_without_links_keeps_pending() -> Result<(), RouterError> {
+        let mut router = community_router();
+        let envelope = community_envelope(MessageId([0x33; 32]), ROOM_B, 100, 300, 4, b"stored");
+        let mut out = [drop_command(); 1];
+
+        assert_eq!(router.forward_stored(envelope, &mut out)?, 0);
+        assert_eq!(out[0], drop_command());
         Ok(())
     }
 
