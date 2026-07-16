@@ -2,18 +2,18 @@ use core::fmt;
 
 use hyf_bitchat_core::BITCHAT_CORE_PACKET_MAX_LEN;
 use hyf_bridge_bitchat::{
-    BitchatBridgeEgressParams, BitchatBridgeIngressParams, decode_bitchat_bridge_ingress,
-    encode_bridge_message_to_bitchat_packet,
+    BitchatBridgeEgressParams, BitchatBridgeIngressParams, bitchat_packet_to_bridge_message,
+    bridge_message_to_bitchat_packet_v2,
 };
 use hyf_bridge_core::{
     BridgeMessageKey, BridgeProtocol, BridgeWrapParams, HYF_BRIDGE_MESSAGE_MAX_LEN,
     decode_bridge_message, encode_bridge_message, validate_bridge_message, wrap_bridge_message,
 };
 use hyf_bridge_lxmf::{
-    LxmfBridgeEgressParams, LxmfBridgeIngressParams, decode_lxmf_bridge_ingress,
-    encode_bridge_message_to_lxmf_message,
+    LxmfBridgeEgressParams, LxmfBridgeIngressParams, bridge_message_to_lxmf_message_fixture,
+    lxmf_message_to_bridge_message,
 };
-use hyf_bridge_nostr::verify_and_decode_bridge_nostr_event;
+use hyf_bridge_nostr::nostr_event_to_bridge_message;
 use hyf_core::ForeignNetworkKind;
 use hyf_link_nostr::NostrEvent;
 use hyf_lxmf_core::LXMF_MESSAGE_MAX_LEN;
@@ -160,7 +160,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
         scratch: &'a mut BridgeRuntimeScratch,
         commands: &mut [BridgeRuntimeCommand<'a>],
     ) -> Result<usize, BridgeRuntimeError> {
-        let ingress = decode_bitchat_bridge_ingress(raw, ingress_params)?;
+        let ingress = bitchat_packet_to_bridge_message(raw, ingress_params)?;
         let bridge_len =
             encode_bridge_message(ingress.bridge_message(), &mut scratch.bridge_message)?;
         let raw_bridge = &scratch.bridge_message[..bridge_len];
@@ -186,7 +186,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
         scratch: &'a mut BridgeRuntimeScratch,
         commands: &mut [BridgeRuntimeCommand<'a>],
     ) -> Result<usize, BridgeRuntimeError> {
-        let ingress = decode_lxmf_bridge_ingress(raw, ingress_params)?;
+        let ingress = lxmf_message_to_bridge_message(raw, ingress_params)?;
         let bridge_len =
             encode_bridge_message(ingress.bridge_message(), &mut scratch.bridge_message)?;
         let raw_bridge = &scratch.bridge_message[..bridge_len];
@@ -212,7 +212,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
         commands: &mut [BridgeRuntimeCommand<'a>],
     ) -> Result<usize, BridgeRuntimeError> {
         let bridge_len = {
-            let ingress = verify_and_decode_bridge_nostr_event(event, &mut scratch.bridge_message)?;
+            let ingress = nostr_event_to_bridge_message(event, &mut scratch.bridge_message)?;
             ingress.raw_bridge_message.len()
         };
         let raw_bridge = &scratch.bridge_message[..bridge_len];
@@ -270,7 +270,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
             plans[index] = match protocol {
                 BridgeProtocol::BitChat => match params.egress.bitchat {
                     Some(egress) => {
-                        let len = encode_bridge_message_to_bitchat_packet(
+                        let len = bridge_message_to_bitchat_packet_v2(
                             decode_bridge_message(raw_bridge)?,
                             egress,
                             &mut *outputs.bitchat_packet,
@@ -281,7 +281,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
                 },
                 BridgeProtocol::Lxmf => match params.egress.lxmf {
                     Some(egress) => {
-                        let len = encode_bridge_message_to_lxmf_message(
+                        let len = bridge_message_to_lxmf_message_fixture(
                             decode_bridge_message(raw_bridge)?,
                             egress,
                             &mut *outputs.lxmf_message,
@@ -375,7 +375,7 @@ mod tests {
         encode_bridge_message,
     };
     use hyf_bridge_lxmf::{LxmfBridgeEgressParams, LxmfBridgeError, LxmfBridgeIngressParams};
-    use hyf_bridge_nostr::{NostrBridgeEventScratch, with_signed_bridge_nostr_event};
+    use hyf_bridge_nostr::{NostrBridgeEventScratch, bridge_message_to_nostr_event};
     use hyf_core::{CommunityId, ForeignNetworkKind, MessageId, NodeId, TimestampMs};
     use hyf_link_nostr::{NostrSecretKey, derive_nostr_public_key};
     use hyf_lxmf_core::{
@@ -491,7 +491,7 @@ mod tests {
         let mut scratch = BridgeRuntimeScratch::new();
         let mut commands = empty_commands::<2>();
 
-        with_signed_bridge_nostr_event(
+        bridge_message_to_nostr_event(
             &raw[..raw_len],
             &secret,
             1_720_000_000,

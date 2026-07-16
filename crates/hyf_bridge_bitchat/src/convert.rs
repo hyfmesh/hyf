@@ -64,7 +64,7 @@ impl<'a> BitchatBridgeIngress<'a> {
     }
 }
 
-pub fn decode_bitchat_bridge_ingress<'a>(
+pub fn bitchat_packet_to_bridge_message<'a>(
     raw: &'a [u8],
     params: BitchatBridgeIngressParams,
 ) -> Result<BitchatBridgeIngress<'a>, BitchatBridgeError> {
@@ -88,7 +88,7 @@ pub fn decode_bitchat_bridge_ingress<'a>(
     })
 }
 
-pub fn encode_bridge_message_to_bitchat_packet(
+pub fn bridge_message_to_bitchat_packet_v2(
     message: BridgeMessageRef<'_>,
     params: BitchatBridgeEgressParams,
     output: &mut [u8],
@@ -176,8 +176,8 @@ mod tests {
     use hyf_core::{CommunityId, ForeignNetworkKind, MessageId, TimestampMs};
 
     use super::{
-        BITCHAT_BRIDGE_PACKET_TYPE_PUBLIC_MESSAGE, decode_bitchat_bridge_ingress,
-        encode_bridge_message_to_bitchat_packet,
+        BITCHAT_BRIDGE_PACKET_TYPE_PUBLIC_MESSAGE, bitchat_packet_to_bridge_message,
+        bridge_message_to_bitchat_packet_v2,
     };
     use crate::{BitchatBridgeEgressParams, BitchatBridgeError, BitchatBridgeIngressParams};
 
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn strict_public_packet_converts_to_bridge_message() -> Result<(), BitchatBridgeError> {
         let raw = encode_public_packet(b"hello", 1000)?;
-        let ingress = decode_bitchat_bridge_ingress(&raw, params())?;
+        let ingress = bitchat_packet_to_bridge_message(&raw, params())?;
         let message = ingress.bridge_message();
         let meta = ingress.ingress_meta();
 
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn bridge_message_encodes_to_canonical_public_v2_packet() -> Result<(), BitchatBridgeError> {
         let mut output = [0; 128];
-        let len = encode_bridge_message_to_bitchat_packet(
+        let len = bridge_message_to_bitchat_packet_v2(
             bridge_message(b"hello", 2000, BridgePayloadKind::TextUtf8),
             BitchatBridgeEgressParams::with_ttl(SENDER, 3),
             &mut output,
@@ -325,7 +325,7 @@ mod tests {
         let mut output = [0; 128];
 
         assert_eq!(
-            encode_bridge_message_to_bitchat_packet(
+            bridge_message_to_bitchat_packet_v2(
                 bridge_message(b"opaque", 1000, BridgePayloadKind::OpaqueBytes),
                 BitchatBridgeEgressParams::new(SENDER),
                 &mut output,
@@ -335,7 +335,7 @@ mod tests {
             })
         );
         assert_eq!(
-            encode_bridge_message_to_bitchat_packet(
+            bridge_message_to_bitchat_packet_v2(
                 bridge_message(b"", 1000, BridgePayloadKind::TextUtf8),
                 BitchatBridgeEgressParams::new(SENDER),
                 &mut output,
@@ -343,7 +343,7 @@ mod tests {
             Err(BitchatBridgeError::EmptyPayload)
         );
         assert_eq!(
-            encode_bridge_message_to_bitchat_packet(
+            bridge_message_to_bitchat_packet_v2(
                 bridge_message(&[0xff], 1000, BridgePayloadKind::TextUtf8),
                 BitchatBridgeEgressParams::new(SENDER),
                 &mut output,
@@ -351,7 +351,7 @@ mod tests {
             Err(BitchatBridgeError::InvalidPayloadUtf8)
         );
         assert_eq!(
-            encode_bridge_message_to_bitchat_packet(
+            bridge_message_to_bitchat_packet_v2(
                 bridge_message(b"hello", 0, BridgePayloadKind::TextUtf8),
                 BitchatBridgeEgressParams::new(SENDER),
                 &mut output,
@@ -365,7 +365,7 @@ mod tests {
         let mut output = [0; 2];
 
         assert!(matches!(
-            encode_bridge_message_to_bitchat_packet(
+            bridge_message_to_bitchat_packet_v2(
                 bridge_message(b"hello", 1000, BridgePayloadKind::TextUtf8),
                 BitchatBridgeEgressParams::new(SENDER),
                 &mut output,
@@ -375,7 +375,10 @@ mod tests {
     }
 
     fn assert_ingress_error(raw: &[u8], expected: BitchatBridgeError) {
-        assert_eq!(decode_bitchat_bridge_ingress(raw, params()), Err(expected));
+        assert_eq!(
+            bitchat_packet_to_bridge_message(raw, params()),
+            Err(expected)
+        );
     }
 
     fn encode_public_packet(payload: &[u8], timestamp: u64) -> Result<Vec<u8>, BitchatBridgeError> {

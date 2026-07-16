@@ -11,8 +11,8 @@ mod error;
 mod params;
 
 pub use convert::{
-    BITCHAT_BRIDGE_PACKET_TYPE_PUBLIC_MESSAGE, BitchatBridgeIngress, decode_bitchat_bridge_ingress,
-    encode_bridge_message_to_bitchat_packet,
+    BITCHAT_BRIDGE_PACKET_TYPE_PUBLIC_MESSAGE, BitchatBridgeIngress,
+    bitchat_packet_to_bridge_message, bridge_message_to_bitchat_packet_v2,
 };
 pub use error::BitchatBridgeError;
 pub use params::{

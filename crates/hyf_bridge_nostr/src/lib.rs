@@ -15,7 +15,7 @@ pub use error::NostrBridgeError;
 pub use event::{
     HYF_NOSTR_BRIDGE_ALT_TAG, HYF_NOSTR_BRIDGE_EVENT_KIND, HYF_NOSTR_BRIDGE_HYF_TAG,
     HYF_NOSTR_BRIDGE_VERSION_TAG, NostrBridgeEventScratch, NostrBridgeIngress,
-    verify_and_decode_bridge_nostr_event, with_signed_bridge_nostr_event,
+    bridge_message_to_nostr_event, nostr_event_to_bridge_message,
 };
 
 #[cfg(test)]

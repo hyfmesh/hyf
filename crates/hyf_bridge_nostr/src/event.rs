@@ -67,7 +67,7 @@ impl fmt::Debug for NostrBridgeIngress<'_> {
     }
 }
 
-pub fn with_signed_bridge_nostr_event<T>(
+pub fn bridge_message_to_nostr_event<T>(
     raw_bridge_message: &[u8],
     author_secret: &NostrSecretKey,
     created_at: u64,
@@ -100,7 +100,7 @@ pub fn with_signed_bridge_nostr_event<T>(
     Ok(f(sign_event(unsigned, author_secret)?))
 }
 
-pub fn verify_and_decode_bridge_nostr_event<'out>(
+pub fn nostr_event_to_bridge_message<'out>(
     event: &NostrEvent<'_>,
     output: &'out mut [u8],
 ) -> Result<NostrBridgeIngress<'out>, NostrBridgeError> {
@@ -184,7 +184,7 @@ mod tests {
 
     use super::{
         HYF_NOSTR_BRIDGE_ALT_TAG, HYF_NOSTR_BRIDGE_EVENT_KIND, NostrBridgeEventScratch,
-        verify_and_decode_bridge_nostr_event, with_signed_bridge_nostr_event,
+        bridge_message_to_nostr_event, nostr_event_to_bridge_message,
     };
     use crate::NostrBridgeError;
 
@@ -198,7 +198,7 @@ mod tests {
         let raw = raw_bridge_message(pubkey.as_bytes())?;
         let mut scratch = NostrBridgeEventScratch::new();
 
-        with_signed_bridge_nostr_event(&raw, &secret, 1720000000, &mut scratch, |event| {
+        bridge_message_to_nostr_event(&raw, &secret, 1720000000, &mut scratch, |event| {
             assert_eq!(event.kind, HYF_NOSTR_BRIDGE_EVENT_KIND);
             assert!(
                 event
@@ -215,7 +215,7 @@ mod tests {
                     .any(|tag| tag.values() == ["alt", HYF_NOSTR_BRIDGE_ALT_TAG])
             );
             let mut output = [0; 256];
-            let decoded = verify_and_decode_bridge_nostr_event(&event, &mut output)?;
+            let decoded = nostr_event_to_bridge_message(&event, &mut output)?;
             assert_eq!(decoded.raw_bridge_message, raw.as_slice());
             assert_eq!(decoded.bridge_message.room_id, ROOM);
             assert_eq!(decoded.bridge_message.message_id, MESSAGE);
@@ -236,7 +236,7 @@ mod tests {
         let raw = raw_bridge_message(pubkey.as_bytes())?;
         let mut scratch = NostrBridgeEventScratch::new();
 
-        with_signed_bridge_nostr_event(&raw, &secret, 1720000000, &mut scratch, |event| {
+        bridge_message_to_nostr_event(&raw, &secret, 1720000000, &mut scratch, |event| {
             let mut relay = FakeNostrRelay::<2, 1, 4>::new();
             let mut decode = [0; 256];
             let outcome = relay.publish_with_profile(
@@ -260,7 +260,7 @@ mod tests {
             relay.subscribe("bridge", &filter)?;
             let replayed = relay.pop_next_output(|output| match output {
                 FakeNostrRelayOutput::Event { event, .. } => {
-                    verify_and_decode_bridge_nostr_event(&event, &mut decode)?;
+                    nostr_event_to_bridge_message(&event, &mut decode)?;
                     Ok::<bool, NostrBridgeError>(true)
                 }
                 _ => Ok::<bool, NostrBridgeError>(false),
@@ -280,10 +280,10 @@ mod tests {
         let raw = raw_bridge_message(pubkey.as_bytes())?;
         let mut scratch = NostrBridgeEventScratch::new();
 
-        with_signed_bridge_nostr_event(&raw, &secret, 1720000000, &mut scratch, |event| {
+        bridge_message_to_nostr_event(&raw, &secret, 1720000000, &mut scratch, |event| {
             let wrong_kind = signed_event(event.pubkey, 1, event.tags, event.content)?;
             assert_eq!(
-                verify_and_decode_bridge_nostr_event(&wrong_kind, &mut [0; 256]),
+                nostr_event_to_bridge_message(&wrong_kind, &mut [0; 256]),
                 Err(NostrBridgeError::WrongKind { actual: 1 })
             );
 
@@ -294,14 +294,14 @@ mod tests {
                 event.content,
             )?;
             assert_eq!(
-                verify_and_decode_bridge_nostr_event(&missing_tags, &mut [0; 256]),
+                nostr_event_to_bridge_message(&missing_tags, &mut [0; 256]),
                 Err(NostrBridgeError::MissingRequiredTag { tag: "hyf" })
             );
 
             let malformed_content =
                 signed_event(event.pubkey, HYF_NOSTR_BRIDGE_EVENT_KIND, event.tags, "zz")?;
             assert!(matches!(
-                verify_and_decode_bridge_nostr_event(&malformed_content, &mut [0; 256]),
+                nostr_event_to_bridge_message(&malformed_content, &mut [0; 256]),
                 Err(NostrBridgeError::Nostr(NostrError::InvalidHexChar { .. }))
             ));
 
@@ -322,7 +322,7 @@ mod tests {
                 event.content,
             )?;
             assert_eq!(
-                verify_and_decode_bridge_nostr_event(&community_mismatch, &mut [0; 256]),
+                nostr_event_to_bridge_message(&community_mismatch, &mut [0; 256]),
                 Err(NostrBridgeError::CommunityTagMismatch)
             );
 
@@ -337,9 +337,9 @@ mod tests {
         let raw = raw_bridge_message(&[0x99; 32])?;
         let mut scratch = NostrBridgeEventScratch::new();
 
-        with_signed_bridge_nostr_event(&raw, &secret, 1720000000, &mut scratch, |event| {
+        bridge_message_to_nostr_event(&raw, &secret, 1720000000, &mut scratch, |event| {
             assert_eq!(
-                verify_and_decode_bridge_nostr_event(&event, &mut [0; 256]),
+                nostr_event_to_bridge_message(&event, &mut [0; 256]),
                 Err(NostrBridgeError::NostrAuthorPubkeyMismatch)
             );
             Ok::<(), NostrBridgeError>(())

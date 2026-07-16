@@ -9,7 +9,7 @@ use hyf_bridge_core::{
     encode_bridge_message,
 };
 use hyf_bridge_lxmf::{LxmfBridgeEgressParams, LxmfBridgeIngressParams};
-use hyf_bridge_nostr::{NostrBridgeEventScratch, with_signed_bridge_nostr_event};
+use hyf_bridge_nostr::{NostrBridgeEventScratch, bridge_message_to_nostr_event};
 use hyf_bridge_runtime::{
     BridgeOrchestrator, BridgeRoutePolicy, BridgeRuntimeCommand, BridgeRuntimeDispatchParams,
     BridgeRuntimeEgressParams, BridgeRuntimeScratch,
@@ -111,7 +111,7 @@ fn bridge_runtime_moves_nostr_ingress_to_bitchat_fixture() -> TestResult {
     let mut scratch = BridgeRuntimeScratch::new();
     let mut commands = empty_commands::<2>();
 
-    let count = with_signed_bridge_nostr_event(
+    let count = bridge_message_to_nostr_event(
         &raw_bridge[..raw_len],
         &secret,
         1_720_000_000,

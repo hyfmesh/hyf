@@ -11,7 +11,7 @@ mod error;
 mod params;
 
 pub use convert::{
-    LxmfBridgeIngress, decode_lxmf_bridge_ingress, encode_bridge_message_to_lxmf_message,
+    LxmfBridgeIngress, bridge_message_to_lxmf_message_fixture, lxmf_message_to_bridge_message,
 };
 pub use error::LxmfBridgeError;
 pub use params::{LxmfBridgeEgressParams, LxmfBridgeIngressParams};

@@ -65,7 +65,7 @@ impl<'a> LxmfBridgeIngress<'a> {
     }
 }
 
-pub fn decode_lxmf_bridge_ingress<'a>(
+pub fn lxmf_message_to_bridge_message<'a>(
     raw: &'a [u8],
     params: LxmfBridgeIngressParams,
 ) -> Result<LxmfBridgeIngress<'a>, LxmfBridgeError> {
@@ -83,7 +83,7 @@ pub fn decode_lxmf_bridge_ingress<'a>(
     })
 }
 
-pub fn encode_bridge_message_to_lxmf_message(
+pub fn bridge_message_to_lxmf_message_fixture(
     message: BridgeMessageRef<'_>,
     params: LxmfBridgeEgressParams,
     output: &mut [u8],
@@ -166,7 +166,7 @@ mod tests {
         LxmfSourceHash, LxmfStampRef, decode_lxmf_message, encode_lxmf_message,
     };
 
-    use super::{decode_lxmf_bridge_ingress, encode_bridge_message_to_lxmf_message};
+    use super::{bridge_message_to_lxmf_message_fixture, lxmf_message_to_bridge_message};
     use crate::{LxmfBridgeEgressParams, LxmfBridgeError, LxmfBridgeIngressParams};
 
     const ROOM: CommunityId = CommunityId([0x41; 16]);
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn content_only_lxmf_converts_to_bridge_message() -> Result<(), LxmfBridgeError> {
         let raw = encode_lxmf_fixture(payload_ref(1.5, b"", b"hello", &[0x80], None))?;
-        let ingress = decode_lxmf_bridge_ingress(&raw, params())?;
+        let ingress = lxmf_message_to_bridge_message(&raw, params())?;
         let message = ingress.bridge_message();
         let meta = ingress.ingress_meta();
 
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn bridge_message_encodes_to_content_only_lxmf_fixture() -> Result<(), LxmfBridgeError> {
         let mut output = [0; 256];
-        let len = encode_bridge_message_to_lxmf_message(
+        let len = bridge_message_to_lxmf_message_fixture(
             bridge_message(b"hello", 2500, BridgePayloadKind::TextUtf8),
             egress_params(),
             &mut output,
@@ -263,7 +263,7 @@ mod tests {
         let mut output = [0; 256];
 
         assert_eq!(
-            encode_bridge_message_to_lxmf_message(
+            bridge_message_to_lxmf_message_fixture(
                 bridge_message(b"opaque", 1000, BridgePayloadKind::OpaqueBytes),
                 egress_params(),
                 &mut output,
@@ -273,7 +273,7 @@ mod tests {
             })
         );
         assert_eq!(
-            encode_bridge_message_to_lxmf_message(
+            bridge_message_to_lxmf_message_fixture(
                 bridge_message(b"", 1000, BridgePayloadKind::TextUtf8),
                 egress_params(),
                 &mut output,
@@ -281,7 +281,7 @@ mod tests {
             Err(LxmfBridgeError::EmptyContent)
         );
         assert_eq!(
-            encode_bridge_message_to_lxmf_message(
+            bridge_message_to_lxmf_message_fixture(
                 bridge_message(&[0xff], 1000, BridgePayloadKind::TextUtf8),
                 egress_params(),
                 &mut output,
@@ -291,7 +291,7 @@ mod tests {
 
         let mut short = [0; 2];
         assert!(matches!(
-            encode_bridge_message_to_lxmf_message(
+            bridge_message_to_lxmf_message_fixture(
                 bridge_message(b"hello", 1000, BridgePayloadKind::TextUtf8),
                 egress_params(),
                 &mut short,
@@ -310,7 +310,7 @@ mod tests {
     }
 
     fn assert_ingress_error(raw: &[u8], expected: LxmfBridgeError) {
-        assert_eq!(decode_lxmf_bridge_ingress(raw, params()), Err(expected));
+        assert_eq!(lxmf_message_to_bridge_message(raw, params()), Err(expected));
     }
 
     fn encode_lxmf_fixture(payload: LxmfPayloadRef<'_>) -> Result<Vec<u8>, LxmfBridgeError> {
