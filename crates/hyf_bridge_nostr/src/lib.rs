@@ -18,6 +18,7 @@ pub use event::{
     NostrBridgeEventScratch, NostrBridgeIngress, bridge_message_to_nostr_event,
     bridge_message_to_nostr_event_json, nostr_event_to_bridge_message,
 };
+pub use hyf_link_nostr::{NostrEvent, NostrSecretKey};
 
 #[cfg(test)]
 mod tests {

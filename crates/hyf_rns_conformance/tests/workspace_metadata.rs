@@ -167,14 +167,11 @@ const EXPECTED_FEATURE_SURFACE: &[FeatureSurface] = &[
             FeatureSpec {
                 name: "std",
                 enables: &[
-                    "hyf_bitchat_core/std",
                     "hyf_bridge_bitchat/std",
                     "hyf_bridge_core/std",
                     "hyf_bridge_lxmf/std",
                     "hyf_bridge_nostr/std",
                     "hyf_core/std",
-                    "hyf_link_nostr/std",
-                    "hyf_lxmf_core/std",
                     "hyf_wire/std",
                 ],
             },
@@ -778,14 +775,11 @@ fn bridge_dependencies_preserve_fake_mode_boundaries() -> TestResult {
     assert_direct_dependency_names(
         package_by_name(&packages, "hyf_bridge_runtime")?,
         &[
-            "hyf_bitchat_core",
             "hyf_bridge_bitchat",
             "hyf_bridge_core",
             "hyf_bridge_lxmf",
             "hyf_bridge_nostr",
             "hyf_core",
-            "hyf_link_nostr",
-            "hyf_lxmf_core",
             "hyf_wire",
         ],
     )?;
@@ -803,6 +797,12 @@ fn bridge_dependencies_preserve_fake_mode_boundaries() -> TestResult {
             "hyf_lxmf_core",
         ],
         "Bridge core",
+    )?;
+    assert_packages_omit_direct_dependencies(
+        &packages,
+        &["hyf_bridge_runtime"],
+        &["hyf_bitchat_core", "hyf_link_nostr", "hyf_lxmf_core"],
+        "Bridge runtime",
     )?;
     assert_packages_omit_direct_dependencies(
         &packages,

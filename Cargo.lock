@@ -530,14 +530,11 @@ dependencies = [
 name = "hyf_bridge_runtime"
 version = "0.1.0"
 dependencies = [
- "hyf_bitchat_core",
  "hyf_bridge_bitchat",
  "hyf_bridge_core",
  "hyf_bridge_lxmf",
  "hyf_bridge_nostr",
  "hyf_core",
- "hyf_link_nostr",
- "hyf_lxmf_core",
  "hyf_wire",
 ]
 
