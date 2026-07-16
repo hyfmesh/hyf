@@ -97,6 +97,15 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
             return self.forward_stored_community(envelope, community_id, out);
         }
         if self.is_local_destination(envelope.destination) {
+            if self.has_seen(seen_key_for(envelope)) {
+                return emit(
+                    out,
+                    RouterCommand::Drop {
+                        message_id: envelope.message_id,
+                        reason: DropReason::Duplicate,
+                    },
+                );
+            }
             return emit(out, RouterCommand::DeliverLocal(envelope));
         }
         if let Some(link_id) = self.first_up_link_except(None) {
@@ -293,7 +302,8 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
             );
         }
 
-        let local_delivery = self.policy.is_local_community(community_id);
+        let local_delivery =
+            self.policy.is_local_community(community_id) && !self.has_seen(seen_key_for(envelope));
         let send_count = self.up_link_count_except(ingress);
         let required = usize::from(local_delivery) + send_count;
         if required == 0 {
@@ -336,7 +346,8 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize> Router<MAX_LINKS, MAX_SEEN> 
         community_id: CommunityId,
         out: &mut [RouterCommand<'a>],
     ) -> Result<usize, RouterError> {
-        let local_delivery = self.policy.is_local_community(community_id);
+        let local_delivery =
+            self.policy.is_local_community(community_id) && !self.has_seen(seen_key_for(envelope));
         let send_count = self.up_link_count_except(None);
         let required = usize::from(local_delivery) + send_count;
         if required == 0 {
@@ -718,6 +729,43 @@ pub(crate) mod tests {
         );
         assert_eq!(
             out[2],
+            RouterCommand::Send {
+                link_id: LINK_B,
+                envelope,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stored_local_community_skips_duplicate_local_delivery_but_keeps_link_fanout()
+    -> Result<(), RouterError> {
+        let mut router = community_router();
+        let envelope = community_envelope(MessageId([0x34; 32]), ROOM_A, 100, 300, 4, b"stored");
+        let mut out = [drop_command(); 2];
+
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_A }),
+            &mut out,
+        )?;
+        router.handle_event(
+            RouterEvent::Link(LinkEvent::Up { link_id: LINK_B }),
+            &mut out,
+        )?;
+        router.commit_seen(envelope);
+
+        let count = router.forward_stored(envelope, &mut out)?;
+
+        assert_eq!(count, 2);
+        assert_eq!(
+            out[0],
+            RouterCommand::Send {
+                link_id: LINK_A,
+                envelope,
+            }
+        );
+        assert_eq!(
+            out[1],
             RouterCommand::Send {
                 link_id: LINK_B,
                 envelope,

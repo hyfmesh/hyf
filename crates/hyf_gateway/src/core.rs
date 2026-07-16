@@ -178,27 +178,75 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize, const STORE_CAPACITY: usize>
     where
         E: GatewayLinkExecutor,
     {
-        let mut successes = 0usize;
-        let mut first_error = None;
+        let result = self.execute_commands_record(commands, executor);
+        if result.successes > 0 || commands.is_empty() {
+            return Ok(());
+        }
+        match result.first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
+    fn execute_commands_for_flush<'event, E>(
+        &mut self,
+        commands: &[RouterCommand<'event>],
+        executor: &mut E,
+    ) -> Result<bool, GatewayError>
+    where
+        E: GatewayLinkExecutor,
+    {
+        let result = self.execute_commands_record(commands, executor);
+        if let Some(error) = result.first_nonrecoverable_error {
+            return Err(error);
+        }
+        if result.planned_sends > 0 {
+            return Ok(result.successful_sends == result.planned_sends);
+        }
+        if result.successes > 0 || commands.is_empty() {
+            return Ok(true);
+        }
+        match result.first_error {
+            Some(error) if error.is_recoverable_send_failure() => Ok(false),
+            Some(error) => Err(error),
+            None => Ok(true),
+        }
+    }
+
+    fn execute_commands_record<'event, E>(
+        &mut self,
+        commands: &[RouterCommand<'event>],
+        executor: &mut E,
+    ) -> CommandExecution
+    where
+        E: GatewayLinkExecutor,
+    {
+        let mut result = CommandExecution::default();
         for command in commands {
+            let is_send = matches!(command, RouterCommand::Send { .. });
+            if is_send {
+                result.planned_sends += 1;
+            }
             match self.execute_command(*command, executor) {
                 Ok(()) => {
-                    successes += 1;
+                    result.successes += 1;
+                    if is_send {
+                        result.successful_sends += 1;
+                    }
                 }
                 Err(error) => {
-                    if first_error.is_none() {
-                        first_error = Some(error);
+                    if result.first_error.is_none() {
+                        result.first_error = Some(error);
+                    }
+                    if !error.is_recoverable_send_failure()
+                        && result.first_nonrecoverable_error.is_none()
+                    {
+                        result.first_nonrecoverable_error = Some(error);
                     }
                 }
             }
         }
-        if successes > 0 || commands.is_empty() {
-            return Ok(());
-        }
-        match first_error {
-            Some(error) => Err(error),
-            None => Ok(()),
-        }
+        result
     }
 
     fn execute_command<'event, E>(
@@ -286,16 +334,22 @@ impl<const MAX_LINKS: usize, const MAX_SEEN: usize, const STORE_CAPACITY: usize>
             if count == 0 {
                 break;
             }
-            if let Err(error) = self.execute_commands(&commands[..count], executor) {
-                if error.is_recoverable_send_failure() {
-                    break;
-                }
-                return Err(error);
+            if !self.execute_commands_for_flush(&commands[..count], executor)? {
+                break;
             }
             self.store.remove(message_id)?;
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct CommandExecution {
+    successes: usize,
+    planned_sends: usize,
+    successful_sends: usize,
+    first_error: Option<GatewayError>,
+    first_nonrecoverable_error: Option<GatewayError>,
 }
 
 fn validate_runtime_capacity(
@@ -448,6 +502,75 @@ mod tests {
         assert_eq!(core.metrics().sent, 1);
         assert_eq!(core.metrics().link_errors, 1);
         assert_eq!(core.last_delivered_message_id(), Some(MessageId([5; 32])));
+        Ok(())
+    }
+
+    #[test]
+    fn core_flush_store_keeps_subscribed_community_pending_after_partial_send_failure()
+    -> Result<(), GatewayError> {
+        let mut core = TestCore::new(local_community_config())?;
+        let mut executor = TestExecutor {
+            send_error: Some(GatewayError::Driver {
+                link_id: link_b(),
+                kind: LinkDriverErrorKind::Backpressure,
+            }),
+            fail_link: Some(link_b()),
+            ..TestExecutor::default()
+        };
+        let message_id = MessageId([6; 32]);
+
+        core.handle_link_event(hyf_link::LinkEvent::Up { link_id: link_a() }, &mut executor)?;
+        core.handle_link_event(hyf_link::LinkEvent::Up { link_id: link_b() }, &mut executor)?;
+        core.store.put_envelope(community_envelope(message_id))?;
+
+        core.tick(TimestampMs(101), &mut executor)?;
+
+        assert_eq!(core.stored_len(), 1);
+        assert_eq!(core.metrics().delivered, 1);
+        assert_eq!(core.metrics().sent, 1);
+        assert_eq!(core.metrics().link_errors, 1);
+        assert_eq!(core.last_delivered_message_id(), Some(message_id));
+
+        executor.send_error = None;
+        core.tick(TimestampMs(102), &mut executor)?;
+
+        assert_eq!(core.stored_len(), 0);
+        assert_eq!(core.metrics().delivered, 1);
+        assert_eq!(core.metrics().sent, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn core_flush_store_keeps_unsubscribed_community_pending_after_partial_send_failure()
+    -> Result<(), GatewayError> {
+        let mut core = TestCore::new(valid_config())?;
+        let mut executor = TestExecutor {
+            send_error: Some(GatewayError::Driver {
+                link_id: link_b(),
+                kind: LinkDriverErrorKind::Backpressure,
+            }),
+            fail_link: Some(link_b()),
+            ..TestExecutor::default()
+        };
+        let message_id = MessageId([7; 32]);
+
+        core.handle_link_event(hyf_link::LinkEvent::Up { link_id: link_a() }, &mut executor)?;
+        core.handle_link_event(hyf_link::LinkEvent::Up { link_id: link_b() }, &mut executor)?;
+        core.store.put_envelope(community_envelope(message_id))?;
+
+        core.tick(TimestampMs(101), &mut executor)?;
+
+        assert_eq!(core.stored_len(), 1);
+        assert_eq!(core.metrics().delivered, 0);
+        assert_eq!(core.metrics().sent, 1);
+        assert_eq!(core.metrics().link_errors, 1);
+
+        executor.send_error = None;
+        core.tick(TimestampMs(102), &mut executor)?;
+
+        assert_eq!(core.stored_len(), 0);
+        assert_eq!(core.metrics().delivered, 0);
+        assert_eq!(core.metrics().sent, 3);
         Ok(())
     }
 
