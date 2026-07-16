@@ -16,7 +16,8 @@ pub use convert::{
 };
 pub use error::BitchatBridgeError;
 pub use params::{
-    BITCHAT_BRIDGE_DEFAULT_TTL, BitchatBridgeEgressParams, BitchatBridgeIngressParams,
+    BITCHAT_BRIDGE_DEFAULT_TTL, BITCHAT_BRIDGE_PACKET_MAX_LEN, BitchatBridgeEgressParams,
+    BitchatBridgeIngressParams,
 };
 
 #[cfg(test)]

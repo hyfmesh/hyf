@@ -13,9 +13,10 @@ mod event;
 pub use content::{decode_bridge_nostr_content, encode_bridge_nostr_content};
 pub use error::NostrBridgeError;
 pub use event::{
-    HYF_NOSTR_BRIDGE_ALT_TAG, HYF_NOSTR_BRIDGE_EVENT_KIND, HYF_NOSTR_BRIDGE_HYF_TAG,
-    HYF_NOSTR_BRIDGE_VERSION_TAG, NostrBridgeEventScratch, NostrBridgeIngress,
-    bridge_message_to_nostr_event, nostr_event_to_bridge_message,
+    HYF_NOSTR_BRIDGE_ALT_TAG, HYF_NOSTR_BRIDGE_EVENT_JSON_MAX_LEN, HYF_NOSTR_BRIDGE_EVENT_KIND,
+    HYF_NOSTR_BRIDGE_HYF_TAG, HYF_NOSTR_BRIDGE_VERSION_TAG, NostrBridgeEgressParams,
+    NostrBridgeEventScratch, NostrBridgeIngress, bridge_message_to_nostr_event,
+    bridge_message_to_nostr_event_json, nostr_event_to_bridge_message,
 };
 
 #[cfg(test)]

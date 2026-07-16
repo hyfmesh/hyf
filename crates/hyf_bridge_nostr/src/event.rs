@@ -7,8 +7,9 @@ use hyf_bridge_core::{
 };
 use hyf_core::{CommunityId, ForeignNetworkKind};
 use hyf_link_nostr::{
-    NostrEvent, NostrPublicKey, NostrSecretKey, NostrTagRef, NostrTagsRef, NostrUnsignedEvent,
-    decode_fixed_lower_hex, derive_nostr_public_key, encode_lower_hex, sign_event, verify_event,
+    NostrError, NostrEvent, NostrPublicKey, NostrSecretKey, NostrTagRef, NostrTagsRef,
+    NostrUnsignedEvent, decode_fixed_lower_hex, derive_nostr_public_key, encode_lower_hex,
+    sign_event, verify_event,
 };
 
 use crate::{NostrBridgeError, decode_bridge_nostr_content, encode_bridge_nostr_content};
@@ -17,10 +18,17 @@ pub const HYF_NOSTR_BRIDGE_EVENT_KIND: u16 = 9109;
 pub const HYF_NOSTR_BRIDGE_HYF_TAG: &str = "hyf";
 pub const HYF_NOSTR_BRIDGE_VERSION_TAG: &str = "v0";
 pub const HYF_NOSTR_BRIDGE_ALT_TAG: &str = "HYF bridge message";
+pub const HYF_NOSTR_BRIDGE_EVENT_JSON_MAX_LEN: usize = 6144;
 
 pub struct NostrBridgeEventScratch {
     content: [u8; HYF_BRIDGE_MESSAGE_MAX_LEN * 2],
     community_hex: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct NostrBridgeEgressParams<'a> {
+    pub author_secret: &'a NostrSecretKey,
+    pub created_at: u64,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -67,6 +75,15 @@ impl fmt::Debug for NostrBridgeIngress<'_> {
     }
 }
 
+impl<'a> NostrBridgeEgressParams<'a> {
+    pub const fn new(author_secret: &'a NostrSecretKey, created_at: u64) -> Self {
+        Self {
+            author_secret,
+            created_at,
+        }
+    }
+}
+
 pub fn bridge_message_to_nostr_event<T>(
     raw_bridge_message: &[u8],
     author_secret: &NostrSecretKey,
@@ -98,6 +115,21 @@ pub fn bridge_message_to_nostr_event<T>(
         content,
     )?;
     Ok(f(sign_event(unsigned, author_secret)?))
+}
+
+pub fn bridge_message_to_nostr_event_json(
+    raw_bridge_message: &[u8],
+    params: NostrBridgeEgressParams<'_>,
+    scratch: &mut NostrBridgeEventScratch,
+    output: &mut [u8],
+) -> Result<usize, NostrBridgeError> {
+    bridge_message_to_nostr_event(
+        raw_bridge_message,
+        params.author_secret,
+        params.created_at,
+        scratch,
+        |event| write_nostr_event_json(event, output),
+    )?
 }
 
 pub fn nostr_event_to_bridge_message<'out>(
@@ -169,6 +201,155 @@ fn validate_nostr_author_rule(
     Ok(())
 }
 
+fn write_nostr_event_json(
+    event: NostrEvent<'_>,
+    output: &mut [u8],
+) -> Result<usize, NostrBridgeError> {
+    let mut writer = JsonWriter::new(output);
+    let mut id_hex = [0; 64];
+    let mut pubkey_hex = [0; 64];
+    let mut sig_hex = [0; 128];
+    let id_hex = event.id.write_hex(&mut id_hex)?;
+    let pubkey_hex = event.pubkey.write_hex(&mut pubkey_hex)?;
+    let sig_hex = event.sig.write_hex(&mut sig_hex)?;
+
+    writer.push_byte(b'{')?;
+    writer.write_json_string("id")?;
+    writer.push_byte(b':')?;
+    writer.write_json_string(id_hex)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("pubkey")?;
+    writer.push_byte(b':')?;
+    writer.write_json_string(pubkey_hex)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("created_at")?;
+    writer.push_byte(b':')?;
+    writer.write_u64(event.created_at)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("kind")?;
+    writer.push_byte(b':')?;
+    writer.write_u64(u64::from(event.kind))?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("tags")?;
+    writer.push_byte(b':')?;
+    writer.write_tags(event.tags)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("content")?;
+    writer.push_byte(b':')?;
+    writer.write_json_string(event.content)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("sig")?;
+    writer.push_byte(b':')?;
+    writer.write_json_string(sig_hex)?;
+    writer.push_byte(b'}')?;
+    Ok(writer.len())
+}
+
+struct JsonWriter<'out> {
+    output: &'out mut [u8],
+    len: usize,
+}
+
+impl<'out> JsonWriter<'out> {
+    fn new(output: &'out mut [u8]) -> Self {
+        Self { output, len: 0 }
+    }
+
+    const fn len(&self) -> usize {
+        self.len
+    }
+
+    fn push_byte(&mut self, byte: u8) -> Result<(), NostrBridgeError> {
+        self.write(&[byte])
+    }
+
+    fn push_str(&mut self, value: &str) -> Result<(), NostrBridgeError> {
+        self.write(value.as_bytes())
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> Result<(), NostrBridgeError> {
+        let needed = self
+            .len
+            .checked_add(bytes.len())
+            .ok_or(NostrError::OutputTooSmall {
+                needed: usize::MAX,
+                available: self.output.len(),
+            })?;
+        if needed > self.output.len() {
+            return Err(NostrError::OutputTooSmall {
+                needed,
+                available: self.output.len(),
+            }
+            .into());
+        }
+        self.output[self.len..needed].copy_from_slice(bytes);
+        self.len = needed;
+        Ok(())
+    }
+
+    fn write_json_string(&mut self, value: &str) -> Result<(), NostrBridgeError> {
+        self.push_byte(b'"')?;
+        for character in value.chars() {
+            match character {
+                '"' => self.push_str(r#"\""#)?,
+                '\\' => self.push_str(r#"\\"#)?,
+                '\n' => self.push_str(r#"\n"#)?,
+                '\r' => self.push_str(r#"\r"#)?,
+                '\t' => self.push_str(r#"\t"#)?,
+                '\u{08}' => self.push_str(r#"\b"#)?,
+                '\u{0c}' => self.push_str(r#"\f"#)?,
+                '\u{00}'..='\u{1f}' => self.write_control_escape(character)?,
+                _ => {
+                    let mut scratch = [0; 4];
+                    self.push_str(character.encode_utf8(&mut scratch))?;
+                }
+            }
+        }
+        self.push_byte(b'"')
+    }
+
+    fn write_control_escape(&mut self, character: char) -> Result<(), NostrBridgeError> {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let value = character as u8;
+        self.write(b"\\u00")?;
+        self.push_byte(HEX[(value >> 4) as usize])?;
+        self.push_byte(HEX[(value & 0x0f) as usize])
+    }
+
+    fn write_u64(&mut self, value: u64) -> Result<(), NostrBridgeError> {
+        let mut digits = [0; 20];
+        let mut index = digits.len();
+        let mut remaining = value;
+        loop {
+            index -= 1;
+            digits[index] = b'0' + (remaining % 10) as u8;
+            remaining /= 10;
+            if remaining == 0 {
+                break;
+            }
+        }
+        self.write(&digits[index..])
+    }
+
+    fn write_tags(&mut self, tags: NostrTagsRef<'_>) -> Result<(), NostrBridgeError> {
+        self.push_byte(b'[')?;
+        for (tag_index, tag) in tags.as_slice().iter().enumerate() {
+            if tag_index > 0 {
+                self.push_byte(b',')?;
+            }
+            self.push_byte(b'[')?;
+            for (value_index, value) in tag.values().iter().enumerate() {
+                if value_index > 0 {
+                    self.push_byte(b',')?;
+                }
+                self.write_json_string(value)?;
+            }
+            self.push_byte(b']')?;
+        }
+        self.push_byte(b']')
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use hyf_bridge_core::{
@@ -183,8 +364,9 @@ mod tests {
     };
 
     use super::{
-        HYF_NOSTR_BRIDGE_ALT_TAG, HYF_NOSTR_BRIDGE_EVENT_KIND, NostrBridgeEventScratch,
-        bridge_message_to_nostr_event, nostr_event_to_bridge_message,
+        HYF_NOSTR_BRIDGE_ALT_TAG, HYF_NOSTR_BRIDGE_EVENT_JSON_MAX_LEN, HYF_NOSTR_BRIDGE_EVENT_KIND,
+        NostrBridgeEgressParams, NostrBridgeEventScratch, bridge_message_to_nostr_event,
+        bridge_message_to_nostr_event_json, nostr_event_to_bridge_message,
     };
     use crate::NostrBridgeError;
 
@@ -269,6 +451,51 @@ mod tests {
             assert_eq!(replayed, Some(Ok(true)));
             Ok::<(), NostrBridgeError>(())
         })??;
+        Ok(())
+    }
+
+    #[test]
+    fn bridge_event_json_encodes_signed_event() -> Result<(), NostrBridgeError> {
+        let secret = fixture_secret();
+        let pubkey = derive_nostr_public_key(&secret)?;
+        let raw = raw_bridge_message(pubkey.as_bytes())?;
+        let mut scratch = NostrBridgeEventScratch::new();
+        let mut output = [0; HYF_NOSTR_BRIDGE_EVENT_JSON_MAX_LEN];
+
+        let len = bridge_message_to_nostr_event_json(
+            &raw,
+            NostrBridgeEgressParams::new(&secret, 1720000000),
+            &mut scratch,
+            &mut output,
+        )?;
+        let event_json = core::str::from_utf8(&output[..len])
+            .map_err(|_| NostrBridgeError::Nostr(NostrError::Utf8))?;
+
+        assert!(event_json.contains(r#""kind":9109"#));
+        assert!(event_json.contains(r#"["hyf","bridge","v0"]"#));
+        assert!(event_json.contains(r#"["community","51515151515151515151515151515151"]"#));
+        assert!(event_json.contains(r#""content":"#));
+        assert!(event_json.contains(r#""sig":"#));
+        Ok(())
+    }
+
+    #[test]
+    fn bridge_event_json_reports_bounded_output() -> Result<(), NostrBridgeError> {
+        let secret = fixture_secret();
+        let pubkey = derive_nostr_public_key(&secret)?;
+        let raw = raw_bridge_message(pubkey.as_bytes())?;
+        let mut scratch = NostrBridgeEventScratch::new();
+        let mut output = [0; 8];
+
+        assert!(matches!(
+            bridge_message_to_nostr_event_json(
+                &raw,
+                NostrBridgeEgressParams::new(&secret, 1720000000),
+                &mut scratch,
+                &mut output,
+            ),
+            Err(NostrBridgeError::Nostr(NostrError::OutputTooSmall { .. }))
+        ));
         Ok(())
     }
 

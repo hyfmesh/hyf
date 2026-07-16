@@ -14,7 +14,7 @@ pub use convert::{
     LxmfBridgeIngress, bridge_message_to_lxmf_message_fixture, lxmf_message_to_bridge_message,
 };
 pub use error::LxmfBridgeError;
-pub use params::{LxmfBridgeEgressParams, LxmfBridgeIngressParams};
+pub use params::{LXMF_BRIDGE_MESSAGE_MAX_LEN, LxmfBridgeEgressParams, LxmfBridgeIngressParams};
 
 #[cfg(test)]
 mod tests {

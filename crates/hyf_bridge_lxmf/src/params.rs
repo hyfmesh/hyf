@@ -1,5 +1,7 @@
 use hyf_core::{CommunityId, MessageId};
-use hyf_lxmf_core::{LxmfDestinationHash, LxmfSignature, LxmfSourceHash};
+use hyf_lxmf_core::{LXMF_MESSAGE_MAX_LEN, LxmfDestinationHash, LxmfSignature, LxmfSourceHash};
+
+pub const LXMF_BRIDGE_MESSAGE_MAX_LEN: usize = LXMF_MESSAGE_MAX_LEN;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LxmfBridgeIngressParams {
@@ -42,7 +44,7 @@ mod tests {
     use hyf_core::{CommunityId, MessageId};
     use hyf_lxmf_core::{LxmfDestinationHash, LxmfSignature, LxmfSourceHash};
 
-    use super::{LxmfBridgeEgressParams, LxmfBridgeIngressParams};
+    use super::{LXMF_BRIDGE_MESSAGE_MAX_LEN, LxmfBridgeEgressParams, LxmfBridgeIngressParams};
 
     #[test]
     fn params_preserve_fields() {
@@ -58,5 +60,6 @@ mod tests {
         assert_eq!(egress.destination_hash.as_bytes(), &[3; 16]);
         assert_eq!(egress.source_hash.as_bytes(), &[4; 16]);
         assert_eq!(egress.signature.as_bytes(), &[5; 64]);
+        assert_eq!(LXMF_BRIDGE_MESSAGE_MAX_LEN, 4096);
     }
 }
