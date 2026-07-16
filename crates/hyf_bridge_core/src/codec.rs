@@ -4,8 +4,9 @@ use hyf_core::{CommunityId, ForeignNetworkKind, MessageId, TimestampMs};
 
 use crate::{
     BridgeEndpointKind, BridgeEndpointRef, BridgeError, BridgeMessageRef, BridgePayloadKind,
-    HYF_BRIDGE_AUTHOR_ID_MAX_LEN, HYF_BRIDGE_MESSAGE_MAX_LEN, HYF_BRIDGE_MESSAGE_VERSION_0,
-    HYF_BRIDGE_PAYLOAD_MAX_LEN,
+    HYF_BRIDGE_BITCHAT_AUTHOR_ID_LEN, HYF_BRIDGE_HYF_NODE_AUTHOR_ID_LEN,
+    HYF_BRIDGE_LXMF_AUTHOR_ID_LEN, HYF_BRIDGE_MESSAGE_MAX_LEN, HYF_BRIDGE_MESSAGE_VERSION_0,
+    HYF_BRIDGE_NOSTR_AUTHOR_ID_LEN, HYF_BRIDGE_PAYLOAD_MAX_LEN,
 };
 
 const ROOM_ID_LEN: usize = 16;
@@ -45,9 +46,9 @@ pub fn decode_bridge_message(input: &[u8]) -> Result<BridgeMessageRef<'_>, Bridg
     let author_kind_tag = cursor.read_u8()?;
     let author_network_tag = cursor.read_u8()?;
     let author_id_len = cursor.read_u8()? as usize;
-    validate_author_id_len(author_id_len)?;
-    let author_id = cursor.read_slice(author_id_len)?;
     let author_kind = decode_author_kind(author_kind_tag, author_network_tag)?;
+    validate_author_id_len(author_kind, author_id_len)?;
+    let author_id = cursor.read_slice(author_id_len)?;
     let created_at_ms = TimestampMs(cursor.read_u64()?);
     let payload_kind = decode_payload_kind(cursor.read_u8()?)?;
     let payload_len = cursor.read_u16()? as usize;
@@ -136,7 +137,7 @@ fn validate_bridge_message_ref(message: BridgeMessageRef<'_>) -> Result<(), Brid
     if message.message_id.0 == [0; MESSAGE_ID_LEN] {
         return Err(BridgeError::ZeroMessageId);
     }
-    validate_author_id_len(message.author.id.len())?;
+    validate_author_id_len(message.author.kind, message.author.id.len())?;
     if message.payload.len() > HYF_BRIDGE_PAYLOAD_MAX_LEN {
         return Err(BridgeError::PayloadTooLarge {
             actual: message.payload.len(),
@@ -146,11 +147,27 @@ fn validate_bridge_message_ref(message: BridgeMessageRef<'_>) -> Result<(), Brid
     validate_payload(message.payload_kind, message.payload)
 }
 
-fn validate_author_id_len(len: usize) -> Result<(), BridgeError> {
-    if len == 0 || len > HYF_BRIDGE_AUTHOR_ID_MAX_LEN {
+fn validate_author_id_len(kind: BridgeEndpointKind, len: usize) -> Result<(), BridgeError> {
+    if len != expected_author_id_len(kind)? {
         return Err(BridgeError::InvalidAuthorIdLen { len });
     }
     Ok(())
+}
+
+fn expected_author_id_len(kind: BridgeEndpointKind) -> Result<usize, BridgeError> {
+    match kind {
+        BridgeEndpointKind::HyfNode => Ok(HYF_BRIDGE_HYF_NODE_AUTHOR_ID_LEN),
+        BridgeEndpointKind::Foreign(ForeignNetworkKind::BitChat) => {
+            Ok(HYF_BRIDGE_BITCHAT_AUTHOR_ID_LEN)
+        }
+        BridgeEndpointKind::Foreign(ForeignNetworkKind::Lxmf) => Ok(HYF_BRIDGE_LXMF_AUTHOR_ID_LEN),
+        BridgeEndpointKind::Foreign(ForeignNetworkKind::Nostr) => {
+            Ok(HYF_BRIDGE_NOSTR_AUTHOR_ID_LEN)
+        }
+        BridgeEndpointKind::Foreign(network) => {
+            Err(BridgeError::UnsupportedAuthorNetwork { network })
+        }
+    }
 }
 
 fn validate_payload(kind: BridgePayloadKind, payload: &[u8]) -> Result<(), BridgeError> {
@@ -179,6 +196,9 @@ fn decode_author_kind(
                     tag: author_network_tag,
                 }
             })?;
+            if matches!(network, ForeignNetworkKind::Fips | ForeignNetworkKind::Rns) {
+                return Err(BridgeError::UnsupportedAuthorNetwork { network });
+            }
             Ok(BridgeEndpointKind::Foreign(network))
         }
         tag => Err(BridgeError::UnknownAuthorKind { tag }),
@@ -332,6 +352,57 @@ mod tests {
     }
 
     #[test]
+    fn encode_rejects_noncanonical_author_lengths_and_networks() {
+        assert_eq!(
+            bridge_message_encoded_len(message_with_author(
+                BridgeEndpointKind::HyfNode,
+                &[0x11; 31],
+                BridgePayloadKind::TextUtf8,
+                b"hello",
+            )),
+            Err(BridgeError::InvalidAuthorIdLen { len: 31 })
+        );
+        assert_eq!(
+            bridge_message_encoded_len(message_with_author(
+                BridgeEndpointKind::Foreign(ForeignNetworkKind::BitChat),
+                &[0x12; 7],
+                BridgePayloadKind::TextUtf8,
+                b"hello",
+            )),
+            Err(BridgeError::InvalidAuthorIdLen { len: 7 })
+        );
+        assert_eq!(
+            bridge_message_encoded_len(message_with_author(
+                BridgeEndpointKind::Foreign(ForeignNetworkKind::Lxmf),
+                &[0x13; 15],
+                BridgePayloadKind::TextUtf8,
+                b"hello",
+            )),
+            Err(BridgeError::InvalidAuthorIdLen { len: 15 })
+        );
+        assert_eq!(
+            bridge_message_encoded_len(message_with_author(
+                BridgeEndpointKind::Foreign(ForeignNetworkKind::Nostr),
+                &[0x14; 31],
+                BridgePayloadKind::TextUtf8,
+                b"hello",
+            )),
+            Err(BridgeError::InvalidAuthorIdLen { len: 31 })
+        );
+        assert_eq!(
+            bridge_message_encoded_len(message_with_author(
+                BridgeEndpointKind::Foreign(ForeignNetworkKind::Rns),
+                &[0x15; 32],
+                BridgePayloadKind::TextUtf8,
+                b"hello",
+            )),
+            Err(BridgeError::UnsupportedAuthorNetwork {
+                network: ForeignNetworkKind::Rns,
+            })
+        );
+    }
+
+    #[test]
     fn decode_rejects_invalid_fields_and_trailing_bytes() -> Result<(), BridgeError> {
         let mut encoded = [0; 128];
         let len = encode_bridge_message(
@@ -380,6 +451,26 @@ mod tests {
             Err(BridgeError::InvalidAuthorIdLen { len: 0 })
         );
         encoded[51] = 8;
+
+        encoded[49] = 0;
+        encoded[50] = 0;
+        encoded[51] = 8;
+        assert_eq!(
+            decode_bridge_message(&encoded[..len]),
+            Err(BridgeError::InvalidAuthorIdLen { len: 8 })
+        );
+        encoded[49] = 1;
+        encoded[50] = ForeignNetworkKind::BitChat.wire_tag();
+        encoded[51] = 8;
+
+        encoded[50] = ForeignNetworkKind::Fips.wire_tag();
+        assert_eq!(
+            decode_bridge_message(&encoded[..len]),
+            Err(BridgeError::UnsupportedAuthorNetwork {
+                network: ForeignNetworkKind::Fips,
+            })
+        );
+        encoded[50] = ForeignNetworkKind::BitChat.wire_tag();
 
         let mut with_trailing = [0; 129];
         with_trailing[..len].copy_from_slice(&encoded[..len]);
@@ -435,6 +526,21 @@ mod tests {
             })
         );
         Ok(())
+    }
+
+    fn message_with_author<'a>(
+        author_kind: BridgeEndpointKind,
+        author_id: &'a [u8],
+        payload_kind: BridgePayloadKind,
+        payload: &'a [u8],
+    ) -> BridgeMessageRef<'a> {
+        BridgeMessageRef {
+            author: BridgeEndpointRef {
+                kind: author_kind,
+                id: author_id,
+            },
+            ..sample_message(payload_kind, payload)
+        }
     }
 
     fn sample_message<'a>(

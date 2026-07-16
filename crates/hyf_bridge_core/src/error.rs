@@ -1,6 +1,6 @@
 use core::fmt;
 
-use hyf_core::ForeignEndpointError;
+use hyf_core::{ForeignEndpointError, ForeignNetworkKind};
 use hyf_wire::{HyfWireError, PayloadKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -11,6 +11,7 @@ pub enum BridgeError {
     UnknownAuthorKind { tag: u8 },
     UnexpectedHyfAuthorNetworkTag { tag: u8 },
     InvalidForeignNetworkTag { tag: u8 },
+    UnsupportedAuthorNetwork { network: ForeignNetworkKind },
     InvalidAuthorIdLen { len: usize },
     UnknownPayloadKind { tag: u8 },
     InvalidTextUtf8,
@@ -44,6 +45,9 @@ impl fmt::Display for BridgeError {
             }
             Self::InvalidForeignNetworkTag { tag } => {
                 write!(formatter, "invalid bridge foreign network tag: {tag}")
+            }
+            Self::UnsupportedAuthorNetwork { network } => {
+                write!(formatter, "unsupported bridge author network: {network:?}")
             }
             Self::InvalidAuthorIdLen { len } => {
                 write!(formatter, "invalid bridge author id length: {len}")
@@ -146,6 +150,13 @@ mod tests {
             }
             .to_string(),
             "bridge payload too large: actual 1025, maximum 1024"
+        );
+        assert_eq!(
+            BridgeError::UnsupportedAuthorNetwork {
+                network: hyf_core::ForeignNetworkKind::Rns,
+            }
+            .to_string(),
+            "unsupported bridge author network: Rns"
         );
     }
 }

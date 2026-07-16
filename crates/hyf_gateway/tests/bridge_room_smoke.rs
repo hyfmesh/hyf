@@ -65,7 +65,7 @@ fn sample_bridge_message() -> BridgeMessageRef<'static> {
         message_id: message_id(),
         author: BridgeEndpointRef {
             kind: BridgeEndpointKind::Foreign(ForeignNetworkKind::BitChat),
-            id: b"bitchat-peer-1",
+            id: b"bchat001",
         },
         created_at_ms: TimestampMs(1000),
         payload_kind: BridgePayloadKind::TextUtf8,
