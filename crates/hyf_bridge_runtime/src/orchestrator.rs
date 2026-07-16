@@ -697,13 +697,7 @@ mod tests {
         )?;
         let mut scratch = NostrBridgeEventScratch::new();
 
-        Ok(bridge_message_to_nostr_event(
-            &raw[..raw_len],
-            &secret,
-            1_720_000_000,
-            &mut scratch,
-            f,
-        )??)
+        bridge_message_to_nostr_event(&raw[..raw_len], &secret, 1_720_000_000, &mut scratch, f)?
     }
 
     fn strict_bitchat_public_packet() -> &'static [u8] {
