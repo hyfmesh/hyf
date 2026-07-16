@@ -312,10 +312,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
         let selected_count = route_policy.selected_egress_count(origin);
         let required_commands = 1 + selected_count;
         ensure_command_capacity(commands, required_commands)?;
-        dedupe.insert(key)?;
-
-        commands[0] =
-            BridgeRuntimeCommand::EmitHyfEnvelope(wrap_bridge_message(raw_bridge, params.wrap)?);
+        let hyf_envelope = wrap_bridge_message(raw_bridge, params.wrap)?;
 
         let mut selected = [BridgeProtocol::Hyf; MAX_EGRESS];
         let selected_count = route_policy.select_egress(origin, &mut selected)?;
@@ -360,6 +357,9 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
                 BridgeProtocol::Hyf => EgressPlan::UnsupportedProfile,
             };
         }
+
+        dedupe.insert(key)?;
+        commands[0] = BridgeRuntimeCommand::EmitHyfEnvelope(hyf_envelope);
 
         let mut command_count = 1;
         for plan in &plans[..selected_count] {
@@ -849,6 +849,54 @@ mod tests {
                 &mut commands,
             )?,
             2
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn egress_conversion_error_does_not_insert_dedupe_key() -> Result<(), BridgeRuntimeError> {
+        let mut raw_storage = [0; 256];
+        let raw_len = write_lxmf_message(b"hello", 0.0, &mut raw_storage)?;
+        let raw = &raw_storage[..raw_len];
+        let mut runtime = BridgeOrchestrator::<8, 1>::new(BridgeRoutePolicy::no_echo([Some(
+            BridgeProtocol::BitChat,
+        )]));
+        let mut scratch = BridgeRuntimeScratch::new();
+        let mut failed = empty_commands::<2>();
+        let mut retry = empty_commands::<2>();
+
+        assert_eq!(
+            runtime.ingest_lxmf(
+                raw,
+                LxmfBridgeIngressParams::new(ROOM, MESSAGE),
+                dispatch_params(BridgeRuntimeEgressParams::with_bitchat(bitchat_egress())),
+                &mut scratch,
+                &mut failed,
+            ),
+            Err(BridgeRuntimeError::Bitchat(
+                BitchatBridgeError::TimestampZero
+            ))
+        );
+        assert_eq!(
+            runtime.ingest_lxmf(
+                raw,
+                LxmfBridgeIngressParams::new(ROOM, MESSAGE),
+                dispatch_params(BridgeRuntimeEgressParams::none()),
+                &mut scratch,
+                &mut retry,
+            )?,
+            2
+        );
+        assert_hyf_command(retry[0], ROOM, MESSAGE)?;
+        assert_eq!(
+            retry[1],
+            BridgeRuntimeCommand::Drop {
+                key: hyf_bridge_core::BridgeMessageKey {
+                    room_id: ROOM,
+                    message_id: MESSAGE,
+                },
+                reason: BridgeDropReason::UnsupportedProfile,
+            }
         );
         Ok(())
     }
