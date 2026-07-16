@@ -13,9 +13,11 @@ use hyf_bridge_lxmf::{
     LxmfBridgeEgressParams, LxmfBridgeIngressParams, bridge_message_to_lxmf_message_fixture,
     lxmf_message_to_bridge_message,
 };
-use hyf_bridge_nostr::nostr_event_to_bridge_message;
+use hyf_bridge_nostr::{
+    NostrBridgeEventScratch, bridge_message_to_nostr_event, nostr_event_to_bridge_message,
+};
 use hyf_core::ForeignNetworkKind;
-use hyf_link_nostr::NostrEvent;
+use hyf_link_nostr::{NostrEvent, NostrSecretKey};
 use hyf_lxmf_core::LXMF_MESSAGE_MAX_LEN;
 
 use crate::{
@@ -23,34 +25,48 @@ use crate::{
     BridgeRuntimeError,
 };
 
+const NOSTR_EVENT_JSON_MAX_LEN: usize = 6144;
+
 pub struct BridgeRuntimeScratch {
     bridge_message: [u8; HYF_BRIDGE_MESSAGE_MAX_LEN],
     bitchat_packet: [u8; BITCHAT_CORE_PACKET_MAX_LEN],
     lxmf_message: [u8; LXMF_MESSAGE_MAX_LEN],
+    nostr_event: NostrBridgeEventScratch,
+    nostr_event_json: [u8; NOSTR_EVENT_JSON_MAX_LEN],
 }
 
 struct EgressOutputs<'a> {
     bitchat_packet: &'a mut [u8],
     lxmf_message: &'a mut [u8],
+    nostr_event: &'a mut NostrBridgeEventScratch,
+    nostr_event_json: &'a mut [u8],
 }
 
 #[derive(Clone, Copy)]
 enum EgressPlan {
     BitChat { len: usize },
     Lxmf { len: usize },
+    Nostr { len: usize },
     UnsupportedProfile,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BridgeRuntimeEgressParams {
-    pub bitchat: Option<BitchatBridgeEgressParams>,
-    pub lxmf: Option<LxmfBridgeEgressParams>,
+#[derive(Clone, Copy, Debug)]
+pub struct BridgeRuntimeNostrEgressParams<'a> {
+    pub author_secret: &'a NostrSecretKey,
+    pub created_at: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BridgeRuntimeDispatchParams {
+#[derive(Clone, Copy, Debug)]
+pub struct BridgeRuntimeEgressParams<'a> {
+    pub bitchat: Option<BitchatBridgeEgressParams>,
+    pub lxmf: Option<LxmfBridgeEgressParams>,
+    pub nostr: Option<BridgeRuntimeNostrEgressParams<'a>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BridgeRuntimeDispatchParams<'a> {
     pub wrap: BridgeWrapParams,
-    pub egress: BridgeRuntimeEgressParams,
+    pub egress: BridgeRuntimeEgressParams<'a>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,6 +81,8 @@ impl BridgeRuntimeScratch {
             bridge_message: [0; HYF_BRIDGE_MESSAGE_MAX_LEN],
             bitchat_packet: [0; BITCHAT_CORE_PACKET_MAX_LEN],
             lxmf_message: [0; LXMF_MESSAGE_MAX_LEN],
+            nostr_event: NostrBridgeEventScratch::new(),
+            nostr_event_json: [0; NOSTR_EVENT_JSON_MAX_LEN],
         }
     }
 
@@ -78,6 +96,10 @@ impl BridgeRuntimeScratch {
 
     pub const fn lxmf_message_capacity(&self) -> usize {
         self.lxmf_message.len()
+    }
+
+    pub const fn nostr_event_json_capacity(&self) -> usize {
+        self.nostr_event_json.len()
     }
 }
 
@@ -94,22 +116,38 @@ impl fmt::Debug for BridgeRuntimeScratch {
             .field("bridge_message_capacity", &self.bridge_message.len())
             .field("bitchat_packet_capacity", &self.bitchat_packet.len())
             .field("lxmf_message_capacity", &self.lxmf_message.len())
+            .field("nostr_event_json_capacity", &self.nostr_event_json.len())
             .finish()
     }
 }
 
-impl BridgeRuntimeEgressParams {
+impl<'a> BridgeRuntimeNostrEgressParams<'a> {
+    pub const fn new(author_secret: &'a NostrSecretKey, created_at: u64) -> Self {
+        Self {
+            author_secret,
+            created_at,
+        }
+    }
+}
+
+impl<'a> BridgeRuntimeEgressParams<'a> {
     pub const fn new(
         bitchat: Option<BitchatBridgeEgressParams>,
         lxmf: Option<LxmfBridgeEgressParams>,
+        nostr: Option<BridgeRuntimeNostrEgressParams<'a>>,
     ) -> Self {
-        Self { bitchat, lxmf }
+        Self {
+            bitchat,
+            lxmf,
+            nostr,
+        }
     }
 
     pub const fn none() -> Self {
         Self {
             bitchat: None,
             lxmf: None,
+            nostr: None,
         }
     }
 
@@ -117,6 +155,7 @@ impl BridgeRuntimeEgressParams {
         Self {
             bitchat: Some(bitchat),
             lxmf: None,
+            nostr: None,
         }
     }
 
@@ -124,12 +163,21 @@ impl BridgeRuntimeEgressParams {
         Self {
             bitchat: None,
             lxmf: Some(lxmf),
+            nostr: None,
+        }
+    }
+
+    pub const fn with_nostr(nostr: BridgeRuntimeNostrEgressParams<'a>) -> Self {
+        Self {
+            bitchat: None,
+            lxmf: None,
+            nostr: Some(nostr),
         }
     }
 }
 
-impl BridgeRuntimeDispatchParams {
-    pub const fn new(wrap: BridgeWrapParams, egress: BridgeRuntimeEgressParams) -> Self {
+impl<'a> BridgeRuntimeDispatchParams<'a> {
+    pub const fn new(wrap: BridgeWrapParams, egress: BridgeRuntimeEgressParams<'a>) -> Self {
         Self { wrap, egress }
     }
 }
@@ -156,7 +204,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
         &mut self,
         raw: &[u8],
         ingress_params: BitchatBridgeIngressParams,
-        params: BridgeRuntimeDispatchParams,
+        params: BridgeRuntimeDispatchParams<'_>,
         scratch: &'a mut BridgeRuntimeScratch,
         commands: &mut [BridgeRuntimeCommand<'a>],
     ) -> Result<usize, BridgeRuntimeError> {
@@ -173,6 +221,8 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
             EgressOutputs {
                 bitchat_packet: &mut scratch.bitchat_packet,
                 lxmf_message: &mut scratch.lxmf_message,
+                nostr_event: &mut scratch.nostr_event,
+                nostr_event_json: &mut scratch.nostr_event_json,
             },
             commands,
         )
@@ -182,7 +232,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
         &mut self,
         raw: &[u8],
         ingress_params: LxmfBridgeIngressParams,
-        params: BridgeRuntimeDispatchParams,
+        params: BridgeRuntimeDispatchParams<'_>,
         scratch: &'a mut BridgeRuntimeScratch,
         commands: &mut [BridgeRuntimeCommand<'a>],
     ) -> Result<usize, BridgeRuntimeError> {
@@ -199,6 +249,8 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
             EgressOutputs {
                 bitchat_packet: &mut scratch.bitchat_packet,
                 lxmf_message: &mut scratch.lxmf_message,
+                nostr_event: &mut scratch.nostr_event,
+                nostr_event_json: &mut scratch.nostr_event_json,
             },
             commands,
         )
@@ -207,7 +259,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
     pub fn ingest_nostr<'a>(
         &mut self,
         event: &NostrEvent<'_>,
-        params: BridgeRuntimeDispatchParams,
+        params: BridgeRuntimeDispatchParams<'_>,
         scratch: &'a mut BridgeRuntimeScratch,
         commands: &mut [BridgeRuntimeCommand<'a>],
     ) -> Result<usize, BridgeRuntimeError> {
@@ -225,6 +277,8 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
             EgressOutputs {
                 bitchat_packet: &mut scratch.bitchat_packet,
                 lxmf_message: &mut scratch.lxmf_message,
+                nostr_event: &mut scratch.nostr_event,
+                nostr_event_json: &mut scratch.nostr_event_json,
             },
             commands,
         )
@@ -235,7 +289,7 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
         route_policy: BridgeRoutePolicy<MAX_EGRESS>,
         origin_protocol: BridgeProtocol,
         raw_bridge: &'a [u8],
-        params: BridgeRuntimeDispatchParams,
+        params: BridgeRuntimeDispatchParams<'_>,
         outputs: EgressOutputs<'a>,
         commands: &mut [BridgeRuntimeCommand<'a>],
     ) -> Result<usize, BridgeRuntimeError> {
@@ -290,7 +344,20 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
                     }
                     None => EgressPlan::UnsupportedProfile,
                 },
-                BridgeProtocol::Hyf | BridgeProtocol::Nostr => EgressPlan::UnsupportedProfile,
+                BridgeProtocol::Nostr => match params.egress.nostr {
+                    Some(egress) => {
+                        let len = bridge_message_to_nostr_event(
+                            raw_bridge,
+                            egress.author_secret,
+                            egress.created_at,
+                            outputs.nostr_event,
+                            |event| write_nostr_event_json(event, outputs.nostr_event_json),
+                        )??;
+                        EgressPlan::Nostr { len }
+                    }
+                    None => EgressPlan::UnsupportedProfile,
+                },
+                BridgeProtocol::Hyf => EgressPlan::UnsupportedProfile,
             };
         }
 
@@ -302,6 +369,9 @@ impl<const DEDUPE_CAPACITY: usize, const MAX_EGRESS: usize>
                 }
                 EgressPlan::Lxmf { len } => {
                     BridgeRuntimeCommand::EmitLxmfMessage(&outputs.lxmf_message[..len])
+                }
+                EgressPlan::Nostr { len } => {
+                    BridgeRuntimeCommand::EmitNostrEvent(&outputs.nostr_event_json[..len])
                 }
                 EgressPlan::UnsupportedProfile => unsupported_profile_drop(key),
             };
@@ -360,6 +430,164 @@ fn endpoint_hash(
     endpoint_hash
 }
 
+fn write_nostr_event_json(
+    event: NostrEvent<'_>,
+    output: &mut [u8],
+) -> Result<usize, BridgeRuntimeError> {
+    let mut writer = JsonWriter::new(output);
+    let mut id_hex = [0; 64];
+    let mut pubkey_hex = [0; 64];
+    let mut sig_hex = [0; 128];
+    let id_hex = event.id.write_hex(&mut id_hex).map_err(nostr_error)?;
+    let pubkey_hex = event
+        .pubkey
+        .write_hex(&mut pubkey_hex)
+        .map_err(nostr_error)?;
+    let sig_hex = event.sig.write_hex(&mut sig_hex).map_err(nostr_error)?;
+
+    writer.push_byte(b'{')?;
+    writer.write_json_string("id")?;
+    writer.push_byte(b':')?;
+    writer.write_json_string(id_hex)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("pubkey")?;
+    writer.push_byte(b':')?;
+    writer.write_json_string(pubkey_hex)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("created_at")?;
+    writer.push_byte(b':')?;
+    writer.write_u64(event.created_at)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("kind")?;
+    writer.push_byte(b':')?;
+    writer.write_u64(u64::from(event.kind))?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("tags")?;
+    writer.push_byte(b':')?;
+    writer.write_tags(event.tags)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("content")?;
+    writer.push_byte(b':')?;
+    writer.write_json_string(event.content)?;
+    writer.push_byte(b',')?;
+    writer.write_json_string("sig")?;
+    writer.push_byte(b':')?;
+    writer.write_json_string(sig_hex)?;
+    writer.push_byte(b'}')?;
+    Ok(writer.len())
+}
+
+fn nostr_error(error: hyf_link_nostr::NostrError) -> BridgeRuntimeError {
+    hyf_bridge_nostr::NostrBridgeError::from(error).into()
+}
+
+struct JsonWriter<'out> {
+    output: &'out mut [u8],
+    len: usize,
+}
+
+impl<'out> JsonWriter<'out> {
+    fn new(output: &'out mut [u8]) -> Self {
+        Self { output, len: 0 }
+    }
+
+    const fn len(&self) -> usize {
+        self.len
+    }
+
+    fn push_byte(&mut self, byte: u8) -> Result<(), BridgeRuntimeError> {
+        self.write(&[byte])
+    }
+
+    fn push_str(&mut self, value: &str) -> Result<(), BridgeRuntimeError> {
+        self.write(value.as_bytes())
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> Result<(), BridgeRuntimeError> {
+        let required =
+            self.len
+                .checked_add(bytes.len())
+                .ok_or(BridgeRuntimeError::OutputTooSmall {
+                    actual: self.output.len(),
+                    required: usize::MAX,
+                })?;
+        if required > self.output.len() {
+            return Err(BridgeRuntimeError::OutputTooSmall {
+                actual: self.output.len(),
+                required,
+            });
+        }
+        self.output[self.len..required].copy_from_slice(bytes);
+        self.len = required;
+        Ok(())
+    }
+
+    fn write_json_string(&mut self, value: &str) -> Result<(), BridgeRuntimeError> {
+        self.push_byte(b'"')?;
+        for character in value.chars() {
+            match character {
+                '"' => self.push_str(r#"\""#)?,
+                '\\' => self.push_str(r#"\\"#)?,
+                '\n' => self.push_str(r#"\n"#)?,
+                '\r' => self.push_str(r#"\r"#)?,
+                '\t' => self.push_str(r#"\t"#)?,
+                '\u{08}' => self.push_str(r#"\b"#)?,
+                '\u{0c}' => self.push_str(r#"\f"#)?,
+                '\u{00}'..='\u{1f}' => self.write_control_escape(character)?,
+                _ => {
+                    let mut scratch = [0; 4];
+                    self.push_str(character.encode_utf8(&mut scratch))?;
+                }
+            }
+        }
+        self.push_byte(b'"')
+    }
+
+    fn write_control_escape(&mut self, character: char) -> Result<(), BridgeRuntimeError> {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let value = character as u8;
+        self.write(b"\\u00")?;
+        self.push_byte(HEX[(value >> 4) as usize])?;
+        self.push_byte(HEX[(value & 0x0f) as usize])
+    }
+
+    fn write_u64(&mut self, value: u64) -> Result<(), BridgeRuntimeError> {
+        let mut digits = [0; 20];
+        let mut index = digits.len();
+        let mut remaining = value;
+        loop {
+            index -= 1;
+            digits[index] = b'0' + (remaining % 10) as u8;
+            remaining /= 10;
+            if remaining == 0 {
+                break;
+            }
+        }
+        self.write(&digits[index..])
+    }
+
+    fn write_tags(
+        &mut self,
+        tags: hyf_link_nostr::NostrTagsRef<'_>,
+    ) -> Result<(), BridgeRuntimeError> {
+        self.push_byte(b'[')?;
+        for (tag_index, tag) in tags.as_slice().iter().enumerate() {
+            if tag_index > 0 {
+                self.push_byte(b',')?;
+            }
+            self.push_byte(b'[')?;
+            for (value_index, value) in tag.values().iter().enumerate() {
+                if value_index > 0 {
+                    self.push_byte(b',')?;
+                }
+                self.write_json_string(value)?;
+            }
+            self.push_byte(b']')?;
+        }
+        self.push_byte(b']')
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use hyf_bitchat_core::{
@@ -386,7 +614,7 @@ mod tests {
 
     use super::{
         BridgeOrchestrator, BridgeRuntimeDispatchParams, BridgeRuntimeEgressParams,
-        BridgeRuntimeScratch,
+        BridgeRuntimeNostrEgressParams, BridgeRuntimeScratch,
     };
     use crate::{BridgeDropReason, BridgeRoutePolicy, BridgeRuntimeCommand, BridgeRuntimeError};
 
@@ -464,6 +692,33 @@ mod tests {
         let packet = decode_bitchat_packet(raw_bitchat).map_err(BitchatBridgeError::from)?;
         assert_eq!(packet.sender_id, BITCHAT_SENDER);
         assert_eq!(packet.payload, BitchatPayloadRef::Plain(b"hello"));
+        Ok(())
+    }
+
+    #[test]
+    fn bitchat_ingress_emits_hyf_and_nostr_event_without_echo() -> Result<(), BridgeRuntimeError> {
+        let secret = nostr_secret();
+        let mut raw_storage = [0; 128];
+        let raw_len = write_bitchat_packet(b"hello", 1000, &mut raw_storage)?;
+        let raw = &raw_storage[..raw_len];
+        let mut runtime = BridgeOrchestrator::<8, 2>::new(BridgeRoutePolicy::no_echo([
+            Some(BridgeProtocol::BitChat),
+            Some(BridgeProtocol::Nostr),
+        ]));
+        let mut scratch = BridgeRuntimeScratch::new();
+        let mut commands = empty_commands::<2>();
+
+        let count = runtime.ingest_bitchat(
+            raw,
+            BitchatBridgeIngressParams::new(ROOM, MESSAGE),
+            dispatch_params(BridgeRuntimeEgressParams::with_nostr(nostr_egress(&secret))),
+            &mut scratch,
+            &mut commands,
+        )?;
+
+        assert_eq!(count, 2);
+        assert_hyf_command(commands[0], ROOM, MESSAGE)?;
+        assert_nostr_event_command(commands[1])?;
         Ok(())
     }
 
@@ -656,7 +911,31 @@ mod tests {
         Ok(())
     }
 
-    fn dispatch_params(egress: BridgeRuntimeEgressParams) -> BridgeRuntimeDispatchParams {
+    fn assert_nostr_event_command(
+        command: BridgeRuntimeCommand<'_>,
+    ) -> Result<(), BridgeRuntimeError> {
+        let BridgeRuntimeCommand::EmitNostrEvent(event) = command else {
+            return Err(BridgeRuntimeError::OutputTooSmall {
+                actual: 0,
+                required: 1,
+            });
+        };
+        let event =
+            core::str::from_utf8(event).map_err(|_| BridgeRuntimeError::OutputTooSmall {
+                actual: 0,
+                required: 1,
+            })?;
+
+        assert!(event.contains(r#""kind":9109"#));
+        assert!(event.contains(r#"["hyf","bridge","v0"]"#));
+        assert!(event.contains(r#"["community","61616161616161616161616161616161"]"#));
+        assert!(event.contains(r#""sig":"#));
+        Ok(())
+    }
+
+    fn dispatch_params<'a>(
+        egress: BridgeRuntimeEgressParams<'a>,
+    ) -> BridgeRuntimeDispatchParams<'a> {
         BridgeRuntimeDispatchParams::new(
             BridgeWrapParams {
                 source_node: SOURCE_NODE,
@@ -736,6 +1015,10 @@ mod tests {
 
     fn lxmf_egress() -> LxmfBridgeEgressParams {
         LxmfBridgeEgressParams::new(LXMF_DESTINATION, LXMF_SOURCE, LXMF_SIGNATURE)
+    }
+
+    fn nostr_egress(secret: &NostrSecretKey) -> BridgeRuntimeNostrEgressParams<'_> {
+        BridgeRuntimeNostrEgressParams::new(secret, 1_720_000_000)
     }
 
     fn nostr_secret() -> NostrSecretKey {

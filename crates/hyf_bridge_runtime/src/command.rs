@@ -1,7 +1,6 @@
 use core::fmt;
 
 use hyf_bridge_core::BridgeMessageKey;
-use hyf_link_nostr::NostrEvent;
 use hyf_wire::HyfEnvelopeRef;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -18,7 +17,7 @@ pub enum BridgeRuntimeCommand<'a> {
     EmitHyfEnvelope(HyfEnvelopeRef<'a>),
     EmitBitChatPacket(&'a [u8]),
     EmitLxmfMessage(&'a [u8]),
-    EmitNostrEvent(&'a NostrEvent<'a>),
+    EmitNostrEvent(&'a [u8]),
     Drop {
         key: BridgeMessageKey,
         reason: BridgeDropReason,
@@ -43,8 +42,9 @@ impl fmt::Debug for BridgeRuntimeCommand<'_> {
                 .field("message_len", &message.len())
                 .finish(),
             Self::EmitNostrEvent(event) => formatter
-                .debug_tuple("EmitNostrEvent")
-                .field(event)
+                .debug_struct("EmitNostrEvent")
+                .field("event", &"<redacted>")
+                .field("event_len", &event.len())
                 .finish(),
             Self::Drop { key, reason } => formatter
                 .debug_struct("Drop")
@@ -70,6 +70,14 @@ mod tests {
         assert!(debug.contains("EmitBitChatPacket"));
         assert!(debug.contains("<redacted>"));
         assert!(debug.contains("packet_len"));
+        assert!(!debug.contains("secret-payload"));
+
+        let command = BridgeRuntimeCommand::EmitNostrEvent(br#"{"content":"secret-payload"}"#);
+        let debug = format!("{command:?}");
+
+        assert!(debug.contains("EmitNostrEvent"));
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("event_len"));
         assert!(!debug.contains("secret-payload"));
     }
 

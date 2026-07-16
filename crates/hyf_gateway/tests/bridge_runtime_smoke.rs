@@ -12,7 +12,7 @@ use hyf_bridge_lxmf::{LxmfBridgeEgressParams, LxmfBridgeIngressParams};
 use hyf_bridge_nostr::{NostrBridgeEventScratch, bridge_message_to_nostr_event};
 use hyf_bridge_runtime::{
     BridgeOrchestrator, BridgeRoutePolicy, BridgeRuntimeCommand, BridgeRuntimeDispatchParams,
-    BridgeRuntimeEgressParams, BridgeRuntimeScratch,
+    BridgeRuntimeEgressParams, BridgeRuntimeNostrEgressParams, BridgeRuntimeScratch,
 };
 use hyf_core::{CommunityId, ForeignNetworkKind, MessageId, NodeId, TimestampMs};
 use hyf_link_nostr::{NostrSecretKey, derive_nostr_public_key};
@@ -91,6 +91,38 @@ fn bridge_runtime_moves_lxmf_ingress_to_bitchat_fixture() -> TestResult {
 }
 
 #[test]
+fn bridge_runtime_moves_bitchat_ingress_to_nostr_event() -> TestResult {
+    let secret = nostr_secret();
+    let mut raw = [0; 128];
+    let raw_len = write_bitchat_packet(b"hello", 1000, &mut raw)?;
+    let mut runtime = BridgeOrchestrator::<8, 2>::new(BridgeRoutePolicy::no_echo([
+        Some(BridgeProtocol::BitChat),
+        Some(BridgeProtocol::Nostr),
+    ]));
+    let mut scratch = BridgeRuntimeScratch::new();
+    let mut commands = empty_commands::<2>();
+
+    let count = runtime.ingest_bitchat(
+        &raw[..raw_len],
+        BitchatBridgeIngressParams::new(ROOM, MESSAGE),
+        dispatch_params(BridgeRuntimeEgressParams::with_nostr(nostr_egress(&secret))),
+        &mut scratch,
+        &mut commands,
+    )?;
+
+    assert_eq!(count, 2);
+    assert_bridge_envelope(commands[0])?;
+    let BridgeRuntimeCommand::EmitNostrEvent(event_json) = commands[1] else {
+        return Err(std::io::Error::other("expected Nostr egress").into());
+    };
+    let event_json = std::str::from_utf8(event_json)?;
+    assert!(event_json.contains(r#""kind":9109"#));
+    assert!(event_json.contains(r#"["hyf","bridge","v0"]"#));
+    assert!(event_json.contains(r#"["community","71717171717171717171717171717171"]"#));
+    Ok(())
+}
+
+#[test]
 fn bridge_runtime_moves_nostr_ingress_to_bitchat_fixture() -> TestResult {
     let secret = nostr_secret();
     let pubkey = derive_nostr_public_key(&secret)?;
@@ -148,7 +180,7 @@ fn assert_bridge_envelope(command: BridgeRuntimeCommand<'_>) -> TestResult {
     Ok(())
 }
 
-fn dispatch_params(egress: BridgeRuntimeEgressParams) -> BridgeRuntimeDispatchParams {
+fn dispatch_params<'a>(egress: BridgeRuntimeEgressParams<'a>) -> BridgeRuntimeDispatchParams<'a> {
     BridgeRuntimeDispatchParams::new(
         BridgeWrapParams {
             source_node: SOURCE_NODE,
@@ -217,6 +249,10 @@ fn bitchat_egress() -> BitchatBridgeEgressParams {
 
 fn lxmf_egress() -> LxmfBridgeEgressParams {
     LxmfBridgeEgressParams::new(LXMF_DESTINATION, LXMF_SOURCE, LXMF_SIGNATURE)
+}
+
+fn nostr_egress(secret: &NostrSecretKey) -> BridgeRuntimeNostrEgressParams<'_> {
+    BridgeRuntimeNostrEgressParams::new(secret, 1_720_000_000)
 }
 
 fn nostr_secret() -> NostrSecretKey {

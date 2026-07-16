@@ -19,7 +19,7 @@ pub use error::BridgeRuntimeError;
 pub use hyf_bridge_core::{BridgeMessageKey, BridgeProtocol};
 pub use orchestrator::{
     BridgeOrchestrator, BridgeRuntimeDispatchParams, BridgeRuntimeEgressParams,
-    BridgeRuntimeScratch,
+    BridgeRuntimeNostrEgressParams, BridgeRuntimeScratch,
 };
 pub use policy::BridgeRoutePolicy;
 pub use types::BridgeOrigin;
